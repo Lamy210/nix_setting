@@ -83,7 +83,7 @@
           docker docker-compose kubectl helm
           pgcli usql redis sqlite
           terraform
-          just watchexec hyperfine
+          just hyperfine
         ];
         shellHook = ''
           echo "dev shell ready"

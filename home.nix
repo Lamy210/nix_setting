@@ -162,7 +162,6 @@ in
     tealdeer
     sd
     broot
-    watchexec
     xh
     procs
     tokei
