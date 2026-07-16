@@ -45,7 +45,7 @@ config.inactive_pane_hsb = {
 }
 
 config.font = wezterm.font_with_fallback({
-  'PlemolJP Console NF',
+  'PlemolJP Console',
   'JetBrainsMono Nerd Font',
   'Apple Color Emoji',
 })
