@@ -207,7 +207,7 @@ in
     enable = true;
     autosuggestion.enable = true;
     syntaxHighlighting.enable = true;
-    shellOptions = [
+    setOptions = [
       "AUTO_CD"
       "CORRECT"
       "HIST_IGNORE_DUPS"
