@@ -242,18 +242,6 @@ in
 
   programs.atuin = {
     enable = true;
-    settings = {
-      enter_accept = true;
-      search_mode = "fuzzy";
-      filter_mode = "global";
-      workspaces = true;
-      show_preview = true;
-      style = "compact";
-      inline_height = 40;
-      sync.records = true;
-      keys = { scroll_exits = false; };
-      search = { filters = ["global", "host", "workspace", "directory"]; };
-    };
   };
 
   programs.bat = {
@@ -272,6 +260,8 @@ in
   home.file.".gitconfig".source = ./config/git/gitconfig;
 
   xdg.configFile."wezterm/wezterm.lua".source = ./config/wezterm/wezterm.lua;
+
+  xdg.configFile."atuin/config.toml".source = ./config/atuin/config.toml;
 
   xdg.configFile."mise/config.toml".source = ./config/mise/config.toml;
 

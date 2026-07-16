@@ -1,0 +1,16 @@
+enter_accept = true
+search_mode = "fuzzy"
+filter_mode = "global"
+workspaces = true
+show_preview = true
+style = "compact"
+inline_height = 40
+
+[sync]
+records = true
+
+[keys]
+scroll_exits = false
+
+[search]
+filters = ["global", "host", "workspace", "directory"]
