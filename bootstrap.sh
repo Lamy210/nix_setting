@@ -24,8 +24,8 @@ echo "Building home-manager generation..."
 nix build .#homeConfigurations.default.activationPackage --out-link ./result
 
 echo
-echo "Activating..."
-./result/activate
+echo "Activating (backup: hm-bak)..."
+./result/activate -b hm-bak
 
 echo
 echo "Done. Reload WezTerm with Ctrl+Shift+R"

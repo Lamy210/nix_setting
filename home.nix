@@ -121,6 +121,8 @@ in
 {
   home.stateVersion = "24.11";
 
+  home-manager.backupFileExtension = "hm-bak";
+
   programs.home-manager.enable = true;
 
   home.packages = with pkgs; [
