@@ -225,8 +225,8 @@ in
 
   programs.fzf = {
     enable = true;
-    changeDirWidgetCommand = "";
-    historyWidgetCommand = "";
+    changeDirWidget.command = "";
+    historyWidget.command = "";
   };
 
   programs.direnv = {

@@ -36,5 +36,9 @@ echo "Generated user-options.nix:"
 cat user-options.nix
 
 echo
-echo "Running home-manager switch..."
-nix run nixpkgs#home-manager -- switch -b hm-bak --flake .#default
+echo "Building home-manager generation..."
+nix build .#homeConfigurations.default.activationPackage --out-link ./result
+
+echo
+echo "Activating..."
+./result/activate
