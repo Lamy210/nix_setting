@@ -192,7 +192,6 @@ in
     pandoc
     ouch
     bandwhich
-    termscp
     zsh-abbr
     vim
     terraform
