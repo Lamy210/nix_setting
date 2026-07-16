@@ -25,3 +25,4 @@ config/wezterm/backgrounds/
 .DS_Store
 .idea/
 .vscode/
+user-options.nix
