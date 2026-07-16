@@ -251,8 +251,8 @@ in
       style = "compact";
       inline_height = 40;
       sync.records = true;
-      keys.scroll_exits = false;
-      search.filters = ["global", "host", "workspace", "directory"];
+      keys = { scroll_exits = false; };
+      search = { filters = ["global", "host", "workspace", "directory"]; };
     };
   };
 
