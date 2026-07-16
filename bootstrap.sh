@@ -20,25 +20,12 @@ experimental-features = nix-command flakes
 NIXCONF
 fi
 
-SYSTEM="$(nix eval --impure --raw --expr 'builtins.currentSystem')"
-USERNAME="$(whoami)"
-HOME_DIR="$HOME"
-
-cat > user-options.nix <<OPTIONS
-{
-  username = "${USERNAME}";
-  homeDirectory = "${HOME_DIR}";
-  system = "${SYSTEM}";
-}
-OPTIONS
-
-echo "Generated user-options.nix:"
-cat user-options.nix
-
-echo
 echo "Building home-manager generation..."
 nix build .#homeConfigurations.default.activationPackage --out-link ./result
 
 echo
 echo "Activating..."
 ./result/activate
+
+echo
+echo "Done. Reload WezTerm with Ctrl+Shift+R"

@@ -17,17 +17,10 @@
 
   outputs = { self, nixpkgs, home-manager, nix-darwin, ... }:
   let
-    userOptions =
-      let f = ./user-options.nix;
-      in if builtins.pathExists f then import f
-      else {
-        username = "runner";
-        homeDirectory = "/home/runner";
-        system = "x86_64-linux";
-      };
+    system = "aarch64-darwin";
 
     pkgs = import nixpkgs {
-      system = userOptions.system;
+      inherit system;
       config.allowUnfree = true;
     };
 
@@ -64,21 +57,20 @@
       ];
     };
   in {
-    formatter.${userOptions.system} = pkgs.nixfmt-rfc-style;
+    formatter.${system} = pkgs.nixfmt-rfc-style;
 
     homeConfigurations.default = home-manager.lib.homeManagerConfiguration {
       inherit pkgs;
-
       modules = [
         ./home.nix
         {
-          home.username = userOptions.username;
-          home.homeDirectory = userOptions.homeDirectory;
+          home.username = "lamy210";
+          home.homeDirectory = "/Users/lamy210";
         }
       ];
     };
 
-    devShells.${userOptions.system} = {
+    devShells.${system} = {
       default = pkgs.mkShell {
         packages = with pkgs; [
           go gotools golangci-lint gopls delve
