@@ -1,0 +1,27 @@
+# Local machine options
+user-options.nix
+machine-local.nix
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.mobileprovision
+id_rsa
+id_ed25519
+*.kubeconfig
+
+# Local backgrounds / copyrighted images
+config/wezterm/backgrounds/
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.gif
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,35 @@
+[include]
+	path = ~/.gitconfig.local
+
+[init]
+	defaultBranch = main
+
+[alias]
+	unstage = reset HEAD --
+	undo = reset --soft HEAD~1
+	amend = commit --amend --no-edit
+	fixup = commit --fixup
+	clean = clean -fd
+	br = branch
+	co = checkout
+	lg = log --graph --pretty=format:'%C(yellow)%h%Creset %C(cyan)%ar%Creset %s %C(blue)<%an>%Creset' --all
+	st = status -sb
+	ds = diff --staged
+	who = shortlog -sn --no-merges
+
+[pull]
+	rebase = false
+
+[core]
+	editor = code --wait
+	pager = delta
+
+[interactive]
+	diffFilter = delta --color-only
+
+[delta]
+	navigate = true
+	side-by-side = true
+
+[merge]
+	conflictstyle = zdiff3

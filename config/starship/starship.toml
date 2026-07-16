@@ -1,0 +1,75 @@
+add_newline = true
+command_timeout = 1000
+
+format = """
+$username$hostname$directory$git_branch$git_status$nodejs$golang$rust$python$bun$docker_context$kubernetes$terraform$cmd_duration
+$character
+"""
+
+[character]
+success_symbol = "[❯](bold #8CC4F5)"
+error_symbol = "[❯](bold #D97888)"
+vimcmd_symbol = "[❮](bold #A995B5)"
+
+[hostname]
+ssh_only = true
+style = "bold #BCAFBE"
+
+[directory]
+truncation_length = 3
+truncate_to_repo = true
+style = "bold #A8D6F5"
+
+[git_branch]
+symbol = " "
+style = "bold #75AEE5"
+
+[git_status]
+style = "bold #C58B44"
+conflicted = "=${count} "
+ahead = "⇡${count} "
+behind = "⇣${count} "
+diverged = "⇕⇡${ahead_count}⇣${behind_count} "
+untracked = "?${count} "
+stashed = "≡${count} "
+modified = "!${count} "
+staged = "+${count} "
+renamed = "»${count} "
+deleted = "✘${count} "
+
+[nodejs]
+symbol = " "
+format = "[$symbol($version)](bold #A8D6F5) "
+
+[golang]
+symbol = " "
+format = "[$symbol($version)](bold #75AEE5) "
+
+[rust]
+symbol = " "
+format = "[$symbol($version)](bold #D97888) "
+
+[python]
+symbol = " "
+format = "[$symbol($version)](bold #69BFAF) "
+
+[bun]
+symbol = " "
+format = "[$symbol($version)](bold #CBEAF7) "
+
+[docker_context]
+symbol = " "
+format = "[$symbol$context](bold #5C8EDB) "
+
+[kubernetes]
+symbol = "☸ "
+format = "[$symbol$context](bold #5C8EDB) "
+disabled = false
+
+[terraform]
+symbol = " "
+format = "[$symbol$workspace](bold #A995B5) "
+
+[cmd_duration]
+min_time = 1000
+format = "took [$duration](bold #91A4BD) "

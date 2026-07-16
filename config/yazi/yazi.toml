@@ -1,0 +1,24 @@
+[manager]
+ratio = [1, 3, 4]
+sort_by = "alphabetical"
+sort_dir_first = true
+show_hidden = true
+
+[preview]
+max_width = 1000
+max_height = 1000
+tab_size = 2
+
+[opener]
+edit = [
+  { run = '${EDITOR:-vim} "$@"', block = true, for = "unix" },
+]
+play = [
+  { run = 'open "$@"', orphan = true, for = "macos" },
+]
+
+[open]
+rules = [
+  { mime = "text/*", use = "edit" },
+  { mime = "image/*", use = "play" },
+]

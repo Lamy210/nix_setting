@@ -1,0 +1,56 @@
+gui:
+  scrollHeight: 2
+  expandFocusedSidePanel: true
+  showFileTree: true
+  showCommandLog: false
+  theme:
+    activeBorderColor:
+      - "#8CC4F5"
+      - bold
+    inactiveBorderColor:
+      - "#2F3E63"
+    selectedLineBgColor:
+      - "#263B5B"
+    optionsTextColor:
+      - "#EAF6FF"
+    selectedRangeBgColor:
+      - "#315078"
+    cherryPickedCommitBgColor:
+      - "#4367AA"
+    cherryPickedCommitFgColor:
+      - "#A8D6F5"
+    unstagedChangesColor:
+      - "#D97888"
+
+git:
+  paging:
+    colorArg: always
+    pager: delta --dark --paging=never
+  merging:
+    manualCommit: false
+  branchLogCmd: "git log --graph --pretty=format:'%C(yellow)%h%Creset %C(cyan)%ar%Creset %s %C(blue)<%an>%Creset' {{branchName}} --"
+
+os:
+  editPreset: "vscode"
+
+confirmOnQuit: false
+quitOnTopLevelReturn: true
+disableStartupPopups: true
+notARepository: "quit"
+
+keybinding:
+  universal:
+    prevBlock: "<up>"
+    nextBlock: "<down>"
+    prevItem: "<c-k>"
+    nextItem: "<c-j>"
+    quit: "q"
+    quit-alt1: "<c-c>"
+    return: "<esc>"
+    confirm: "<enter>"
+    confirmInEditor: "<enter>"
+    selectRange: "<c-Space>"
+
+refresher:
+  refreshInterval: 10
+  fetchInterval: 60

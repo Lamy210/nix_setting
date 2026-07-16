@@ -1,0 +1,55 @@
+# Example justfile — copy to your project root as `justfile`
+# Run with: just <recipe>
+
+default:
+    @just --list
+
+# lint / test
+lint:
+    @echo "linting..."
+    # golangci-lint run ./...  # Go
+    # ruff check .            # Python
+    # cargo clippy            # Rust
+
+test:
+    @echo "testing..."
+    # go test ./...           # Go
+    # pytest                  # Python
+    # cargo test              # Rust
+
+fmt:
+    @echo "formatting..."
+    # gofmt -w .              # Go
+    # ruff format .           # Python
+    # cargo fmt               # Rust
+
+# docker
+docker-up:
+    docker compose up -d
+
+docker-down:
+    docker compose down
+
+docker-logs:
+    docker compose logs -f
+
+# k8s
+k8s-apply:
+    kubectl apply -f .
+
+k8s-logs:
+    kubectl logs -f deployment/app
+
+# db
+db-cli pg:
+    pgcli postgres://localhost:5432/db
+
+db-cli mysql:
+    mycli -h localhost -u root
+
+# clean
+clean:
+    @echo "cleaning..."
+    # go clean -cache        # Go
+    # cargo clean            # Rust
+    find . -type d -name node_modules -prune -exec echo "rm -rf {}" \;
