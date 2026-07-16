@@ -176,7 +176,6 @@ in
     watchman
     ruby
     python3
-    cocoapods
 
     colima
     docker
@@ -224,7 +223,11 @@ in
     settings = builtins.fromTOML (builtins.readFile ./config/starship/starship.toml);
   };
 
-  programs.fzf.enable = true;
+  programs.fzf = {
+    enable = true;
+    changeDirWidgetCommand = "";
+    historyWidgetCommand = "";
+  };
 
   programs.direnv = {
     enable = true;
