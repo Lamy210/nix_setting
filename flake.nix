@@ -23,7 +23,7 @@
       else {
         username = builtins.getEnv "USER";
         homeDirectory = builtins.getEnv "HOME";
-        system = builtins.currentSystem;
+        system = if builtins ? currentSystem then builtins.currentSystem else "x86_64-linux";
       };
 
     pkgs = import nixpkgs {
