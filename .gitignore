@@ -26,3 +26,4 @@ config/wezterm/backgrounds/
 .idea/
 .vscode/
 user-options.nix
+result
