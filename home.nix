@@ -41,7 +41,6 @@ let
     command -v gdu >/dev/null 2>&1 && alias duu='gdu'
     command -v csvlens >/dev/null 2>&1 && alias csv='csvlens'
     command -v broot >/dev/null 2>&1 && alias br='broot'
-    command -v trashy >/dev/null 2>&1 && alias trash='trashy put'
 
     if command -v abbr >/dev/null 2>&1; then
       abbr k="kubectl"
@@ -168,7 +167,6 @@ in
     procs
     tokei
     glow
-    trashy
     lazydocker
     navi
     rustup
