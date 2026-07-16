@@ -179,7 +179,7 @@ in
     docker
     docker-compose
     kubectl
-    helm
+    kubernetes-helm
     kind
     pgcli
     mycli
