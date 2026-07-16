@@ -25,7 +25,7 @@ nix build .#homeConfigurations.default.activationPackage --out-link ./result
 
 echo
 echo "Backing up existing dotfiles..."
-BACKUP_DIR="$REPO_DIR/hm-bak-$(date +%Y%m%d-%H%M%S)"
+BACKUP_DIR="$HOME/hm-bak-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 for f in .zshrc .zprofile .gitconfig .config/starship.toml .config/wezterm/wezterm.lua .config/atuin/config.toml .config/openspec/config.json .config/mise/config.toml; do
   [ -f "$HOME/$f" ] && cp "$HOME/$f" "$BACKUP_DIR/$(echo $f | tr '/' '_')"
