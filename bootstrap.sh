@@ -37,4 +37,4 @@ cat user-options.nix
 
 echo
 echo "Running home-manager switch..."
-nix run github:nix-community/home-manager -- switch -b hm-bak --flake .#default
+nix run nixpkgs#home-manager -- switch -b hm-bak --flake .#default
