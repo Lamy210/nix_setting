@@ -21,9 +21,9 @@
       let f = ./user-options.nix;
       in if builtins.pathExists f then import f
       else {
-        username = builtins.getEnv "USER";
-        homeDirectory = builtins.getEnv "HOME";
-        system = if builtins ? currentSystem then builtins.currentSystem else "x86_64-linux";
+        username = "runner";
+        homeDirectory = "/home/runner";
+        system = "x86_64-linux";
       };
 
     pkgs = import nixpkgs {
