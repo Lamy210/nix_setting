@@ -16,11 +16,15 @@ nix_setting は Nix + Home Manager + nix-darwin によるクロスプラット�
 ```
 nix_setting/
 ├── flake.nix                  # flake-parts エントリ + treefmt-nix
+├── config.toml                # manifest (schema 1, user.username)
+├── config.schema.json         # manifest の JSON Schema
+├── profiles/                  # 用途別プロファイル (パッケージ群)
+│   └── developer.nix          # cli/git/dev/containers/db を集約
 ├── hosts/                     # ホスト固有設定
-│   ├── macbook-air/           # macOS (homeDirectory=/Users/lamy210)
-│   └── linux-generic/         # Linux (homeDirectory=/home/lamy210)
+│   ├── macbook-air/           # macOS (homeDirectory は username から派生)
+│   └── linux-generic/         # Linux (同上)
 ├── modules/
-│   ├── flake-parts/           # devShells / homeConfigurations / darwinConfigurations
+│   ├── flake-parts/           # devShells / homeConfigurations / darwinConfigurations / apps / templates
 │   ├── packages/              # 用途別パッケージ (cli/git/dev/containers/db)
 │   ├── experimental/          # opt-in モジュール (ai)
 │   ├── shell.nix              # zsh + aliases + completions
@@ -30,9 +34,20 @@ nix_setting/
 │   ├── config/homebrew/       # Homebrew cask (Brewfile 代替)
 │   ├── config/system.nix      # macOS defaults
 │   └── config/nix-config.nix  # Nix GC + optimise
-├── templates/                 # プロジェクトテンプレート (devenv/rust/node/python)
-├── tests/                     # bats 統合テスト
-└── .github/workflows/         # check / update / weekly
+├── templates/                 # プロジェクトテンプレート (devenv/rust/node/python/flutter)
+├── tests/                     # bats + nix-unit テスト
+└── .github/workflows/         # check / update / weekly / release
+```
+
+## Host / Profile 分離
+
+```
+config.toml (manifest)
+  └── user.username         # 唯一のユーザー情報源
+
+profiles/developer.nix       # 何を入れるか (パッケージ群)
+hosts/macbook-air/           # どこに入れるか (homeDirectory を username から派生)
+modules/                     # どう設定するか (shell/programs/dotfiles)
 ```
 
 ## Runtime 責務
