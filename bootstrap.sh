@@ -21,7 +21,7 @@ NIXCONF
 fi
 
 echo "Building home-manager generation..."
-nix build .#homeConfigurations.default.activationPackage --out-link ./result
+nix build .#homeConfigurations.macbook-air.activationPackage --out-link ./result
 
 echo
 echo "Backing up existing dotfiles..."

@@ -21,6 +21,22 @@ jobs:
       - name: nix flake check
         run: nix flake check --allow-import-from-derivation
 
+      - name: build linux home-manager
+        run: nix build .#homeConfigurations.linux.activationPackage
+
+  macos-check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v30
+
+      - name: nix flake check
+        run: nix flake check --allow-import-from-derivation
+
+      - name: build macos home-manager
+        run: nix build .#homeConfigurations.macbook-air.activationPackage
+
   docker-check:
     runs-on: ubuntu-latest
     steps:
