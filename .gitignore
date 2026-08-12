@@ -20,6 +20,10 @@ config/wezterm/backgrounds/
 *.webp
 *.gif
 
+# App icons (Tauri requires committed icons)
+!apps/desktop/src-tauri/icons/
+!apps/desktop/src-tauri/icons/**
+
 # OS/editor
 .DS_Store
 .idea/
