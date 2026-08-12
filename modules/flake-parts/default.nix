@@ -5,6 +5,8 @@
     ./devshells.nix
     ./home.nix
     ./darwin.nix
+    ./templates.nix
+    ./apps.nix
   ];
 
   perSystem = _: {
