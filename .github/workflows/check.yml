@@ -70,16 +70,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: scan for secrets
-        run: |
-          echo "=== scanning for secrets ==="
-          ! grep -RInE "token|password|apikey|api_key|BEGIN.*(OPENSSH|RSA|DSA|EC)|github_pat|ghp_" . \
-            --exclude-dir=.git --exclude-dir=.github \
-            --exclude=docs/*.md --exclude=lefthook.yml
+      - uses: cachix/install-nix-action@v30
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: trufflehog scan
+        run: nix run nixpkgs#trufflehog -- filesystem . --no-update
 
       - name: scan for image files
         run: |
           echo "=== scanning for image files ==="
           ! find . -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' -o -iname '*.gif' \) \
             -not -path './.git/*' | grep .
+
+  devshell-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+
+      - name: default devShell
+        run: nix develop --command echo "dev shell ready"

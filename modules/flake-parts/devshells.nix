@@ -88,6 +88,7 @@
             nix-output-monitor
             actionlint
             shellcheck
+            trufflehog
           ];
           shellHook = ''
             echo "dev shell ready"
