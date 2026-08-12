@@ -75,7 +75,7 @@ jobs:
         run: nix run nixpkgs#actionlint
 
       - name: shellcheck
-        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh
+        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh
 
       - name: statix check
         run: nix run nixpkgs#statix -- check .

@@ -22,6 +22,14 @@ nix_setting/
 
 ## 導入手順
 
+### ワンライナー (推奨)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/main/install.sh | bash
+```
+
+### 手動
+
 ```bash
 # 1. Nix インストール
 curl -L https://nixos.org/nix/install | sh
@@ -30,6 +38,22 @@ curl -L https://nixos.org/nix/install | sh
 git clone https://github.com/Lamy210/nix_setting.git "$HOME/nix_setting"
 cd "$HOME/nix_setting"
 ./bootstrap.sh
+```
+
+### 診断のみ
+
+```bash
+nix run github:Lamy210/nix_setting#doctor
+```
+
+## プロジェクトテンプレート
+
+```bash
+nix flake init -t github:Lamy210/nix_setting#rust
+nix flake init -t github:Lamy210/nix_setting#node
+nix flake init -t github:Lamy210/nix_setting#python
+nix flake init -t github:Lamy210/nix_setting#flutter
+nix flake init -t github:Lamy210/nix_setting#devenv
 ```
 
 ## 日常利用

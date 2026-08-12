@@ -1,0 +1,48 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - uses: cachix/install-nix-action@08dcb3a5e62fa31e2da3d490afc4176ef55ecd72
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: generate SBOM
+        run: |
+          nix build .#homeConfigurations.linux.activationPackage --no-link
+          target="$(nix path-info .#homeConfigurations.linux.activationPackage)"
+          nix run nixpkgs#sbomnix -- "$target" --output sbom.cdx.json
+
+      - name: generate checksums
+        run: |
+          {
+            echo "# nix_setting ${{ github.ref_name }}"
+            echo
+            echo "## SBOM"
+            sha256sum sbom.cdx.json
+            echo
+            echo "## flake.lock"
+            sha256sum flake.lock
+            echo
+            echo "## Source"
+            echo "revision: ${{ github.sha }}"
+          } > CHECKSUMS.txt
+
+      - name: create release
+        uses: softprops/action-gh-release@c06208fe532ec664ddc8468410a8f4baa4c04388
+        with:
+          files: |
+            sbom.cdx.json
+            CHECKSUMS.txt
+          generate_release_notes: true
