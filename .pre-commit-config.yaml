@@ -1,0 +1,25 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+
+  - repo: local
+    hooks:
+      - id: nixfmt
+        name: nixfmt
+        entry: nix fmt
+        language: system
+        types: [nix]
+        pass_filenames: false
+
+      - id: secret-scan
+        name: secret-scan
+        entry: bash -c '! grep -RInE "token|password|apikey|api_key|BEGIN.*(OPENSSH|RSA|DSA|EC)|github_pat|ghp_" . --exclude-dir=.git --exclude-dir=.github --exclude=docs/*.md --exclude=.pre-commit-config.yaml'
+        language: system
+        pass_filenames: false
+        always_run: true

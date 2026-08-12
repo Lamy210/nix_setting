@@ -1,0 +1,77 @@
+{ pkgs, ... }:
+{
+  home.packages = with pkgs; [
+    zsh
+    git
+    curl
+    wget
+    unzip
+
+    starship
+    fzf
+    eza
+    bat
+    fd
+    ripgrep
+    zoxide
+    atuin
+
+    gh
+    ghq
+    lazygit
+    delta
+    difftastic
+
+    yazi
+    btop
+    dust
+    duf
+    gdu
+    jq
+    yq
+    fx
+    csvlens
+    just
+    direnv
+    mise
+    tmux
+    hyperfine
+    tealdeer
+    sd
+    broot
+    xh
+    procs
+    tokei
+    glow
+    lazydocker
+    navi
+    rustup
+    htop
+    watchman
+    ruby
+    python3
+
+    colima
+    docker
+    docker-compose
+    kubectl
+    kubernetes-helm-wrapped
+    kind
+    pgcli
+    mycli
+    usql
+    redis
+    sqlite
+    protobuf
+    grpcurl
+    websocat
+    bruno
+    pandoc
+    ouch
+    bandwhich
+    zsh-abbr
+    vim
+    terraform
+    zsh-completions
+  ];
+}

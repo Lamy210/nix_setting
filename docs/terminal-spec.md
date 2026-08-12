@@ -18,8 +18,12 @@
 | Git UX | lazygit, delta, gh, ghq |
 | Dev | yazi, btop, dust, duf, direnv, mise, just, tmux |
 
+## サブ仕様
+
+- [Docker 開発サンドボックス](./docker-sandbox-spec.md)
+- [モジュール分割リファクタリング](./refactor-modules-spec.md)
+- [nix-darwin + Homebrew 統合](./nix-darwin-homebrew-spec.md)
+
 ## 将来拡張
 
-- nix-darwin 統合 (Homebrew cask / macOS defaults)
-- fish / nixvim / devShells
-- CI (GitHub Actions で secret scan / flake check)
+- fish / nixvim
