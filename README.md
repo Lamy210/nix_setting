@@ -126,7 +126,23 @@ nh darwin switch .#darwinConfigurations.macbook-air   # Homebrew cask も自動�
 
 ## カスタマイズ
 
-パッケージ追加は `modules/packages/*.nix` の `home.packages` に追記。設定ファイルは `config/` 以下を編集。
+### ユーザー名 (manifest)
+
+`config.toml` が唯一のユーザー情報源。homeDirectory は username から自動派生。
+
+```toml
+# config.toml
+schema = 1
+
+[user]
+username = "yourname"
+```
+
+スキーマ検証は `config.schema.json`。
+
+### パッケージ追加
+
+パッケージは `modules/packages/*.nix` に追記。プロファイル集約は `profiles/developer.nix`。
 
 ```nix
 # modules/packages/cli.nix
