@@ -20,7 +20,7 @@ setup() {
   [ "$result" = "macbook-air" ]
 }
 
-@test "detect_host returns macbook-air on macOS x86_64" {
+@test "detect_host returns unsupported on macOS x86_64 (Intel Mac)" {
   uname() {
     case "$1" in
       -s) echo "Darwin" ;;
@@ -29,7 +29,7 @@ setup() {
   }
   eval "$detect_host_body"
   result="$(detect_host)"
-  [ "$result" = "macbook-air" ]
+  [ "$result" = "unsupported" ]
 }
 
 @test "detect_host returns linux on Linux x86_64" {
@@ -56,7 +56,7 @@ setup() {
   [ "$result" = "linux-arm" ]
 }
 
-@test "detect_host returns unknown on unsupported OS" {
+@test "detect_host returns unsupported on unsupported OS" {
   uname() {
     case "$1" in
       -s) echo "FreeBSD" ;;
@@ -65,5 +65,5 @@ setup() {
   }
   eval "$detect_host_body"
   result="$(detect_host)"
-  [ "$result" = "unknown" ]
+  [ "$result" = "unsupported" ]
 }

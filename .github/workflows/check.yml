@@ -130,6 +130,9 @@ jobs:
 
   template-check:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        template: [devenv, node, python, rust]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
@@ -137,12 +140,7 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
-      - name: devenv template eval
+      - name: ${{ matrix.template }} template validate
         run: |
-          cp -r templates/devenv /tmp/devenv-test
-          cd /tmp/devenv-test && nix flake metadata --json > /dev/null
-
-      - name: devenv template lock
-        run: |
-          cp -r templates/devenv /tmp/devenv-test-2
-          cd /tmp/devenv-test-2 && nix flake lock
+          cp -r "templates/${{ matrix.template }}" /tmp/template-test
+          cd /tmp/template-test && nix flake metadata --json > /dev/null

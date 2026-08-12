@@ -16,17 +16,22 @@ detect_host() {
   local arch
   case "$(uname -s)" in
   Darwin)
-    echo "macbook-air"
+    arch="$(uname -m)"
+    case "$arch" in
+    arm64 | aarch64) echo "macbook-air" ;;
+    *) echo "unsupported" ;;
+    esac
     ;;
   Linux)
     arch="$(uname -m)"
     case "$arch" in
     aarch64 | arm64) echo "linux-arm" ;;
-    *) echo "linux" ;;
+    x86_64 | amd64) echo "linux" ;;
+    *) echo "unsupported" ;;
     esac
     ;;
   *)
-    echo "unknown"
+    echo "unsupported"
     ;;
   esac
 }
