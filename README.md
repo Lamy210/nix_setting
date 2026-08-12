@@ -15,8 +15,8 @@ nix_setting/
 ├── hosts/         # ホスト固有設定 (macbook-air / linux-generic)
 ├── modules/       # Home Manager モジュール (packages / shell / programs / dotfiles)
 ├── nix-darwin/    # macOS システム + Homebrew 設定
-├── templates/     # プロジェクトテンプレート (devenv / rust / node / python)
-├── tests/         # bats 統合テスト
+├── templates/     # プロジェクトテンプレート (devenv / rust / node / python / flutter)
+├── tests/         # bats + nix-unit テスト
 └── .github/       # CI (check / update / weekly)
 ```
 
@@ -71,6 +71,7 @@ cp -r ~/nix_setting/templates/rust ./my-rust-project
 | `rust/` | rustup + cargo + rustc + clippy + rust-analyzer |
 | `node/` | Node.js 24 + pnpm + bun + TypeScript |
 | `python/` | Python 3 + uv + ruff + pyright |
+| `flutter/` | Flutter + Dart + JDK |
 
 ## Homebrew casks
 

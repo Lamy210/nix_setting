@@ -1,72 +1,53 @@
-# nix_setting tasks — run: just <recipe>
+# Project template — copy to your project root as `justfile`
+# Run: just <recipe>
 
 default:
     @just --list
 
-# ---- nix_setting 本体 ----
-apply:
-    @echo "applying..."
-    nh switch .#macbook-air
-
-apply-linux:
-    @echo "applying linux..."
-    nh home switch .#linux
-
-build:
-    @echo "building..."
-    nix build .#homeConfigurations.macbook-air.activationPackage
-
-check:
-    @echo "checking..."
-    nix flake check --allow-import-from-derivation
-
-fmt:
-    @echo "formatting..."
-    nix fmt
-
-update:
-    @echo "updating flake..."
-    nix flake update
-
-clean:
-    @echo "cleaning..."
-    nix-store --gc
-
-# ---- lint / test ----
+# lint / test
 lint:
     @echo "linting..."
-    statix check .
-    deadnix --fail .
-    shellcheck bootstrap.sh bench-shell.sh
+    # golangci-lint run ./...  # Go
+    # ruff check .            # Python
+    # cargo clippy            # Rust
 
 test:
     @echo "testing..."
-    bats tests/bootstrap.bats
+    # go test ./...           # Go
+    # pytest                  # Python
+    # cargo test              # Rust
 
-bench:
-    @echo "benchmarking..."
-    ./bench-shell.sh
+fmt:
+    @echo "formatting..."
+    # gofmt -w .              # Go
+    # ruff format .           # Python
+    # cargo fmt               # Rust
 
-# ---- docker ----
+# docker
 docker-up:
     docker compose up -d
 
 docker-down:
     docker compose down
 
-docker-check:
-    docker compose run check
+docker-logs:
+    docker compose logs -f
 
-# ---- db ----
+# k8s
+k8s-apply:
+    kubectl apply -f .
+
+k8s-logs:
+    kubectl logs -f deployment/app
+
+# db
 db-pg:
     pgcli postgres://localhost:5432/db
 
 db-mysql:
     mycli -h localhost -u root
 
-# ---- k8s ----
-k8s-apply:
-    kubectl apply -f .
-
-k8s-logs:
-    kubectl logs -f deployment/app
+# clean
+clean:
+    @echo "cleaning..."
+    find . -type d -name node_modules -prune -exec echo "rm -rf {}" \;

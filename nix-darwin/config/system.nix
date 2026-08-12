@@ -91,6 +91,9 @@ _: {
         "com.apple.TimeMachine" = {
           DoNotOfferNewDisksForBackup = true;
         };
+        "com.apple.screencapture" = {
+          show-thumbnail = true;
+        };
       };
     };
 
