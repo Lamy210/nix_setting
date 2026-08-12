@@ -86,6 +86,8 @@
             deadnix
             act
             nix-output-monitor
+            actionlint
+            shellcheck
           ];
           shellHook = ''
             echo "dev shell ready"
