@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ pkgs, lib, ... }:
 let
   zshInitExtra = ''
     bindkey -e
@@ -137,9 +137,11 @@ in
       "HIST_IGNORE_DUPS"
       "HIST_IGNORE_SPACE"
     ];
-    initExtra = zshInitExtra;
-    initExtraBeforeCompInit = ''
-      [ -f "${pkgs.zsh-abbr}/share/zsh-abbr/zsh-abbr.zsh" ] && source "${pkgs.zsh-abbr}/share/zsh-abbr/zsh-abbr.zsh"
-    '';
+    initContent = lib.mkMerge [
+      (lib.mkOrder 550 ''
+        [ -f "${pkgs.zsh-abbr}/share/zsh-abbr/zsh-abbr.zsh" ] && source "${pkgs.zsh-abbr}/share/zsh-abbr/zsh-abbr.zsh"
+      '')
+      zshInitExtra
+    ];
   };
 }
