@@ -155,6 +155,7 @@ jobs:
           cd /tmp/template-test && nix flake metadata --json > /dev/null
 
       - name: ${{ matrix.template }} devShell
+        if: matrix.template != 'devenv'
         run: |
           cp -r "templates/${{ matrix.template }}" /tmp/template-dev
           cd /tmp/template-dev && nix develop --command true

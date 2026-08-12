@@ -1,5 +1,4 @@
-{ ... }:
-{
+_: {
   flake.templates = {
     rust = {
       path = ../../templates/rust;
