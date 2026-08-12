@@ -72,6 +72,33 @@ pub fn detect_platform() -> Platform {
     }
 }
 
+/// PATH から実行可能ファイルを探す
+pub fn which(cmd: &str) -> Option<String> {
+    let path = std::env::var("PATH").ok()?;
+    for dir in path.split(':') {
+        let candidate = format!("{dir}/{cmd}");
+        if std::path::Path::new(&candidate).is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Nix がインストールされているか
+pub fn has_nix() -> bool {
+    which("nix").is_some()
+}
+
+/// Homebrew がインストールされているか
+pub fn has_homebrew() -> bool {
+    which("brew").is_some()
+}
+
+/// Git がインストールされているか
+pub fn has_git() -> bool {
+    which("git").is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
