@@ -8,6 +8,15 @@ let
 
     eval "$(mise activate zsh)"
 
+    if command -v nix-locate >/dev/null 2>&1; then
+      command_not_found_handler() {
+        local cmd="$1"
+        echo "command not found: $cmd"
+        nix-locate --top-level --minimal "$cmd" 2>/dev/null | head -5 | sed 's/^/  suggestion: /'
+        return 127
+      }
+    fi
+
     if command -v eza >/dev/null 2>&1; then
       alias ls='eza --icons --group-directories-first'
       alias ll='eza -la --icons --git --group-directories-first'

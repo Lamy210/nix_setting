@@ -1,55 +1,72 @@
-# Example justfile — copy to your project root as `justfile`
-# Run with: just <recipe>
+# nix_setting tasks — run: just <recipe>
 
 default:
     @just --list
 
-# lint / test
-lint:
-    @echo "linting..."
-    # golangci-lint run ./...  # Go
-    # ruff check .            # Python
-    # cargo clippy            # Rust
+# ---- nix_setting 本体 ----
+apply:
+    @echo "applying..."
+    nh switch .#macbook-air
 
-test:
-    @echo "testing..."
-    # go test ./...           # Go
-    # pytest                  # Python
-    # cargo test              # Rust
+apply-linux:
+    @echo "applying linux..."
+    nh home switch .#linux
+
+build:
+    @echo "building..."
+    nix build .#homeConfigurations.macbook-air.activationPackage
+
+check:
+    @echo "checking..."
+    nix flake check --allow-import-from-derivation
 
 fmt:
     @echo "formatting..."
-    # gofmt -w .              # Go
-    # ruff format .           # Python
-    # cargo fmt               # Rust
+    nix fmt
 
-# docker
+update:
+    @echo "updating flake..."
+    nix flake update
+
+clean:
+    @echo "cleaning..."
+    nix-store --gc
+
+# ---- lint / test ----
+lint:
+    @echo "linting..."
+    statix check .
+    deadnix --fail .
+    shellcheck bootstrap.sh bench-shell.sh
+
+test:
+    @echo "testing..."
+    bats tests/bootstrap.bats
+
+bench:
+    @echo "benchmarking..."
+    ./bench-shell.sh
+
+# ---- docker ----
 docker-up:
     docker compose up -d
 
 docker-down:
     docker compose down
 
-docker-logs:
-    docker compose logs -f
+docker-check:
+    docker compose run check
 
-# k8s
+# ---- db ----
+db-pg:
+    pgcli postgres://localhost:5432/db
+
+db-mysql:
+    mycli -h localhost -u root
+
+# ---- k8s ----
 k8s-apply:
     kubectl apply -f .
 
 k8s-logs:
     kubectl logs -f deployment/app
-
-# db
-db-cli pg:
-    pgcli postgres://localhost:5432/db
-
-db-cli mysql:
-    mycli -h localhost -u root
-
-# clean
-clean:
-    @echo "cleaning..."
-    # go clean -cache        # Go
-    # cargo clean            # Rust
-    find . -type d -name node_modules -prune -exec echo "rm -rf {}" \;
