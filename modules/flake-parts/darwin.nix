@@ -1,6 +1,7 @@
 { inputs, ... }:
 let
-  userOptions = import ../../user-options/options.nix;
+  manifest = builtins.fromTOML (builtins.readFile ../../config.toml);
+  username = manifest.user.username;
 in
 {
   flake = {
@@ -11,13 +12,13 @@ in
           ../../nix-darwin/default.nix
           inputs.home-manager.darwinModules.home-manager
           {
-            system.primaryUser = userOptions.username;
-            users.users.${userOptions.username}.home = "/Users/${userOptions.username}";
+            system.primaryUser = username;
+            users.users.${username}.home = "/Users/${username}";
             nixpkgs.config.allowUnfree = true;
             home-manager = {
               useGlobalPkgs = true;
               useUserPackages = true;
-              users.${userOptions.username} = import ../../hosts/macbook-air;
+              users.${username} = import ../../hosts/macbook-air;
             };
           }
         ];

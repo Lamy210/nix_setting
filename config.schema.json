@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "nix_setting Manifest",
+  "type": "object",
+  "required": ["schema", "user"],
+  "properties": {
+    "schema": {
+      "type": "integer",
+      "const": 1
+    },
+    "user": {
+      "type": "object",
+      "required": ["username"],
+      "properties": {
+        "username": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

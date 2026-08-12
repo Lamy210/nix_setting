@@ -1,6 +1,6 @@
 _:
 let
-  userOptions = import ../../user-options/options.nix;
+  manifest = builtins.fromTOML (builtins.readFile ../../config.toml);
 in
 {
   imports = [
@@ -8,6 +8,6 @@ in
     ../../modules/default.nix
   ];
 
-  home.username = userOptions.username;
-  home.homeDirectory = "/home/${userOptions.username}";
+  home.username = manifest.user.username;
+  home.homeDirectory = "/home/${manifest.user.username}";
 }

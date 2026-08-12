@@ -1,16 +1,24 @@
+let
+  manifest = builtins.fromTOML (builtins.readFile ../config.toml);
+in
 {
   testUsername = {
-    expr = (import ../user-options/options.nix).username;
+    expr = manifest.user.username;
     expected = "lamy210";
   };
 
   testMacbookAirHome = {
-    expr = "/Users/" + (import ../user-options/options.nix).username;
+    expr = "/Users/" + manifest.user.username;
     expected = "/Users/lamy210";
   };
 
   testLinuxHome = {
-    expr = "/home/" + (import ../user-options/options.nix).username;
+    expr = "/home/" + manifest.user.username;
     expected = "/home/lamy210";
+  };
+
+  testSchemaVersion = {
+    expr = manifest.schema;
+    expected = 1;
   };
 }
