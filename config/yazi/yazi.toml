@@ -10,15 +10,8 @@ max_height = 1000
 tab_size = 2
 
 [opener]
-edit = [
-  { run = '${EDITOR:-vim} "$@"', block = true, for = "unix" },
-]
-play = [
-  { run = 'open "$@"', orphan = true, for = "macos" },
-]
+edit = [{ run = '${EDITOR:-vim} "$@"', block = true, for = "unix" }]
+play = [{ run = 'open "$@"', orphan = true, for = "macos" }]
 
 [open]
-rules = [
-  { mime = "text/*", use = "edit" },
-  { mime = "image/*", use = "play" },
-]
+rules = [{ mime = "text/*", use = "edit" }, { mime = "image/*", use = "play" }]

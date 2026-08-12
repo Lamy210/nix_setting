@@ -15,7 +15,7 @@ fi
 mkdir -p "$HOME/.config/nix"
 
 if ! grep -q "experimental-features" "$HOME/.config/nix/nix.conf" 2>/dev/null; then
-  cat >> "$HOME/.config/nix/nix.conf" <<'NIXCONF'
+  cat >>"$HOME/.config/nix/nix.conf" <<'NIXCONF'
 experimental-features = nix-command flakes
 NIXCONF
 fi

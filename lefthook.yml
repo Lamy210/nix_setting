@@ -1,9 +1,8 @@
 pre-commit:
   parallel: true
   commands:
-    nixfmt:
-      glob: "*.nix"
-      run: nix fmt -- --check {staged_files}
+    format:
+      run: nix fmt
     statix:
       glob: "*.nix"
       run: statix check {staged_files}
