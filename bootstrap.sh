@@ -15,19 +15,19 @@ fi
 detect_host() {
   local arch
   case "$(uname -s)" in
-    Darwin)
-      echo "macbook-air"
-      ;;
-    Linux)
-      arch="$(uname -m)"
-      case "$arch" in
-        aarch64 | arm64) echo "linux-arm" ;;
-        *) echo "linux" ;;
-      esac
-      ;;
-    *)
-      echo "unknown"
-      ;;
+  Darwin)
+    echo "macbook-air"
+    ;;
+  Linux)
+    arch="$(uname -m)"
+    case "$arch" in
+    aarch64 | arm64) echo "linux-arm" ;;
+    *) echo "linux" ;;
+    esac
+    ;;
+  *)
+    echo "unknown"
+    ;;
   esac
 }
 
