@@ -41,21 +41,21 @@ cat > ~/.gitconfig.local <<EOF
 EOF
 ```
 
-## Homebrew casks (Brewfile)
+## Homebrew casks (nix-darwin管理)
 
 ```bash
-brew bundle --file=Brewfile
+nix run nix-darwin -- switch --flake .
 ```
 
-| アプリ | 用途 | ライセンス |
-|--------|------|:---:|
-| WezTerm | ターミナルエミュレータ | MIT |
-| VS Code | エディタ | MIT |
-| PlemolJP Console NF | 日本語 + Nerd Font | OFL |
-| JetBrains Mono Nerd Font | 英字等幅 + アイコン | OFL |
-| [Loop](https://github.com/MrKai77/Loop) | ウィンドウ管理 (放射状メニュー) | GPL-3.0 |
-| [FlashSpace](https://github.com/wojciech-kulik/FlashSpace) | 高速ワークスペース切替 | GPL-3.0 |
-| [Tameo](https://tameo.ati-mirai.co.jp/) | クリップボード履歴 + OCR | MIT |
+| アプリ | 用途 |
+|--------|------|
+| WezTerm | ターミナルエミュレータ |
+| VS Code | エディタ |
+| PlemolJP Console NF | 日本語 + Nerd Font |
+| JetBrains Mono Nerd Font | 英字等幅 + アイコン |
+| Loop | ウィンドウ管理 |
+| FlashSpace | 高速ワークスペース切替 |
+| Tameo | クリップボード履歴 + OCR |
 
 ## 導入されるツール (81 packages + 8 modules)
 

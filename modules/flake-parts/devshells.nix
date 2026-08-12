@@ -28,10 +28,7 @@
         ];
         rust = with pkgs; [
           rustup
-          cargo
-          rustc
           rust-analyzer
-          clippy
         ];
       };
     in
@@ -54,10 +51,7 @@
             typescript
             typescript-language-server
             rustup
-            cargo
-            rustc
             rust-analyzer
-            clippy
             git
             lazygit
             delta
@@ -95,7 +89,7 @@
             echo "go      $(go version 2>/dev/null || echo '-')"
             echo "python  $(python3 --version 2>/dev/null || echo '-')"
             echo "node    $(node --version 2>/dev/null || echo '-')"
-            echo "rustc   $(rustc --version 2>/dev/null || echo '-')"
+            echo "rustup  $(rustup --version 2>/dev/null || echo '-')"
           '';
         };
         go = pkgs.mkShell {
@@ -123,7 +117,7 @@
         rust = pkgs.mkShell {
           packages = devShellPackages.rust;
           shellHook = ''
-            echo "rustc $(rustc --version 2>/dev/null || echo 'not found')"
+            echo "rustup $(rustup --version 2>/dev/null || echo 'not found')"
             echo "cargo $(cargo --version 2>/dev/null || echo 'not found')"
           '';
         };
