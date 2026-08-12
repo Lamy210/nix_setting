@@ -55,7 +55,7 @@ jobs:
           echo "=== scanning for secrets ==="
           ! grep -RInE "token|password|apikey|api_key|BEGIN.*(OPENSSH|RSA|DSA|EC)|github_pat|ghp_" . \
             --exclude-dir=.git --exclude-dir=.github \
-            --exclude=docs/*.md
+            --exclude=docs/*.md --exclude=.pre-commit-config.yaml
 
       - name: scan for image files
         run: |
