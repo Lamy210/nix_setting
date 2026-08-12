@@ -1,0 +1,37 @@
+services:
+  check:
+    build: .
+    volumes:
+      - .:/workspace
+      - nix-store:/nix/store
+    command: "nix flake check --allow-import-from-derivation"
+    environment:
+      - USER=root
+
+  build:
+    build: .
+    volumes:
+      - .:/workspace
+      - nix-store:/nix/store
+    command: "nix build"
+
+  develop:
+    build: .
+    volumes:
+      - .:/workspace
+      - nix-store:/nix/store
+    command: "nix develop --command echo 'dev shell ready'"
+    stdin_open: true
+    tty: true
+
+  shell:
+    build: .
+    volumes:
+      - .:/workspace
+      - nix-store:/nix/store
+    command: "nix develop"
+    stdin_open: true
+    tty: true
+
+volumes:
+  nix-store:

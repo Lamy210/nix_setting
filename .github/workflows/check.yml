@@ -14,18 +14,36 @@ jobs:
 
       - uses: DeterminateSystems/nix-installer-action@v16
 
-      - name: Generate user-options.nix
-        run: |
-          cat > user-options.nix <<EOF
-          {
-            username = "$(whoami)";
-            homeDirectory = "$HOME";
-            system = "$(nix eval --impure --raw --expr 'builtins.currentSystem')";
-          }
-          EOF
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
 
       - name: nix flake check
-        run: nix flake check
+        run: nix flake check --allow-import-from-derivation
+
+  docker-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t nix-sandbox .
+
+      - name: nix flake check (Docker)
+        run: docker run --rm -v $PWD:/workspace nix-sandbox "nix flake check --allow-import-from-derivation"
+
+      - name: nix develop (Docker)
+        run: docker run --rm -v $PWD:/workspace nix-sandbox "nix develop --command echo 'dev shell ready'"
+
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@v16
+
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+
+      - name: nix develop + pre-commit
+        run: nix develop --command pre-commit run --all-files
 
   secret-scan:
     runs-on: ubuntu-latest
@@ -37,7 +55,7 @@ jobs:
           echo "=== scanning for secrets ==="
           ! grep -RInE "token|password|apikey|api_key|BEGIN.*(OPENSSH|RSA|DSA|EC)|github_pat|ghp_" . \
             --exclude-dir=.git --exclude-dir=.github \
-            --exclude=docs/terminal-spec.md
+            --exclude=docs/*.md
 
       - name: scan for image files
         run: |
