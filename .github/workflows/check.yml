@@ -88,6 +88,11 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
+      - name: install Tauri system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev
+
       - uses: cachix/install-nix-action@08dcb3a5e62fa31e2da3d490afc4176ef55ecd72
         with:
           nix_path: nixpkgs=channel:nixos-unstable
@@ -100,6 +105,9 @@ jobs:
 
       - name: cargo clippy
         run: nix develop --command cargo clippy -- -D warnings
+
+      - name: cargo check (desktop)
+        run: nix develop --command cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
 
   bootstrap-test:
     runs-on: ubuntu-latest
