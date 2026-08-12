@@ -22,7 +22,9 @@ jobs:
         run: nix flake check --allow-import-from-derivation
 
       - name: build linux home-manager
-        run: nix build .#homeConfigurations.linux.activationPackage
+        run: |
+          nix build .#homeConfigurations.linux.activationPackage
+          nix build .#homeConfigurations.linux-arm.activationPackage
 
   macos-check:
     runs-on: macos-latest
@@ -64,7 +66,7 @@ jobs:
         run: nix run nixpkgs#actionlint
 
       - name: shellcheck
-        run: nix run nixpkgs#shellcheck -- bootstrap.sh
+        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh
 
   secret-scan:
     runs-on: ubuntu-latest

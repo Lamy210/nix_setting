@@ -32,6 +32,20 @@ in
           }
         ];
       };
+
+      linux-arm = inputs.home-manager.lib.homeManagerConfiguration {
+        pkgs = import inputs.nixpkgs {
+          system = "aarch64-linux";
+          config.allowUnfree = true;
+        };
+        modules = [
+          ../../hosts/linux-generic
+          {
+            home.username = userOptions.username;
+            home.homeDirectory = userOptions.homeDirectory;
+          }
+        ];
+      };
     };
   };
 }

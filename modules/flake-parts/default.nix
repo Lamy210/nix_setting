@@ -25,10 +25,7 @@
           "*.gif"
           "*.webp"
         ];
-        shfmt.includes = [
-          "*.sh"
-          "bootstrap.sh"
-        ];
+        shfmt.includes = [ "*.sh" ];
       };
     };
   };
