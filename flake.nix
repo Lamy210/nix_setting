@@ -15,11 +15,6 @@
       url = "github:LnL7/nix-darwin";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
-    user-options = {
-      url = "path:./user-options/options.nix";
-      flake = false;
-    };
   };
 
   outputs = inputs@{ flake-parts, ... }:

@@ -1,6 +1,6 @@
 { inputs, ... }:
 let
-  userOptions = import inputs.user-options;
+  userOptions = import ../../user-options/options.nix;
 in
 {
   flake = {

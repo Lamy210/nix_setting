@@ -25,11 +25,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1786536672,
-        "narHash": "sha256-atNhmMPA8dGLbX1EJjJzYyTBqsq54UKqeSt+Q874+kM=",
+        "lastModified": 1786537213,
+        "narHash": "sha256-HCmv5+Q8wB5z2GdoveDe9hoqBzAdLePD8wQqnT6jlqI=",
         "owner": "nix-community",
         "repo": "home-manager",
-        "rev": "ad9529169459ad1369c60dc285f8355e9f3c94e9",
+        "rev": "f8badd57bac448d07fb93a7884a207ecb0927e95",
         "type": "github"
       },
       "original": {
@@ -94,21 +94,8 @@
         "flake-parts": "flake-parts",
         "home-manager": "home-manager",
         "nix-darwin": "nix-darwin",
-        "nixpkgs": "nixpkgs",
-        "user-options": "user-options"
+        "nixpkgs": "nixpkgs"
       }
-    },
-    "user-options": {
-      "flake": false,
-      "locked": {
-        "path": "./user-options/options.nix",
-        "type": "path"
-      },
-      "original": {
-        "path": "./user-options/options.nix",
-        "type": "path"
-      },
-      "parent": []
     }
   },
   "root": "root",
