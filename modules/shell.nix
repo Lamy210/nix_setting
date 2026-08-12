@@ -100,7 +100,6 @@ let
     fi
 
     export PATH="$HOME/.local/bin:$PATH"
-    export PATH="/Users/lamy210/dev/github/SchneeDeveloperRadar/.tools/go/bin:$PATH"
     export PATH="$PATH:$HOME/fvm/default/bin"
 
     [ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
