@@ -22,7 +22,7 @@ jobs:
         run: |
           nix build .#homeConfigurations.linux.activationPackage --no-link
           target="$(nix path-info .#homeConfigurations.linux.activationPackage)"
-          nix run nixpkgs#sbomnix -- "$target" --output sbom.cdx.json
+          nix run nixpkgs#sbomnix -- "$target" --cdx sbom.cdx.json
 
       - name: generate checksums
         run: |
