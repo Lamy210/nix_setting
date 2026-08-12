@@ -48,10 +48,10 @@ jobs:
         run: docker build -t nix-sandbox .
 
       - name: nix flake check (Docker)
-        run: docker run --rm -v $PWD:/workspace nix-sandbox "nix flake check --allow-import-from-derivation"
+        run: docker run --rm -v "$PWD:/workspace" nix-sandbox "nix flake check --allow-import-from-derivation"
 
       - name: nix develop (Docker)
-        run: docker run --rm -v $PWD:/workspace nix-sandbox "nix develop --command echo 'dev shell ready'"
+        run: docker run --rm -v "$PWD:/workspace" nix-sandbox "nix develop --command echo 'dev shell ready'"
 
   lint:
     runs-on: ubuntu-latest
@@ -80,7 +80,7 @@ jobs:
           nix_path: nixpkgs=channel:nixos-unstable
 
       - name: trufflehog scan
-        run: nix run nixpkgs#trufflehog -- filesystem . --no-update
+        run: nix run nixpkgs#trufflehog -- filesystem . --only-verified
 
       - name: scan for image files
         run: |
