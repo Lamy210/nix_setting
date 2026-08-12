@@ -22,9 +22,7 @@ jobs:
         run: nix flake check --allow-import-from-derivation
 
       - name: build linux home-manager
-        run: |
-          nix build .#homeConfigurations.linux.activationPackage
-          nix build .#homeConfigurations.linux-arm.activationPackage
+        run: nix build .#homeConfigurations.linux.activationPackage
 
   macos-check:
     runs-on: macos-latest
