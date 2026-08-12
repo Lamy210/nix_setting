@@ -62,6 +62,10 @@
             nix-tree
             nix-melt
             nix-unit
+            cargo
+            rustc
+            rustfmt
+            clippy
           ];
           shellHook = ''
             echo "repo maintenance shell ready"

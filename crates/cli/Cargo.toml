@@ -1,0 +1,15 @@
+[package]
+name = "schneeforge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "schneeforge"
+path = "src/main.rs"
+
+[dependencies]
+schneeforge-core = { path = "../core" }
+clap.workspace = true
+serde.workspace = true
+toml.workspace = true

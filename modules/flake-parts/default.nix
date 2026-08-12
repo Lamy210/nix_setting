@@ -7,6 +7,7 @@
     ./darwin.nix
     ./templates.nix
     ./apps.nix
+    ./packages.nix
   ];
 
   perSystem = _: {

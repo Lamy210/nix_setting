@@ -26,3 +26,6 @@ config/wezterm/backgrounds/
 .vscode/
 user-options.nix
 result
+
+# Rust
+target/
