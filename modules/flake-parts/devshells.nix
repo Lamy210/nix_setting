@@ -48,7 +48,7 @@
           docker docker-compose kubectl kubernetes-helm-wrapped
           pgcli usql redis sqlite
           terraform
-          just hyperfine pre-commit
+          just hyperfine lefthook statix deadnix act nix-output-monitor
         ];
         shellHook = ''
           echo "dev shell ready"

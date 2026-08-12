@@ -13,7 +13,10 @@ in
           home-manager = {
             useGlobalPkgs = true;
             useUserPackages = true;
-            users.${userOptions.username} = import ../../home.nix;
+            users.${userOptions.username} = {
+              imports = [ ../../home.nix ];
+              home.homeDirectory = userOptions.homeDirectory;
+            };
           };
         }
       ];

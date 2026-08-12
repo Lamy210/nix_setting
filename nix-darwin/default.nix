@@ -1,8 +1,8 @@
-{ pkgs, ... }:
+{ ... }:
 let
-  homebrew = import ./config/homebrew/default.nix { inherit pkgs; };
-  nixConfig = import ./config/nix-config.nix { inherit pkgs; };
-  systemConfig = import ./config/system.nix { inherit pkgs; };
+  homebrew = import ./config/homebrew/default.nix;
+  nixConfig = import ./config/nix-config.nix;
+  systemConfig = import ./config/system.nix;
 in
 {
   imports = [

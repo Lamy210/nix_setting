@@ -1,0 +1,14 @@
+pre-commit:
+  parallel: true
+  commands:
+    nixfmt:
+      glob: "*.nix"
+      run: nix fmt -- --check {staged_files}
+    statix:
+      glob: "*.nix"
+      run: statix check {staged_files}
+    deadnix:
+      glob: "*.nix"
+      run: deadnix --fail {staged_files}
+    secret-scan:
+      run: bash -c '! grep -RInE "token|password|apikey|api_key|BEGIN.*(OPENSSH|RSA|DSA|EC)|github_pat|ghp_" . --exclude-dir=.git --exclude-dir=.github --exclude=docs/*.md --exclude=lefthook.yml'

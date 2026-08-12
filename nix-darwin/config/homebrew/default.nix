@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ ... }:
 let
   caskConfig = import ./cask.nix;
 in
@@ -14,7 +14,7 @@ in
       appdir = "~/Applications";
     };
     casks = caskConfig.installPackages;
-    taps = caskConfig.taps;
+    inherit (caskConfig) taps;
     brews = caskConfig.tapPackages;
     masApps = {
       Xcode = 497799835;

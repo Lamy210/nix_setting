@@ -33,7 +33,7 @@ jobs:
       - name: nix develop (Docker)
         run: docker run --rm -v $PWD:/workspace nix-sandbox "nix develop --command echo 'dev shell ready'"
 
-  pre-commit:
+  nix-lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,8 +42,14 @@ jobs:
 
       - uses: DeterminateSystems/magic-nix-cache-action@v8
 
-      - name: nix develop + pre-commit
-        run: nix develop --command pre-commit run --all-files
+      - name: nix fmt check
+        run: nix develop --command nix fmt -- --check .
+
+      - name: statix check
+        run: nix develop --command statix check .
+
+      - name: deadnix check
+        run: nix develop --command deadnix --fail .
 
   secret-scan:
     runs-on: ubuntu-latest
@@ -55,7 +61,7 @@ jobs:
           echo "=== scanning for secrets ==="
           ! grep -RInE "token|password|apikey|api_key|BEGIN.*(OPENSSH|RSA|DSA|EC)|github_pat|ghp_" . \
             --exclude-dir=.git --exclude-dir=.github \
-            --exclude=docs/*.md --exclude=.pre-commit-config.yaml
+            --exclude=docs/*.md --exclude=lefthook.yml
 
       - name: scan for image files
         run: |
