@@ -31,5 +31,12 @@ jobs:
       - name: generate SBOM
         run: |
           nix build .#homeConfigurations.linux.activationPackage --no-link
-          nix run nixpkgs#sbomnix -- $(nix path-info .#homeConfigurations.linux.activationPackage) --output sbom.cdx.json
+          target="$(nix path-info .#homeConfigurations.linux.activationPackage)"
+          nix run nixpkgs#sbomnix -- "$target" --output sbom.cdx.json
           ls -la sbom.cdx.json
+
+      - name: upload SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75bde449356e27b79cda6034a62
+        with:
+          name: sbom
+          path: sbom.cdx.json

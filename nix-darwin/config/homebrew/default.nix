@@ -1,4 +1,4 @@
-{ ... }:
+_:
 let
   caskConfig = import ./cask.nix;
 in

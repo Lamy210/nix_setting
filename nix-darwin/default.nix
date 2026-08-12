@@ -1,4 +1,4 @@
-{ ... }:
+_:
 let
   homebrew = import ./config/homebrew/default.nix;
   nixConfig = import ./config/nix-config.nix;

@@ -1,5 +1,4 @@
-{ ... }:
-{
+_: {
   home.file.".gitconfig".source = ../config/git/gitconfig;
 
   xdg.configFile = {

@@ -1,5 +1,4 @@
-{ ... }:
-{
+_: {
   nix = {
     enable = true;
     settings = {

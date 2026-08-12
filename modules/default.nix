@@ -1,5 +1,4 @@
-{ ... }:
-{
+_: {
   imports = [
     ./packages/cli.nix
     ./packages/git.nix

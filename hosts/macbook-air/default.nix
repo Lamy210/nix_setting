@@ -1,4 +1,4 @@
-{ ... }:
+_:
 let
   userOptions = import ../../user-options/options.nix;
 in
