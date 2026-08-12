@@ -16,8 +16,12 @@ enum Cmd {
     Doctor,
     /// 環境をスキャンして検出結果を表示
     Scan,
+    /// 初回セットアップ (Nix/flakes 確認 → apply)
+    Setup,
     /// 現在の状態を表示
     Status,
+    /// 適用内容を dry-run で確認
+    Plan,
     /// ホストを検出して設定を適用 (switch)
     Apply,
     /// 前の世代へロールバック
@@ -26,6 +30,8 @@ enum Cmd {
     Upgrade,
     /// リモート設定を取得 (git pull)
     Sync,
+    /// アンインストール手順を表示
+    Uninstall,
 }
 
 fn main() {
@@ -33,11 +39,14 @@ fn main() {
     let result = match cli.command {
         Cmd::Doctor => doctor(),
         Cmd::Scan => scan(),
+        Cmd::Setup => setup(),
         Cmd::Status => status(),
+        Cmd::Plan => plan(),
         Cmd::Apply => apply(),
         Cmd::Rollback => rollback(),
         Cmd::Upgrade => upgrade(),
         Cmd::Sync => sync(),
+        Cmd::Uninstall => uninstall(),
     };
     if let Err(e) = result {
         eprintln!("error: {e}");
@@ -168,6 +177,82 @@ fn apply() -> Result {
     Ok(())
 }
 
+fn setup() -> Result {
+    println!("=== setup ===");
+    println!();
+
+    if !has_nix() {
+        println!("Nix not installed.");
+        println!("  curl -L https://nixos.org/nix/install | sh");
+        return Ok(());
+    }
+    println!("[nix] installed");
+
+    enable_flakes();
+    println!("[flakes] enabled");
+
+    let host = detect_host();
+    if host == Host::Unsupported {
+        return Err(format!(
+            "unsupported platform: {} {}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ));
+    }
+    println!("[host] {host}");
+
+    println!();
+    apply()
+}
+
+fn enable_flakes() {
+    let base = std::env::var("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|_| std::env::var("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let conf = base.join("nix").join("nix.conf");
+    if let Ok(content) = std::fs::read_to_string(&conf) {
+        if content.contains("experimental-features") {
+            return;
+        }
+    }
+    let _ = std::fs::create_dir_all(conf.parent().unwrap());
+    let line = "experimental-features = nix-command flakes\n";
+    match std::fs::OpenOptions::new().append(true).open(&conf) {
+        Ok(mut f) => {
+            use std::io::Write;
+            let _ = f.write_all(line.as_bytes());
+        }
+        Err(_) => {
+            let _ = std::fs::write(&conf, line);
+        }
+    }
+}
+
+fn plan() -> Result {
+    let host = detect_host();
+    if host == Host::Unsupported {
+        return Err(format!(
+            "unsupported platform: {} {}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ));
+    }
+    println!("=== plan ===");
+    println!();
+    println!("  host: {host}");
+
+    let target = if host == Host::MacbookAir {
+        format!(".#darwinConfigurations.{host}.system")
+    } else {
+        format!(".#homeConfigurations.{host}.activationPackage")
+    };
+    println!("  target: {target}");
+    println!();
+    println!("dry-run build...");
+    run_nix(["build", "--dry-run", &target])
+}
+
 fn rollback() -> Result {
     let host = detect_host();
     if host == Host::Unsupported {
@@ -192,6 +277,39 @@ fn sync() -> Result {
     }
     println!("pulling remote config...");
     run_command("git", ["pull"])
+}
+
+fn uninstall() -> Result {
+    let host = detect_host();
+    println!("=== uninstall ===");
+    println!();
+    println!("削除レベル:");
+    println!("  1. 状態ファイルのみ削除 (安全)");
+    println!("  2. Home Manager / nix-darwin の managed config を解除");
+    println!("  3. Nix 自体も削除 (既存 Nix は削除禁止)");
+    println!();
+    println!("ホスト: {host}");
+    println!();
+
+    // 状態ファイルを削除
+    let state_path = State::default_path();
+    if state_path.exists() {
+        match std::fs::remove_file(&state_path) {
+            Ok(()) => println!("removed state: {}", state_path.display()),
+            Err(e) => println!("failed to remove state: {e}"),
+        }
+    } else {
+        println!("no state file found");
+    }
+
+    println!();
+    println!("設定の完全な解除は手動で:");
+    println!("  # Home Manager (Linux)");
+    println!("  home-manager uninstall");
+    println!();
+    println!("  # nix-darwin (macOS)");
+    println!("  nix run nix-darwin -- uninstall");
+    Ok(())
 }
 
 fn load_manifest() -> Option<Manifest> {
