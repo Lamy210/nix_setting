@@ -1,0 +1,20 @@
+name: weekly-compat
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+jobs:
+  lix-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install Lix
+        run: |
+          curl -sSf -L https://install.lix.systems/lix | sh -s -- --no-modify-profile
+          . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+
+      - name: lix flake check
+        run: nix flake check --allow-import-from-derivation

@@ -92,6 +92,8 @@
             nixd
             omnix
             devenv
+            nix-tree
+            nix-melt
           ];
           shellHook = ''
             echo "dev shell ready"
