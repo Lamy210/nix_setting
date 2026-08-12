@@ -3,20 +3,12 @@
   "extends": [
     "config:recommended"
   ],
-  "nix": {
-    "enabled": true
-  },
   "packageRules": [
     {
       "matchManagers": ["github-actions"],
       "groupName": "github-actions",
       "automerge": true,
-      "automergeType": "branch"
-    },
-    {
-      "matchManagers": ["nix"],
-      "groupName": "nix-inputs",
-      "labels": ["dependencies", "nix"]
+      "automergeType": "pr"
     }
   ]
 }

@@ -12,7 +12,7 @@ let
       command_not_found_handler() {
         local cmd="$1"
         echo "command not found: $cmd"
-        nix-locate --top-level --minimal "$cmd" 2>/dev/null | head -5 | sed 's/^/  suggestion: /'
+        nix-locate --minimal --at-root "/bin/$cmd" 2>/dev/null | head -5 | sed 's/^/  suggestion: /'
         return 127
       }
     fi
