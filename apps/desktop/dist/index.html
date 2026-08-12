@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SchneeForge</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: -apple-system, system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 2rem;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      h1 {
+        font-size: 1.5rem;
+        margin: 0 0 1.5rem;
+      }
+      .card {
+        background: #1e293b;
+        border-radius: 0.75rem;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.35rem 0;
+      }
+      .row .key {
+        color: #94a3b8;
+      }
+      .row .val {
+        font-weight: 600;
+      }
+      button {
+        background: #38bdf8;
+        color: #0f172a;
+        border: none;
+        border-radius: 0.5rem;
+        padding: 0.6rem 1.2rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>❄ SchneeForge</h1>
+    <div class="card" id="status">
+      <div class="row"><span class="key">host</span><span class="val" id="host">-</span></div>
+      <div class="row"><span class="key">user</span><span class="val" id="user">-</span></div>
+      <div class="row"><span class="key">nix</span><span class="val" id="nix">-</span></div>
+      <div class="row"><span class="key">homebrew</span><span class="val" id="homebrew">-</span></div>
+      <div class="row"><span class="key">applied</span><span class="val" id="applied">-</span></div>
+    </div>
+    <button id="refresh">更新</button>
+
+    <script>
+      const { invoke } = window.__TAURI__.core;
+
+      async function refresh() {
+        const s = await invoke("get_status");
+        document.getElementById("host").textContent = s.host;
+        document.getElementById("user").textContent = s.user ?? "-";
+        document.getElementById("nix").textContent = s.nix ? "yes" : "no";
+        document.getElementById("homebrew").textContent = s.homebrew ? "yes" : "no";
+        document.getElementById("applied").textContent = s.applied_revision ?? "(never)";
+      }
+
+      document.getElementById("refresh").addEventListener("click", refresh);
+      refresh();
+    </script>
+  </body>
+</html>

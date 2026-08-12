@@ -66,6 +66,7 @@
             rustc
             rustfmt
             clippy
+            cargo-tauri
           ];
           shellHook = ''
             echo "repo maintenance shell ready"
