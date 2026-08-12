@@ -13,7 +13,7 @@ jobs:
 
       - name: Install Lix
         run: |
-          curl -sSf -L https://install.lix.systems/lix | sh -s -- install --no-modify-profile
+          curl -sSf -L https://install.lix.systems/lix | sh -s -- install --no-confirm --no-modify-profile
           . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
 
       - name: lix flake check
@@ -36,7 +36,7 @@ jobs:
           ls -la sbom.cdx.json
 
       - name: upload SBOM
-        uses: actions/upload-artifact@ea165f8d65b6e75bde449356e27b79cda6034a62
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: sbom
           path: sbom.cdx.json
