@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7dd3fc"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="48" fill="#0f172a"/>
+
+  <!-- ネットワーク接続線 -->
+  <g stroke="#38bdf8" stroke-width="2" stroke-opacity="0.5" fill="none">
+    <line x1="128" y1="128" x2="128" y2="48"/>
+    <line x1="128" y1="128" x2="197" y2="88"/>
+    <line x1="128" y1="128" x2="197" y2="168"/>
+    <line x1="128" y1="128" x2="128" y2="208"/>
+    <line x1="128" y1="128" x2="59" y2="168"/>
+    <line x1="128" y1="128" x2="59" y2="88"/>
+  </g>
+
+  <!-- 中心の六角形 -->
+  <g fill="url(#g)">
+    <circle cx="128" cy="128" r="16"/>
+  </g>
+
+  <!-- 6方向の雪片ノード -->
+  <g fill="#7dd3fc">
+    <!-- 上 -->
+    <circle cx="128" cy="56" r="8"/>
+    <circle cx="128" cy="32" r="5" fill-opacity="0.7"/>
+    <!-- 右上 -->
+    <circle cx="190" cy="92" r="8"/>
+    <circle cx="208" cy="80" r="5" fill-opacity="0.7"/>
+    <!-- 右下 -->
+    <circle cx="190" cy="164" r="8"/>
+    <circle cx="208" cy="176" r="5" fill-opacity="0.7"/>
+    <!-- 下 -->
+    <circle cx="128" cy="200" r="8"/>
+    <circle cx="128" cy="224" r="5" fill-opacity="0.7"/>
+    <!-- 左下 -->
+    <circle cx="66" cy="164" r="8"/>
+    <circle cx="48" cy="176" r="5" fill-opacity="0.7"/>
+    <!-- 左上 -->
+    <circle cx="66" cy="92" r="8"/>
+    <circle cx="48" cy="80" r="5" fill-opacity="0.7"/>
+  </g>
+
+  <!-- 六角形ノード（ネットワーク感） -->
+  <g fill="none" stroke="#7dd3fc" stroke-width="1.5">
+    <polygon points="128,40 141,48 141,64 128,72 115,64 115,48"/>
+    <polygon points="196,76 204,90 196,104 180,104 172,90 180,76"/>
+    <polygon points="196,152 204,166 196,180 180,180 172,166 180,152"/>
+    <polygon points="128,184 141,192 141,208 128,216 115,208 115,192"/>
+    <polygon points="60,152 68,166 60,180 44,180 36,166 44,152"/>
+    <polygon points="60,76 68,90 60,104 44,104 36,90 44,76"/>
+  </g>
+</svg>

@@ -1,5 +1,7 @@
 # nix_setting
 
+<img src="assets/icon.svg" width="96" height="96" alt="SchneeForge logo">
+
 Nix + Home Manager + nix-darwin によるクロスプラットフォーム開発環境基盤。
 
 - **対象**: Apple Silicon Mac / Linux x86_64 / Linux aarch64
