@@ -1,0 +1,3 @@
+{
+  homeDirectory = "/home/lamy210";
+}

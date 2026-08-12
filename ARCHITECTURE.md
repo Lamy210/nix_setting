@@ -62,3 +62,11 @@ nix flake check            # 評価 + treefmt check
 nix build .#homeConfigurations.linux.activationPackage
 nix build .#darwinConfigurations.macbook-air.system
 ```
+
+### 対象システム
+
+| system | CI での build | 備考 |
+|--------|:---:|------|
+| aarch64-darwin | ✅ macos-latest | nix-darwin + home-manager |
+| x86_64-linux | ✅ ubuntu-latest | home-manager |
+| aarch64-linux | 🟡 評価のみ | 無料 GitHub runner なし。self-hosted ARM runner で `nix build .#homeConfigurations.linux-arm.activationPackage` を実行可能 |

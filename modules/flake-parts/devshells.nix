@@ -39,25 +39,6 @@
       devShells = {
         default = pkgs.mkShell {
           packages = with pkgs; [
-            go
-            gotools
-            golangci-lint
-            gopls
-            delve
-            python3
-            uv
-            ruff
-            pyright
-            nodejs_24
-            pnpm
-            bun
-            typescript
-            typescript-language-server
-            rustup
-            cargo
-            rustc
-            rust-analyzer
-            clippy
             git
             lazygit
             delta
@@ -66,29 +47,16 @@
             jq
             yq
             fx
-            protobuf
-            protoc-gen-go
-            protoc-gen-go-grpc
-            grpcurl
-            docker
-            docker-compose
-            kubectl
-            kubernetes-helm-wrapped
-            pgcli
-            usql
-            redis
-            sqlite
-            terraform
             just
             hyperfine
             lefthook
             statix
             deadnix
-            act
-            nix-output-monitor
             actionlint
             shellcheck
             trufflehog
+            act
+            nix-output-monitor
             nixd
             omnix
             devenv
@@ -96,11 +64,10 @@
             nix-melt
           ];
           shellHook = ''
-            echo "dev shell ready"
-            echo "go      $(go version 2>/dev/null || echo '-')"
-            echo "python  $(python3 --version 2>/dev/null || echo '-')"
-            echo "node    $(node --version 2>/dev/null || echo '-')"
-            echo "rustc   $(rustc --version 2>/dev/null || echo '-')"
+            echo "repo maintenance shell ready"
+            echo "lint     statix + deadnix + actionlint + shellcheck"
+            echo "format   nix fmt (nixfmt + shfmt + taplo)"
+            echo "lang     nix develop .#go / .#python / .#node / .#rust"
           '';
         };
         go = pkgs.mkShell {
@@ -129,7 +96,6 @@
           packages = devShellPackages.rust;
           shellHook = ''
             echo "rustc $(rustc --version 2>/dev/null || echo 'not found')"
-            echo "cargo $(cargo --version 2>/dev/null || echo 'not found')"
             echo "cargo $(cargo --version 2>/dev/null || echo 'not found')"
           '';
         };

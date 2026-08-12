@@ -21,9 +21,18 @@
 
 ## Rust のルール
 
-- **グローバル**: `rustup` で管理（`rustup default stable`）
-- **devShell**: `rustup` + `rustc` + `cargo` + `clippy` + `rust-analyzer` を Nix から提供
-- プロジェクトで特定バージョンが必要なら `rust-toolchain.toml` + `rustup` で上書き
+- **グローバル**: `rustup` で管理（`rustup default stable`）。Home Manager には `rustup` のみ入れる
+- **devShell / プロジェクト**: Nix から `rustc` + `cargo` + `clippy` + `rust-analyzer` を提供（固定バージョン）。`rustup` は toolchain を手動で切り替えたい場合のみ
+- 特定バージョンが必要なら `rust-toolchain.toml` + `rustup` で上書き
+
+つまり Rust は:
+
+```
+Home Manager (global)   → rustup のみ
+devShell (project)      → rustc + cargo + clippy + rust-analyzer (Nix固定)
+```
+
+これで「devShell と Home Manager で同じ runtime を重複しない」という方針とも整合する。
 
 ## 避けるべきこと
 

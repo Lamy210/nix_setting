@@ -21,3 +21,12 @@ if command -v bash >/dev/null 2>&1; then
   echo "bash startup (for comparison):"
   hyperfine --warmup 3 --runs 10 "bash -i -c exit"
 fi
+
+if [ "${1:-}" = "profile" ]; then
+  echo
+  echo "=== zprof profiling (top 20 slowest functions) ==="
+  zsh -i -c '
+    zmodload zsh/zprof
+    zprof
+  ' 2>&1 | head -20
+fi

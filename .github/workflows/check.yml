@@ -115,18 +115,14 @@ jobs:
           nix_path: nixpkgs=channel:nixos-unstable
 
       - name: default devShell
-        run: nix develop --command echo "dev shell ready"
+        run: nix develop --command echo "maintenance shell ready"
 
-      - name: runtime smoke
+      - name: runtime smoke (named shells)
         run: |
-          nix develop --command bash -c '
-            set -e
-            command -v go && go version
-            command -v python3 && python3 --version
-            command -v node && node --version
-            command -v rustc && rustc --version
-            command -v cargo && cargo --version
-          '
+          nix develop .#go --command bash -c 'command -v go && go version'
+          nix develop .#python --command bash -c 'command -v python3 && python3 --version'
+          nix develop .#node --command bash -c 'command -v node && node --version'
+          nix develop .#rust --command bash -c 'command -v rustc && rustc --version && command -v cargo && cargo --version'
 
   template-check:
     runs-on: ubuntu-latest
