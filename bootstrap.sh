@@ -12,6 +12,37 @@ if ! command -v nix >/dev/null 2>&1; then
   exit 1
 fi
 
+detect_host() {
+  local arch
+  case "$(uname -s)" in
+    Darwin)
+      echo "macbook-air"
+      ;;
+    Linux)
+      arch="$(uname -m)"
+      case "$arch" in
+        aarch64 | arm64) echo "linux-arm" ;;
+        *) echo "linux" ;;
+      esac
+      ;;
+    *)
+      echo "unknown"
+      ;;
+  esac
+}
+
+HOST="$(detect_host)"
+
+case "$HOST" in
+macbook-air | linux | linux-arm)
+  echo "Detected host: $HOST"
+  ;;
+*)
+  echo "Unsupported platform: $(uname -s) $(uname -m)"
+  exit 1
+  ;;
+esac
+
 mkdir -p "$HOME/.config/nix"
 
 if ! grep -q "experimental-features" "$HOME/.config/nix/nix.conf" 2>/dev/null; then
@@ -20,8 +51,8 @@ experimental-features = nix-command flakes
 NIXCONF
 fi
 
-echo "Building home-manager generation..."
-nix build .#homeConfigurations.macbook-air.activationPackage --out-link ./result
+echo "Building home-manager generation ($HOST)..."
+nix build ".#homeConfigurations.${HOST}.activationPackage" --out-link ./result
 
 echo
 echo "Backing up existing dotfiles..."
