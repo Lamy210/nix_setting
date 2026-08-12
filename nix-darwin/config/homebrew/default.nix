@@ -6,9 +6,9 @@ in
   homebrew = {
     enable = true;
     onActivation = {
-      autoUpdate = true;
-      upgrade = true;
-      cleanup = "uninstall";
+      autoUpdate = false;
+      upgrade = false;
+      cleanup = "none";
     };
     caskArgs = {
       appdir = "~/Applications";
