@@ -15,5 +15,7 @@
     watchman
     ruby
     python3
+    nh
+    nix-index
   ];
 }

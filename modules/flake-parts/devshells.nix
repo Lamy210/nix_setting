@@ -89,6 +89,8 @@
             actionlint
             shellcheck
             trufflehog
+            nixd
+            omnix
           ];
           shellHook = ''
             echo "dev shell ready"
