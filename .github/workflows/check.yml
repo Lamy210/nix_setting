@@ -142,7 +142,8 @@ jobs:
         run: |
           echo "=== scanning for image files ==="
           ! find . -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' -o -iname '*.gif' \) \
-            -not -path './.git/*' | grep .
+            -not -path './.git/*' \
+            -not -path './apps/desktop/src-tauri/icons/*' | grep .
 
   devshell-smoke:
     runs-on: ubuntu-latest
