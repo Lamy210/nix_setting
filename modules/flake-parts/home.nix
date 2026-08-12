@@ -1,7 +1,4 @@
 { inputs, ... }:
-let
-  userOptions = import ../../user-options/options.nix;
-in
 {
   flake = {
     homeConfigurations = {
@@ -10,13 +7,7 @@ in
           system = "aarch64-darwin";
           config.allowUnfree = true;
         };
-        modules = [
-          ../../hosts/macbook-air
-          {
-            home.username = userOptions.username;
-            home.homeDirectory = userOptions.homeDirectory;
-          }
-        ];
+        modules = [ ../../hosts/macbook-air ];
       };
 
       linux = inputs.home-manager.lib.homeManagerConfiguration {
@@ -24,13 +15,7 @@ in
           system = "x86_64-linux";
           config.allowUnfree = true;
         };
-        modules = [
-          ../../hosts/linux-generic
-          {
-            home.username = userOptions.username;
-            home.homeDirectory = userOptions.homeDirectory;
-          }
-        ];
+        modules = [ ../../hosts/linux-generic ];
       };
 
       linux-arm = inputs.home-manager.lib.homeManagerConfiguration {
@@ -38,13 +23,7 @@ in
           system = "aarch64-linux";
           config.allowUnfree = true;
         };
-        modules = [
-          ../../hosts/linux-generic
-          {
-            home.username = userOptions.username;
-            home.homeDirectory = userOptions.homeDirectory;
-          }
-        ];
+        modules = [ ../../hosts/linux-generic ];
       };
     };
   };

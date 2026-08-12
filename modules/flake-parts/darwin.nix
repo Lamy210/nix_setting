@@ -11,13 +11,11 @@ in
           ../../nix-darwin/default.nix
           inputs.home-manager.darwinModules.home-manager
           {
+            users.users.${userOptions.username}.home = userOptions.homeDirectory;
             home-manager = {
               useGlobalPkgs = true;
               useUserPackages = true;
-              users.${userOptions.username} = {
-                imports = [ ../../hosts/macbook-air ];
-                home.homeDirectory = userOptions.homeDirectory;
-              };
+              users.${userOptions.username} = import ../../hosts/macbook-air;
             };
           }
         ];
