@@ -62,6 +62,7 @@
             devenv
             nix-tree
             nix-melt
+            nix-unit
           ];
           shellHook = ''
             echo "repo maintenance shell ready"

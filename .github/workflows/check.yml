@@ -85,6 +85,9 @@ jobs:
       - name: bats test
         run: nix run nixpkgs#bats -- tests/bootstrap.bats
 
+      - name: nix-unit test
+        run: nix run nixpkgs#nix-unit -- tests/nix-unit.nix
+
   secret-scan:
     runs-on: ubuntu-latest
     steps:
@@ -128,7 +131,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        template: [devenv, node, python, rust]
+        template: [devenv, node, python, rust, flutter]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
