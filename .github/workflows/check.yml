@@ -12,9 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: cachix/install-nix-action@v30
         with:
-          flakehub: false
+          nix_path: nixpkgs=channel:nixos-unstable
 
       - uses: DeterminateSystems/magic-nix-cache-action@v8
 
@@ -40,9 +40,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: cachix/install-nix-action@v30
         with:
-          flakehub: false
+          nix_path: nixpkgs=channel:nixos-unstable
 
       - uses: DeterminateSystems/magic-nix-cache-action@v8
 
