@@ -47,10 +47,10 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@v8
 
       - name: statix check
-        run: nix develop --command statix check .
+        run: nix run nixpkgs#statix -- check .
 
       - name: deadnix check
-        run: nix develop --command deadnix --fail .
+        run: nix run nixpkgs#deadnix -- --fail .
 
   secret-scan:
     runs-on: ubuntu-latest
