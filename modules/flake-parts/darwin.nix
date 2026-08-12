@@ -11,7 +11,9 @@ in
           ../../nix-darwin/default.nix
           inputs.home-manager.darwinModules.home-manager
           {
+            system.primaryUser = userOptions.username;
             users.users.${userOptions.username}.home = userOptions.homeDirectory;
+            nixpkgs.config.allowUnfree = true;
             home-manager = {
               useGlobalPkgs = true;
               useUserPackages = true;

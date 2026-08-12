@@ -68,7 +68,7 @@ _: {
 
       ActivityMonitor = {
         IconType = 5;
-        ShowCategory = 0;
+        ShowCategory = 100;
         SortColumn = "CPUUsage";
         SortDirection = 0;
       };
