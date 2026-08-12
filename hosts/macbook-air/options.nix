@@ -1,3 +1,0 @@
-{
-  homeDirectory = "/Users/lamy210";
-}

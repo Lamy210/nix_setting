@@ -5,12 +5,12 @@
   };
 
   testMacbookAirHome = {
-    expr = (import ../hosts/macbook-air/options.nix).homeDirectory;
+    expr = "/Users/" + (import ../user-options/options.nix).username;
     expected = "/Users/lamy210";
   };
 
   testLinuxHome = {
-    expr = (import ../hosts/linux-generic/options.nix).homeDirectory;
+    expr = "/home/" + (import ../user-options/options.nix).username;
     expected = "/home/lamy210";
   };
 }

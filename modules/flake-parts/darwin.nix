@@ -1,7 +1,6 @@
 { inputs, ... }:
 let
   userOptions = import ../../user-options/options.nix;
-  hostOptions = import ../../hosts/macbook-air/options.nix;
 in
 {
   flake = {
@@ -13,7 +12,7 @@ in
           inputs.home-manager.darwinModules.home-manager
           {
             system.primaryUser = userOptions.username;
-            users.users.${userOptions.username}.home = hostOptions.homeDirectory;
+            users.users.${userOptions.username}.home = "/Users/${userOptions.username}";
             nixpkgs.config.allowUnfree = true;
             home-manager = {
               useGlobalPkgs = true;

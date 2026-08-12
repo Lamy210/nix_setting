@@ -1,10 +1,5 @@
 _: {
   imports = [
-    ./packages/cli.nix
-    ./packages/git.nix
-    ./packages/dev.nix
-    ./packages/containers.nix
-    ./packages/db.nix
     ./shell.nix
     ./programs.nix
     ./dotfiles.nix
