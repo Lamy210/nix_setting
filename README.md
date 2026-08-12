@@ -36,8 +36,8 @@ cd "$HOME/nix_setting"
 
 ```bash
 # 設定変更を適用
-nh switch .#macbook-air       # macOS (nix-darwin + home-manager)
-nh home switch .#linux        # Linux (home-manager)
+nh darwin switch .#darwinConfigurations.macbook-air   # macOS (nix-darwin + home-manager)
+nh home switch .#homeConfigurations.linux             # Linux (home-manager)
 
 # フォーマット
 nix fmt
@@ -49,7 +49,7 @@ nix flake check
 ## devShell
 
 ```bash
-nix develop            # 全部入り
+nix develop            # nix_setting メンテナンス用 (lint/format/nix診断)
 nix develop .#go       # Go
 nix develop .#python   # Python
 nix develop .#node     # Node.js
@@ -68,7 +68,7 @@ cp -r ~/nix_setting/templates/rust ./my-rust-project
 | テンプレート | 内容 |
 |-------------|------|
 | `devenv/` | Go + Python + Node + Rust + PostgreSQL + Redis |
-| `rust/` | rustup + cargo + rustc + clippy + rust-analyzer |
+| `rust/` | cargo + rustc + clippy + rust-analyzer |
 | `node/` | Node.js 24 + pnpm + bun + TypeScript |
 | `python/` | Python 3 + uv + ruff + pyright |
 | `flutter/` | Flutter + Dart + JDK |
@@ -78,7 +78,7 @@ cp -r ~/nix_setting/templates/rust ./my-rust-project
 Brewfile は廃止。nix-darwin で宣言管理。
 
 ```bash
-nh switch .#macbook-air   # Homebrew cask も自動適用
+nh darwin switch .#darwinConfigurations.macbook-air   # Homebrew cask も自動適用
 ```
 
 ## CI
@@ -112,5 +112,5 @@ home.packages = with pkgs; [
 ```
 
 ```bash
-nh switch .#macbook-air  # 再適用
+nh darwin switch .#darwinConfigurations.macbook-air  # 再適用
 ```

@@ -5,10 +5,10 @@ default:
 
 # ---- apply ----
 apply:
-    nh switch .#macbook-air
+    nh darwin switch .#darwinConfigurations.macbook-air
 
 apply-linux:
-    nh home switch .#linux
+    nh home switch .#homeConfigurations.linux
 
 # ---- build / check ----
 build:

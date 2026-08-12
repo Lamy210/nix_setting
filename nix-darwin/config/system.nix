@@ -73,10 +73,6 @@ _: {
         SortDirection = 0;
       };
 
-      LaunchServices = {
-        LSQuarantine = false;
-      };
-
       CustomUserPreferences = {
         "com.apple.desktopservices" = {
           DSDontWriteNetworkStores = true;

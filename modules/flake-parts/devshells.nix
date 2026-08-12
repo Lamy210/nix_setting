@@ -27,7 +27,6 @@
           typescript-language-server
         ];
         rust = with pkgs; [
-          rustup
           cargo
           rustc
           rust-analyzer

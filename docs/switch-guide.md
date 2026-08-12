@@ -6,7 +6,7 @@ CI は build まで検証するが、実際の `switch`（適用）は実機で�
 
 ```bash
 # 1. 設定変更を適用 (nix-darwin + home-manager 一括)
-nh switch .#macbook-air
+nh darwin switch .#darwinConfigurations.macbook-air
 
 # または素の nix-darwin
 nix run nix-darwin -- switch --flake .#macbook-air
@@ -24,7 +24,7 @@ darwin-rebuild --list-generations
 
 ```bash
 # 1. 適用
-nh home switch .#linux
+nh home switch .#homeConfigurations.linux
 
 # 2. ロールバック
 home-manager generations
@@ -42,7 +42,7 @@ nix build .#darwinConfigurations.macbook-air.system --no-link   # macOS
 nix build .#homeConfigurations.linux.activationPackage --no-link # Linux
 
 # 問題なければ switch
-nh switch .#macbook-air
+nh darwin switch .#darwinConfigurations.macbook-air
 ```
 
 ## 注意
