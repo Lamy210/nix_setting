@@ -91,6 +91,7 @@
             trufflehog
             nixd
             omnix
+            devenv
           ];
           shellHook = ''
             echo "dev shell ready"
