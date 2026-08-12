@@ -13,6 +13,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: DeterminateSystems/nix-installer-action@v16
+        with:
+          flakehub: false
 
       - uses: DeterminateSystems/magic-nix-cache-action@v8
 
@@ -39,11 +41,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: DeterminateSystems/nix-installer-action@v16
+        with:
+          flakehub: false
 
       - uses: DeterminateSystems/magic-nix-cache-action@v8
 
       - name: nix fmt check
-        run: nix develop --command nix fmt -- --check .
+        run: |
+          nix fmt
+          git diff --exit-code
 
       - name: statix check
         run: nix develop --command statix check .
