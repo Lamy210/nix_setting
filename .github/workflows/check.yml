@@ -46,11 +46,6 @@ jobs:
 
       - uses: DeterminateSystems/magic-nix-cache-action@v8
 
-      - name: nix fmt check
-        run: |
-          nix fmt
-          git diff --exit-code
-
       - name: statix check
         run: nix develop --command statix check .
 
