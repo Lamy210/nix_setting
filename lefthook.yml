@@ -10,4 +10,4 @@ pre-commit:
       glob: "*.nix"
       run: deadnix --fail {staged_files}
     secret-scan:
-      run: trufflehog filesystem . --only-verified --no-git
+      run: trufflehog filesystem . --only-verified
