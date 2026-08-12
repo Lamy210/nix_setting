@@ -36,6 +36,12 @@
       .row .val {
         font-weight: 600;
       }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+      }
       button {
         background: #38bdf8;
         color: #0f172a;
@@ -44,6 +50,22 @@
         padding: 0.6rem 1.2rem;
         font-weight: 600;
         cursor: pointer;
+      }
+      button.danger {
+        background: #f87171;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      pre {
+        background: #0f172a;
+        border-radius: 0.75rem;
+        padding: 1rem;
+        overflow: auto;
+        font-size: 0.85rem;
+        white-space: pre-wrap;
+        min-height: 8rem;
       }
     </style>
   </head>
@@ -56,21 +78,54 @@
       <div class="row"><span class="key">homebrew</span><span class="val" id="homebrew">-</span></div>
       <div class="row"><span class="key">applied</span><span class="val" id="applied">-</span></div>
     </div>
-    <button id="refresh">更新</button>
+
+    <div class="actions">
+      <button id="refresh">更新</button>
+      <button id="scan">スキャン</button>
+      <button id="apply">適用</button>
+      <button id="rollback" class="danger">ロールバック</button>
+      <button id="upgrade">アップグレード</button>
+    </div>
+
+    <div class="card">
+      <pre id="output">出力はここに表示されます</pre>
+    </div>
 
     <script>
       const { invoke } = window.__TAURI__.core;
 
+      const $ = (id) => document.getElementById(id);
+
       async function refresh() {
         const s = await invoke("get_status");
-        document.getElementById("host").textContent = s.host;
-        document.getElementById("user").textContent = s.user ?? "-";
-        document.getElementById("nix").textContent = s.nix ? "yes" : "no";
-        document.getElementById("homebrew").textContent = s.homebrew ? "yes" : "no";
-        document.getElementById("applied").textContent = s.applied_revision ?? "(never)";
+        $("host").textContent = s.host;
+        $("user").textContent = s.user ?? "-";
+        $("nix").textContent = s.nix ? "yes" : "no";
+        $("homebrew").textContent = s.homebrew ? "yes" : "no";
+        $("applied").textContent = s.applied_revision ?? "(never)";
       }
 
-      document.getElementById("refresh").addEventListener("click", refresh);
+      async function run(fn, name) {
+        const btn = $(name);
+        btn.disabled = true;
+        $("output").textContent = `running ${name}...`;
+        try {
+          const r = await fn();
+          $("output").textContent = r.output;
+        } catch (e) {
+          $("output").textContent = String(e);
+        } finally {
+          btn.disabled = false;
+          refresh();
+        }
+      }
+
+      $("refresh").addEventListener("click", refresh);
+      $("scan").addEventListener("click", () => run(() => invoke("run_scan"), "scan"));
+      $("apply").addEventListener("click", () => run(() => invoke("run_apply"), "apply"));
+      $("rollback").addEventListener("click", () => run(() => invoke("run_rollback"), "rollback"));
+      $("upgrade").addEventListener("click", () => run(() => invoke("run_upgrade"), "upgrade"));
+
       refresh();
     </script>
   </body>
