@@ -2,6 +2,21 @@
 
 SchneeForge（Declarative Developer Workstation Manager）の開発ルール。チーム開発相当の規律を守る。
 
+## セッション引き継ぎ（必ず実行）
+
+セッション開始時と終了時に、状態を引き継ぐ。
+
+### 開始時
+
+1. [docs/STATUS.md](./docs/STATUS.md) を読む（現在の状態・既知のデグレ・次の作業）
+2. [openspec/changes/](./openspec/changes/) の進行中 change を `openspec status` で確認
+3. MCP の memory サーバ（`search_nodes`）で前セッションのメモリを検索
+
+### 終了時
+
+1. 完了した作業・残タスク・判断・注意点を memory MCP（`create_entities` / `create_relations`）へ保存
+2. [docs/STATUS.md](./docs/STATUS.md) の「完成済み」「進行中」「既知のデグレ」を更新
+
 ## 開発フロー: OpenSpec + ブランチ + PR を必ず使う
 
 main へ直接コミットしない。必ず feature branch → PR → レビュー → merge とする。
@@ -97,3 +112,5 @@ openspec validate --all
 ## 現在進行中
 
 - `openspec/changes/gui-normalization/` — GUI を動く installer へ（tasks.md 63件、Phase 1 の Core Foundation から着手）
+- 状態・既知のデグレ・次の作業は [docs/STATUS.md](./docs/STATUS.md) を参照（セッション開始時に必ず読む）
+- リリース運用は [RELEASE.md](./RELEASE.md) を参照

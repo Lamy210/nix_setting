@@ -34,3 +34,6 @@ result
 # Rust
 target/
 apps/desktop/src-tauri/gen/
+
+# Session memory (MCP)
+.opencode/memory.jsonl

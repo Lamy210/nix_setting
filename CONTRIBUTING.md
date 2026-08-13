@@ -2,6 +2,9 @@
 
 SchneeForge の開発運用ルール。チーム開発相当の規律を守る。
 
+> リリース運用（release ブランチ・チェックリスト）は [RELEASE.md](./RELEASE.md) を参照。
+> 現在の開発状態・デグレ・次の作業は [docs/STATUS.md](./docs/STATUS.md) を参照。
+
 ## ブランチ運用（Git Flow 簡略版）
 
 ```
