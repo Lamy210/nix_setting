@@ -84,9 +84,9 @@
 
 ## 9. Release gate
 
-- [ ] 9.1 OpenSpec validation を CI に追加
-- [ ] 9.2 desktop build smoke
-- [ ] 9.3 CLI artifact smoke
-- [ ] 9.4 DMG smoke
-- [ ] 9.5 Homebrew tap を `Lamy210/homebrew-tap` に分離（`brew install Lamy210/tap/schneeforge`）
-- [ ] 9.6 README と実 Release を同期（v0.2.0-rc.1）
+- [x] 9.1 OpenSpec validation を CI に追加
+- [x] 9.2 desktop build smoke
+- [x] 9.3 CLI artifact smoke
+- [x] 9.4 DMG smoke
+- [x] 9.5 Homebrew tap を `Lamy210/homebrew-tap` に分離（`brew install Lamy210/tap/schneeforge`）
+- [x] 9.6 README と実 Release を同期（v0.2.0-rc.1）

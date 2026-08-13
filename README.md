@@ -69,7 +69,7 @@ cargo install --git https://github.com/Lamy210/nix_setting schneeforge
 ### Homebrew (macOS)
 
 ```bash
-brew tap Lamy210/nix_setting
+brew tap Lamy210/homebrew-tap
 brew install schneeforge
 ```
 
