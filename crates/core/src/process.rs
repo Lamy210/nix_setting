@@ -2,6 +2,17 @@ use std::process::Command;
 
 use crate::error::{Error, Result};
 
+/// コマンドが存在し実行可能かを確認する (出力は破棄)
+pub fn command_succeeds(cmd: &str, args: &[String]) -> bool {
+    Command::new(cmd)
+        .args(args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// コマンドを stdio 継承で実行する (リアルタイム出力)
 pub fn run_stream(cmd: &str, args: &[String]) -> Result<()> {
     println!("running: {cmd} {}", args.join(" "));

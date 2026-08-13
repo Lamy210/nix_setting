@@ -38,12 +38,12 @@
 
 ## 4. Bootstrap
 
-- [ ] 4.1 prerequisite preflight（Nix/Git/flakes が実際に動くか）
-- [ ] 4.2 pinned nix-darwin bootstrap（`--inputs-from <repo> nix-darwin#darwin-rebuild`）
-- [ ] 4.3 Linux Home Manager bootstrap（locked HM input 利用を比較検討）
-- [ ] 4.4 privilege handling（sudo / GUI privileged helper の分離）
-- [ ] 4.5 backup/restore 設計
-- [ ] 4.6 fresh-install integration tests（ケースB: repo/config/state/nh なし）
+- [x] 4.1 prerequisite preflight（Nix/Git/flakes が実際に動くか）
+- [x] 4.2 pinned nix-darwin bootstrap（`--inputs-from <repo> nix-darwin#darwin-rebuild`）
+- [x] 4.3 Linux Home Manager bootstrap（locked HM input 利用を比較検討）
+- [x] 4.4 privilege handling（sudo / GUI privileged helper の分離）
+- [x] 4.5 backup/restore 設計
+- [x] 4.6 fresh-install integration tests（ケースB: repo/config/state/nh なし）
 
 ## 5. Diagnostics API
 

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crate::discovery::{detect_target, has_git, has_homebrew, has_nix};
 use crate::error::{Error, Result};
 use crate::operations::{apply, ApplyResult};
+use crate::process::command_succeeds;
 use crate::state::StateStore;
 
 /// システム診断情報
@@ -59,6 +60,29 @@ pub fn enable_flakes() -> Result<()> {
     Ok(())
 }
 
+/// 初回セットアップ前の前提条件チェック結果
+#[derive(Debug, Clone)]
+pub struct PreflightReport {
+    pub nix: bool,
+    pub git: bool,
+    pub flakes: bool,
+}
+
+impl PreflightReport {
+    pub fn is_ok(&self) -> bool {
+        self.nix && self.git && self.flakes
+    }
+}
+
+/// Nix / Git / flakes が実際に動作するかを確認する
+pub fn preflight() -> PreflightReport {
+    PreflightReport {
+        nix: command_succeeds("nix", &["--version".to_string()]),
+        git: command_succeeds("git", &["--version".to_string()]),
+        flakes: command_succeeds("nix", &["flake".to_string(), "--help".to_string()]),
+    }
+}
+
 /// 初回セットアップ: Nix 確認 → flakes 有効化 → apply
 pub fn setup(repo: &str, store: &StateStore) -> Result<ApplyResult> {
     if !has_nix() {
@@ -99,5 +123,25 @@ mod tests {
         let store =
             StateStore::new(std::env::temp_dir().join("schneeforge-uninstall-missing.json"));
         assert!(!uninstall(&store).unwrap());
+    }
+
+    #[test]
+    fn preflight_report_is_ok_when_all_present() {
+        let report = PreflightReport {
+            nix: true,
+            git: true,
+            flakes: true,
+        };
+        assert!(report.is_ok());
+    }
+
+    #[test]
+    fn preflight_report_fails_when_flakes_missing() {
+        let report = PreflightReport {
+            nix: true,
+            git: true,
+            flakes: false,
+        };
+        assert!(!report.is_ok());
     }
 }

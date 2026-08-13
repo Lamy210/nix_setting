@@ -2,27 +2,37 @@ use crate::discovery::{has_git, has_homebrew, has_nix, ConfigurationTarget, Plat
 use crate::error::{Error, Result};
 use crate::process::{run_capture, run_stream};
 
-/// switch コマンドを構築 (共有)
-fn switch_command(target: &ConfigurationTarget, flake: &str) -> (&'static str, Vec<String>) {
-    if target.platform() == Platform::MacOS {
-        (
-            "nh",
-            vec![
-                "darwin".to_string(),
-                "switch".to_string(),
-                format!("{flake}#darwinConfigurations.{target}"),
-            ],
-        )
-    } else {
-        (
-            "nh",
-            vec![
-                "home".to_string(),
-                "switch".to_string(),
-                format!("{flake}#homeConfigurations.{target}"),
-            ],
-        )
-    }
+/// macOS apply の引数 (`nix run --inputs-from <repo> nix-darwin#darwin-rebuild -- switch --flake <ref>`)
+/// `--inputs-from <repo>` で repo の flake.lock に pin された nix-darwin を使う (registry 非依存)
+fn darwin_switch_args(repo: &str, target: &ConfigurationTarget) -> Vec<String> {
+    vec![
+        "run".to_string(),
+        "--inputs-from".to_string(),
+        repo.to_string(),
+        "nix-darwin#darwin-rebuild".to_string(),
+        "--".to_string(),
+        "switch".to_string(),
+        "--flake".to_string(),
+        target.switch_ref(repo),
+    ]
+}
+
+/// Linux apply の build 引数 (`nix build --out-link <link> <ref>`)
+fn linux_build_args(repo: &str, target: &ConfigurationTarget, link: &str) -> Vec<String> {
+    vec![
+        "build".to_string(),
+        "--out-link".to_string(),
+        link.to_string(),
+        target.build_ref(repo),
+    ]
+}
+
+/// activationPackage を build する際の一時 symlink パス
+fn activation_link() -> String {
+    std::env::temp_dir()
+        .join(format!("schneeforge-activate-{}", std::process::id()))
+        .to_string_lossy()
+        .to_string()
 }
 
 fn unsupported(target: &ConfigurationTarget) -> Error {
@@ -33,21 +43,48 @@ fn unsupported(target: &ConfigurationTarget) -> Error {
 }
 
 /// apply: ストリーミング実行 (stdio 継承、リアルタイム出力)
-pub(crate) fn apply(target: &ConfigurationTarget, flake: &str) -> Result<()> {
+pub(crate) fn apply(target: &ConfigurationTarget, repo: &str) -> Result<()> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
-    let (cmd, args) = switch_command(target, flake);
-    run_stream(cmd, &args)
+    if target.platform() == Platform::MacOS {
+        run_stream("nix", &darwin_switch_args(repo, target))
+    } else {
+        apply_linux(target, repo)
+    }
 }
 
 /// apply_captured: 出力をキャプチャして返す (GUI 用)
-pub(crate) fn apply_captured(target: &ConfigurationTarget, flake: &str) -> Result<String> {
+pub(crate) fn apply_captured(target: &ConfigurationTarget, repo: &str) -> Result<String> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
-    let (cmd, args) = switch_command(target, flake);
-    run_capture(cmd, &args)
+    if target.platform() == Platform::MacOS {
+        run_capture("nix", &darwin_switch_args(repo, target))
+    } else {
+        apply_linux_captured(target, repo)
+    }
+}
+
+/// Linux: activationPackage を build して activate する (nh 非依存)
+fn apply_linux(target: &ConfigurationTarget, repo: &str) -> Result<()> {
+    let link = activation_link();
+    run_stream("nix", &linux_build_args(repo, target, &link))?;
+    let result = run_stream(&format!("{link}/activate"), &[]);
+    let _ = std::fs::remove_file(&link);
+    result
+}
+
+fn apply_linux_captured(target: &ConfigurationTarget, repo: &str) -> Result<String> {
+    let link = activation_link();
+    let mut out = run_capture("nix", &linux_build_args(repo, target, &link))?;
+    let activate = run_capture(&format!("{link}/activate"), &[])?;
+    let _ = std::fs::remove_file(&link);
+    if !activate.is_empty() {
+        out.push('\n');
+        out.push_str(&activate);
+    }
+    Ok(out)
 }
 
 /// rollback: ストリーミング実行
@@ -157,20 +194,28 @@ mod tests {
     #[test]
     fn switch_command_macos() {
         let target = detect_target_for("macos", "aarch64");
-        let (cmd, args) = switch_command(&target, "/tmp/repo");
-        assert_eq!(cmd, "nh");
-        assert_eq!(args[0], "darwin");
-        assert_eq!(args[1], "switch");
-        assert_eq!(args[2], "/tmp/repo#darwinConfigurations.macbook-air");
+        let args = darwin_switch_args("/tmp/repo", &target);
+        assert_eq!(args[0], "run");
+        assert_eq!(args[1], "--inputs-from");
+        assert_eq!(args[2], "/tmp/repo");
+        assert_eq!(args[3], "nix-darwin#darwin-rebuild");
+        assert_eq!(args[4], "--");
+        assert_eq!(args[5], "switch");
+        assert_eq!(args[6], "--flake");
+        assert_eq!(args[7], "/tmp/repo#darwinConfigurations.macbook-air");
     }
 
     #[test]
     fn switch_command_linux() {
         let target = detect_target_for("linux", "x86_64");
-        let (cmd, args) = switch_command(&target, "/tmp/repo");
-        assert_eq!(cmd, "nh");
-        assert_eq!(args[0], "home");
-        assert_eq!(args[2], "/tmp/repo#homeConfigurations.linux");
+        let args = linux_build_args("/tmp/repo", &target, "/tmp/link");
+        assert_eq!(args[0], "build");
+        assert_eq!(args[1], "--out-link");
+        assert_eq!(args[2], "/tmp/link");
+        assert_eq!(
+            args[3],
+            "/tmp/repo#homeConfigurations.linux.activationPackage"
+        );
     }
 
     #[test]
@@ -184,5 +229,17 @@ mod tests {
                 "/tmp/repo".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn apply_is_nh_free() {
+        let mac = detect_target_for("macos", "aarch64");
+        let mac_args = darwin_switch_args("/tmp/repo", &mac);
+        assert!(!mac_args.iter().any(|a| a == "nh"));
+        assert!(mac_args.iter().any(|a| a == "nix-darwin#darwin-rebuild"));
+
+        let linux = detect_target_for("linux", "x86_64");
+        let linux_args = linux_build_args("/tmp/repo", &linux, "/tmp/link");
+        assert!(!linux_args.iter().any(|a| a == "nh"));
     }
 }
