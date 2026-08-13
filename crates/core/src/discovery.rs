@@ -46,9 +46,11 @@ impl fmt::Display for Host {
 
 /// 実行環境から OS / arch を検出して Host を返す
 pub fn detect_host() -> Host {
-    let os = std::env::consts::OS;
-    let arch = std::env::consts::ARCH;
+    detect_host_for(std::env::consts::OS, std::env::consts::ARCH)
+}
 
+/// OS / arch 文字列から Host を導出する純関数 (テスト可能)
+pub fn detect_host_for(os: &str, arch: &str) -> Host {
     match os {
         "macos" => match arch {
             "aarch64" => Host::MacbookAir,
@@ -150,5 +152,27 @@ mod tests {
     #[test]
     fn which_returns_none_for_nonexistent() {
         assert!(which("__definitely_not_a_real_command__").is_none());
+    }
+
+    #[test]
+    fn detect_host_for_all_platforms() {
+        // macOS
+        assert_eq!(detect_host_for("macos", "aarch64"), Host::MacbookAir);
+        assert_eq!(detect_host_for("macos", "x86_64"), Host::Unsupported);
+        // Linux
+        assert_eq!(detect_host_for("linux", "x86_64"), Host::Linux);
+        assert_eq!(detect_host_for("linux", "aarch64"), Host::LinuxArm);
+        assert_eq!(detect_host_for("linux", "riscv64"), Host::Unsupported);
+        // その他
+        assert_eq!(detect_host_for("windows", "x86_64"), Host::Unsupported);
+        assert_eq!(detect_host_for("freebsd", "x86_64"), Host::Unsupported);
+    }
+
+    #[test]
+    fn detect_host_for_home_directory_consistency() {
+        let h = detect_host_for("linux", "x86_64");
+        assert_eq!(h.home_directory("alice"), "/home/alice");
+        let h = detect_host_for("macos", "aarch64");
+        assert_eq!(h.home_directory("alice"), "/Users/alice");
     }
 }

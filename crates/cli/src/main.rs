@@ -1,7 +1,6 @@
 use clap::{Parser, Subcommand};
 use schneeforge_core::{detect_host, has_git, has_homebrew, has_nix, Host, Manifest, State};
 use std::process::Command;
-
 /// Declarative Developer Workstation Manager
 #[derive(Parser)]
 #[command(name = "schneeforge", version, about)]
@@ -90,16 +89,7 @@ fn scan() -> Result {
     let manifest = load_manifest();
     println!("=== scan ===");
     println!();
-    println!("[system]");
-    println!("  OS:   {}", std::env::consts::OS);
-    println!("  arch: {}", std::env::consts::ARCH);
-    println!("  host: {host}");
-    println!();
-    println!("[nix]");
-    println!("  installed: {}", if has_nix() { "yes" } else { "no" });
-    println!();
-    println!("[homebrew]");
-    println!("  installed: {}", if has_homebrew() { "yes" } else { "no" });
+    print!("{}", schneeforge_core::scan(host));
     println!();
     println!("[manifest]");
     match manifest {
@@ -144,28 +134,7 @@ fn apply() -> Result {
         ));
     }
     println!("applying host: {host}");
-
-    let result = if host == Host::MacbookAir {
-        run_nix([
-            "run",
-            "nix-darwin",
-            "--",
-            "switch",
-            "--flake",
-            &format!(".#{host}"),
-        ])
-    } else {
-        run_nix([
-            "run",
-            "nixpkgs#home-manager",
-            "--",
-            "switch",
-            "--flake",
-            &format!(".#{host}"),
-        ])
-    };
-
-    result?;
+    print!("{}", schneeforge_core::apply(host)?);
 
     // 適用後に状態を記録
     let revision = current_git_revision();
@@ -258,20 +227,15 @@ fn plan() -> Result {
 
 fn rollback() -> Result {
     let host = detect_host();
-    if host == Host::Unsupported {
-        return Err("unsupported platform".to_string());
-    }
     println!("rolling back host: {host}");
-    if host == Host::MacbookAir {
-        run_command("darwin-rebuild", ["--rollback"])
-    } else {
-        run_nix(["run", "nixpkgs#home-manager", "--", "switch", "--rollback"])
-    }
+    print!("{}", schneeforge_core::rollback(host)?);
+    Ok(())
 }
 
 fn upgrade() -> Result {
     println!("updating flake.lock...");
-    run_nix(["flake", "update"])
+    print!("{}", schneeforge_core::upgrade()?);
+    Ok(())
 }
 
 fn sync() -> Result {
