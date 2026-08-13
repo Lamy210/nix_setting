@@ -176,19 +176,9 @@ Applying / Verifying / RollingBack / Failed
 - `NeedsSetup` → Apply ボタン非表示、`Set up SchneeForge` のみ表示
 - `Applying` → mutating action を全 disable
 
----
+### P1-H: GUI E2E テスト
 
-## P2: 後続
-
-### P2-A: GUI streaming output
-
-Tauri event/channel で Rust process の stdout を逐次表示。
-
-```
-Rust process stdout → Tauri event → Frontend log viewer
-```
-
-### P2-B: GUI E2E テスト
+CI が green でも GUI が壊れていた原因は desktop CI が `cargo check` のみで JS/IPC/DOM を検証しないため。
 
 | テスト | 成功条件 |
 |--------|---------|
@@ -203,7 +193,19 @@ Rust process stdout → Tauri event → Frontend log viewer
 | Button | 実行中 disable |
 | Unsupported platform | crash しない |
 
-### P2-C: package/profile editor
+---
+
+## P2: 後続
+
+### P2-A: GUI streaming output
+
+Tauri event/channel で Rust process の stdout を逐次表示。
+
+```
+Rust process stdout → Tauri event → Frontend log viewer
+```
+
+### P2-B: package/profile editor
 
 ---
 
@@ -266,6 +268,46 @@ SchneeForge.app 起動
 | SOLID | GUI は core の adapter |
 | YAGNI | React 等はまだ不要 |
 | Diagnosability | `-` ではなく原因を表示 |
+
+## 最終UX案 (target state)
+
+Setup 前:
+
+```
+┌──────────────────────────────────┐
+│ ❄ SchneeForge                    │
+│                                  │
+│ System                           │
+│ macOS arm64                 ✓    │
+│                                  │
+│ Nix                         ✓    │
+│ Git                         ✓    │
+│ Configuration               ⚠    │
+│                                  │
+│ Repository not configured        │
+│                                  │
+│      [ Set up SchneeForge ]      │
+└──────────────────────────────────┘
+```
+
+Setup 後:
+
+```
+┌──────────────────────────────────┐
+│ ❄ SchneeForge                    │
+│                                  │
+│ Environment healthy         ✓    │
+│ Revision abc123                  │
+│                                  │
+│ [Scan] [Plan] [Apply]            │
+│ [Upgrade] [Rollback]             │
+│                                  │
+│ Activity                         │
+│ ✓ evaluated configuration        │
+│ ✓ downloaded 12 paths            │
+│ ✓ activated generation 23        │
+└──────────────────────────────────┘
+```
 
 ## リリース判断
 
