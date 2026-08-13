@@ -73,7 +73,8 @@ fn run_upgrade() -> CommandOutput {
 }
 
 fn load_manifest() -> Option<schneeforge_core::Manifest> {
-    let content = std::fs::read_to_string("config.toml").ok()?;
+    let repo = resolve_repo();
+    let content = std::fs::read_to_string(format!("{repo}/config.toml")).ok()?;
     schneeforge_core::Manifest::parse(&content).ok()
 }
 
