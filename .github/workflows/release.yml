@@ -41,8 +41,27 @@ jobs:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.artifact }}
 
+  build-dmg:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - uses: cachix/install-nix-action@08dcb3a5e62fa31e2da3d490afc4176ef55ecd72
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: build DMG
+        run: nix develop --command cargo tauri build
+        working-directory: apps/desktop/src-tauri
+
+      - name: upload DMG
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: schneeforge-dmg
+          path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+
   release:
-    needs: build-binaries
+    needs: [build-binaries, build-dmg]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262

@@ -74,7 +74,12 @@ brew install schneeforge
 ### デスクトップ GUI (Tauri)
 
 ```bash
+# DMG インストーラー (macOS)
+# GitHub Release から SchneeForge_*.dmg をダウンロードして開く
+
+# または Nix
 nix build github:Lamy210/nix_setting#schneeforge-desktop
+
 # または開発用
 cd apps/desktop/src-tauri && cargo tauri dev
 ```
