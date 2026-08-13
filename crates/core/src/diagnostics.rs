@@ -90,35 +90,31 @@ impl From<&ResolvedTool> for ResolvedToolSummary {
     }
 }
 
-/// 診断 Status を構築する。`Toolchain` を1回解決し、NixHealth 検査に使う
-pub fn diagnose(cli_repo: Option<&str>) -> Diagnostics {
+/// 診断 Status を構築する。呼び出し元が解決済みの `Toolchain` を渡す。
+///
+/// desktop は `CachedToolchain` から・CLI は起動時に1回解決した `Toolchain` から
+/// 呼び出すことで、起動直後の PATH 補正 (`fix_path_env::fix`) が反映された
+/// 同一の解決結果を Diagnostics と apply 系操作で共有できる。
+pub fn diagnose(tc: &Toolchain, cli_repo: Option<&str>) -> Diagnostics {
     let resolver = ToolResolver::new();
-    let nix = resolver.resolve_tool_with_version("nix");
-    let nh = resolver.resolve_tool_with_version("nh");
-    let git = resolver.resolve_tool_with_version("git");
-    let homebrew = resolver.resolve_tool_with_version("brew");
+    let homebrew = tc
+        .homebrew
+        .clone()
+        .or_else(|| resolver.resolve_tool_with_version("brew"));
+    let nh = tc
+        .nh
+        .clone()
+        .or_else(|| resolver.resolve_tool_with_version("nh"));
 
     // 後方互換 ToolsSummary
     let tools = ToolsSummary {
-        nix: ToolStatus::from(nix.as_ref()),
+        nix: ToolStatus::from(Some(&tc.nix)),
         nh: ToolStatus::from(nh.as_ref()),
-        git: ToolStatus::from(git.as_ref()),
+        git: ToolStatus::from(Some(&tc.git)),
         homebrew: ToolStatus::from(homebrew.as_ref()),
     };
 
-    // Toolchain 構築（Nix/Git が欠けても Diagnostics 自体は返せるように None を埋める）
-    let placeholder = ResolvedTool::new(
-        std::path::PathBuf::from("/__not_resolved__"),
-        ToolSource::Path,
-    );
-    let tc = Toolchain {
-        nix: nix.clone().unwrap_or_else(|| placeholder.clone()),
-        git: git.clone().unwrap_or_else(|| placeholder.clone()),
-        homebrew: homebrew.clone(),
-        nh: nh.clone(),
-    };
-
-    let nix_health = nix_health(&tc);
+    let nix_health = nix_health(tc);
 
     let target = detect_target();
     let repo_path = resolve_repo(cli_repo);
@@ -248,9 +244,22 @@ mod tests {
     use crate::tool::{ResolvedTool, ToolSource};
     use std::path::PathBuf;
 
+    fn dummy_tc() -> Toolchain {
+        Toolchain {
+            nix: ResolvedTool::new(
+                PathBuf::from("/__definitely_not_a_real_nix__"),
+                ToolSource::SystemProfile,
+            ),
+            git: ResolvedTool::new(PathBuf::from("/usr/bin/git"), ToolSource::Path),
+            homebrew: None,
+            nh: None,
+        }
+    }
+
     #[test]
     fn diagnose_nonexistent_repo() {
-        let d = diagnose(Some("/definitely/not/a/real/repo"));
+        let tc = dummy_tc();
+        let d = diagnose(&tc, Some("/definitely/not/a/real/repo"));
         assert!(!d.repo_exists);
         assert!(!d.manifest_found);
         assert!(d.manifest_error.is_some());
@@ -260,7 +269,8 @@ mod tests {
 
     #[test]
     fn diagnose_reports_platform_and_architecture() {
-        let d = diagnose(Some("/definitely/not/a/real/repo"));
+        let tc = dummy_tc();
+        let d = diagnose(&tc, Some("/definitely/not/a/real/repo"));
         assert!(!d.platform.is_empty());
         assert!(!d.architecture.is_empty());
         assert!(!d.host.is_empty());
@@ -268,7 +278,8 @@ mod tests {
 
     #[test]
     fn diagnose_includes_nix_health() {
-        let d = diagnose(Some("/definitely/not/a/real/repo"));
+        let tc = dummy_tc();
+        let d = diagnose(&tc, Some("/definitely/not/a/real/repo"));
         // nix_health フィールドが serialize 可能で、フィールド群が揃っていること
         let json = serde_json::to_string(&d.nix_health).expect("NixHealth must be serializable");
         assert!(json.contains("installed"));
@@ -278,7 +289,8 @@ mod tests {
 
     #[test]
     fn diagnose_includes_toolchain_summary() {
-        let d = diagnose(Some("/definitely/not/a/real/repo"));
+        let tc = dummy_tc();
+        let d = diagnose(&tc, Some("/definitely/not/a/real/repo"));
         // toolchain フィールドが serialize 可能な形で入っている
         let json =
             serde_json::to_string(&d.toolchain).expect("ToolchainSummary must be serializable");
@@ -288,16 +300,7 @@ mod tests {
 
     #[test]
     fn nix_health_returns_not_installed_when_binary_missing() {
-        // 存在しないパスを toolchain に詰めて nix_health を呼ぶ
-        let tc = Toolchain {
-            nix: ResolvedTool::new(
-                PathBuf::from("/__definitely_not_a_real_nix__"),
-                ToolSource::SystemProfile,
-            ),
-            git: ResolvedTool::new(PathBuf::from("/usr/bin/git"), ToolSource::Path),
-            homebrew: None,
-            nh: None,
-        };
+        let tc = dummy_tc();
         let health = nix_health(&tc);
         assert!(!health.installed);
         assert!(health.executable.is_none());
@@ -311,15 +314,7 @@ mod tests {
         // preflight の flakes 判定と nix_health の flakes_available は
         // 同じ `nix config show experimental-features` の出力を parse する。
         // ここでは nix_health が false を返す状況をシミュレート
-        let tc = Toolchain {
-            nix: ResolvedTool::new(
-                PathBuf::from("/__not_a_real_nix__"),
-                ToolSource::SystemProfile,
-            ),
-            git: ResolvedTool::new(PathBuf::from("/usr/bin/git"), ToolSource::Path),
-            homebrew: None,
-            nh: None,
-        };
+        let tc = dummy_tc();
         let pre = preflight(&tc);
         let health = nix_health(&tc);
         // Nix が見つからない場合、両方とも flakes 利用不可となる

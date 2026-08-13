@@ -57,8 +57,9 @@ impl CachedToolchain {
 }
 
 #[tauri::command]
-async fn get_status() -> Result<Diagnostics, String> {
-    tauri::async_runtime::spawn_blocking(|| schneeforge_core::diagnose(None))
+async fn get_status(state: tauri::State<'_, CachedToolchain>) -> Result<Diagnostics, String> {
+    let tc = state.get_or_resolve()?;
+    tauri::async_runtime::spawn_blocking(move || schneeforge_core::diagnose(&tc, None))
         .await
         .map_err(|e| format!("task error: {e}"))
 }

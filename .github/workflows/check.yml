@@ -103,13 +103,16 @@ jobs:
         run: |
           set -euo pipefail
           # Rust 側: tool.rs と CLI テストヘルパ以外で文字列リテラル spawn を使っていないか検出
-          # コメント行（// で始まるか /// doc comment）は除外
+          # コメント行（// で始まるか /// doc comment、行内 /* ... */ ）は除外
+          # 仕様: tool-resolution spec "文字列リテラル spawn の禁止"
           rust_hits=$(grep -rnE 'Command::new\("(nix|git|brew|nh)"|run_(capture|stream)\("(nix|git|brew|nh)"|command_succeeds\("(nix|git|brew|nh)"' crates apps 2>/dev/null \
             | grep -v 'crates/core/src/tool.rs' \
             | grep -v 'crates/cli/tests/' \
             | grep -v '^Binary file' \
             | grep -vE ':\s*(///?|\*).*Command::new' \
             | grep -vE ':\s*///' \
+            | grep -vE ':\s*/\*.*Command::new' \
+            | grep -vE '/\*.*Command::new\("\{0,1\}(nix|git|brew|nh)' \
             || true)
           if [ -n "$rust_hits" ]; then
             echo "ERROR: raw tool spawns detected. Use Toolchain instead." >&2
@@ -117,14 +120,15 @@ jobs:
             exit 1
           fi
           # shell 側: install.sh / bootstrap.sh で直接 nix/git/brew を呼んでいないか
+          # [$] を使うことで shellcheck SC2016 を回避しつつ $NIX_BIN リテラルを grep
           shell_hits=$(grep -nE '(^| )nix |(^| )git |(^| )brew ' install.sh bootstrap.sh 2>/dev/null \
             | grep -v '^#' \
-            | grep -v '\$NIX_BIN' \
-            | grep -v '\$GIT_BIN' \
-            | grep -v '\$BREW_BIN' \
+            | grep -v '[$]NIX_BIN' \
+            | grep -v '[$]GIT_BIN' \
+            | grep -v '[$]BREW_BIN' \
             || true)
           if [ -n "$shell_hits" ]; then
-            echo "ERROR: raw tool invocations in shell. Use \$NIX_BIN / \$GIT_BIN / \$BREW_BIN (resolve-tools.sh)." >&2
+            echo "ERROR: raw tool invocations in shell. Use [$]NIX_BIN / [$]GIT_BIN / [$]BREW_BIN (resolve-tools.sh)." >&2
             echo "$shell_hits" >&2
             exit 1
           fi
