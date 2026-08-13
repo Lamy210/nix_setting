@@ -146,12 +146,14 @@ fn setup(repo: &str) -> Result {
 }
 
 fn plan(repo: &str) -> Result {
+    let t = schneeforge_core::plan_target(repo).map_err(|e| e.to_string())?;
     println!("=== plan ===");
     println!();
-    println!("dry-run build...");
-    let t = schneeforge_core::plan(repo, false).map_err(|e| e.to_string())?;
     println!("  host: {}", t.host);
     println!("  target: {}", t.flake_target);
+    println!();
+    println!("dry-run build...");
+    schneeforge_core::plan(repo, false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
