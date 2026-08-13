@@ -6,7 +6,7 @@
       "command": ["npx", "-y", "@modelcontextprotocol/server-memory"],
       "enabled": true,
       "environment": {
-        "MEMORY_FILE_PATH": ".opencode/memory.jsonl"
+        "MEMORY_FILE_PATH": "/Users/lamy210/.opencode/memory.jsonl"
       }
     }
   }
