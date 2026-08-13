@@ -269,6 +269,10 @@ $("verify").addEventListener("click", verify);
 
 async function verify() {
   const btn = $("verify");
+  if (!btn) {
+    $("output").textContent = "検証ボタンが見つかりません";
+    return;
+  }
   btn.disabled = true;
   $("output").textContent = "検証中...";
   try {
