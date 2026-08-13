@@ -145,16 +145,12 @@ pub fn detect_arch_for(arch: &str) -> Architecture {
     }
 }
 
-/// PATH から実行可能ファイルを探す
+/// PATH から実行可能ファイルを探す (ToolResolver と同じ実行ビット判定に委譲)
 pub fn which(cmd: &str) -> Option<String> {
-    let path = std::env::var("PATH").ok()?;
-    for dir in path.split(':') {
-        let candidate = format!("{dir}/{cmd}");
-        if std::path::Path::new(&candidate).is_file() {
-            return Some(candidate);
-        }
-    }
-    None
+    let path_dirs: Vec<String> = std::env::var("PATH")
+        .map(|p| p.split(':').map(String::from).collect())
+        .unwrap_or_default();
+    crate::tool::find_executable(cmd, &path_dirs, &[])
 }
 
 /// Nix がインストールされているか
