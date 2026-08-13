@@ -56,9 +56,6 @@ experimental-features = nix-command flakes
 NIXCONF
 fi
 
-echo "Building home-manager generation ($HOST)..."
-nix build ".#homeConfigurations.${HOST}.activationPackage" --out-link ./result
-
 echo
 echo "Backing up existing dotfiles..."
 BACKUP_DIR="$HOME/hm-bak-$(date +%Y%m%d-%H%M%S)"
@@ -69,8 +66,15 @@ done
 echo "Backed up to $BACKUP_DIR"
 
 echo
-echo "Activating..."
-./result/activate
+if [ "$HOST" = "macbook-air" ]; then
+  echo "Applying nix-darwin + home-manager ($HOST)..."
+  nix run nix-darwin -- switch --flake ".#$HOST"
+else
+  echo "Building home-manager generation ($HOST)..."
+  nix build ".#homeConfigurations.${HOST}.activationPackage" --out-link ./result
+  echo "Activating..."
+  ./result/activate
+fi
 
 echo
 echo "Done. Reload WezTerm with Ctrl+Shift+R"
