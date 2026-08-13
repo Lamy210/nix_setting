@@ -54,12 +54,12 @@
 
 ## 6. Desktop operations
 
-- [ ] 6.1 async Tauri commands（spawn_blocking）
-- [ ] 6.2 backend operation lock の handling
-- [ ] 6.3 IPC guard
-- [ ] 6.4 devUrl 削除（static frontend のみ）
-- [ ] 6.5 CSP 設定（null を解消）
-- [ ] 6.6 未使用の opener plugin / capability を削除
+- [x] 6.1 async Tauri commands（spawn_blocking）
+- [x] 6.2 backend operation lock の handling
+- [x] 6.3 IPC guard
+- [x] 6.4 devUrl 削除（static frontend のみ）
+- [x] 6.5 CSP 設定（null を解消）
+- [x] 6.6 未使用の opener plugin / capability を削除
 
 ## 7. First Run Wizard
 

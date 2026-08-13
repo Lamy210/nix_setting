@@ -1,10 +1,36 @@
-use schneeforge_core::{detect_target, resolve_repo, scan, Diagnostics, StateStore};
+use schneeforge_core::{detect_target, resolve_repo, scan, ApplyResult, Diagnostics, StateStore};
 use serde::Serialize;
 
 #[derive(Serialize)]
 struct CommandOutput {
     success: bool,
     output: String,
+}
+
+fn apply_output(r: schneeforge_core::Result<ApplyResult>) -> CommandOutput {
+    match r {
+        Ok(r) => CommandOutput {
+            success: true,
+            output: r.output.unwrap_or_default(),
+        },
+        Err(e) => CommandOutput {
+            success: false,
+            output: e.to_string(),
+        },
+    }
+}
+
+fn option_output(r: schneeforge_core::Result<Option<String>>) -> CommandOutput {
+    match r {
+        Ok(out) => CommandOutput {
+            success: true,
+            output: out.unwrap_or_default(),
+        },
+        Err(e) => CommandOutput {
+            success: false,
+            output: e.to_string(),
+        },
+    }
 }
 
 #[tauri::command]
@@ -28,47 +54,59 @@ fn run_scan() -> CommandOutput {
 }
 
 #[tauri::command]
-fn run_apply() -> CommandOutput {
-    match schneeforge_core::apply(&detect_target(), &resolve_repo(None), &StateStore::default(), true)
-    {
-        Ok(result) => CommandOutput {
-            success: true,
-            output: result.output.unwrap_or_default(),
-        },
-        Err(e) => CommandOutput { success: false, output: e.to_string() },
-    }
+async fn run_apply() -> CommandOutput {
+    tauri::async_runtime::spawn_blocking(|| {
+        apply_output(schneeforge_core::apply(
+            &detect_target(),
+            &resolve_repo(None),
+            &StateStore::default(),
+            true,
+        ))
+    })
+    .await
+    .unwrap_or_else(|e| CommandOutput {
+        success: false,
+        output: format!("task error: {e}"),
+    })
 }
 
 #[tauri::command]
-fn run_rollback() -> CommandOutput {
-    match schneeforge_core::rollback(&detect_target(), &resolve_repo(None), &StateStore::default(), true)
-    {
-        Ok(result) => CommandOutput {
-            success: true,
-            output: result.output.unwrap_or_default(),
-        },
-        Err(e) => CommandOutput { success: false, output: e.to_string() },
-    }
+async fn run_rollback() -> CommandOutput {
+    tauri::async_runtime::spawn_blocking(|| {
+        apply_output(schneeforge_core::rollback(
+            &detect_target(),
+            &resolve_repo(None),
+            &StateStore::default(),
+            true,
+        ))
+    })
+    .await
+    .unwrap_or_else(|e| CommandOutput {
+        success: false,
+        output: format!("task error: {e}"),
+    })
 }
 
 #[tauri::command]
-fn run_upgrade() -> CommandOutput {
-    match schneeforge_core::upgrade(&resolve_repo(None), true) {
-        Ok(out) => CommandOutput { success: true, output: out.unwrap_or_default() },
-        Err(e) => CommandOutput { success: false, output: e.to_string() },
-    }
+async fn run_upgrade() -> CommandOutput {
+    tauri::async_runtime::spawn_blocking(|| {
+        option_output(schneeforge_core::upgrade(&resolve_repo(None), true))
+    })
+    .await
+    .unwrap_or_else(|e| CommandOutput {
+        success: false,
+        output: format!("task error: {e}"),
+    })
 }
 
 fn load_manifest() -> Option<schneeforge_core::Manifest> {
     let repo = resolve_repo(None);
-    let content = std::fs::read_to_string(format!("{repo}/config.toml")).ok()?;
-    schneeforge_core::Manifest::parse(&content).ok()
+    schneeforge_core::Manifest::load(&repo).ok()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             get_status,
             run_scan,
