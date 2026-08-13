@@ -37,7 +37,7 @@ is_executable() {
 resolve_tool() {
   local name="$1"
   local upper
-  upper="$(echo "$name" | tr '[:lower:]-' '[:upper:]_')"
+  upper="$(printf '%s' "$name" | tr '[:lower:]-' '[:upper:]_')"
   local env_var="SCHNEEFORGE_${upper}_BIN"
   local out_var="${upper}_BIN"
 
@@ -108,7 +108,9 @@ ensure_nix_state_dir() {
   if [ -n "${XDG_STATE_HOME:-}" ]; then
     state_dir="${XDG_STATE_HOME}/nix/profiles"
   else
-    state_dir="${HOME:-$(echo ~)}/.local/state/nix/profiles"
+    # HOME が未設定の場合は getent 等で passwd から home を取る方が確実だが、
+    # SchneeForge は HOME が設定済みの環境を前提とする。
+    state_dir="${HOME:?HOME must be set}/.local/state/nix/profiles"
   fi
   if [ ! -d "$state_dir" ]; then
     mkdir -p "$state_dir"
