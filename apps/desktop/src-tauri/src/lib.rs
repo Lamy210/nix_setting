@@ -50,7 +50,7 @@ fn run_scan() -> CommandOutput {
 
 #[tauri::command]
 fn run_apply() -> CommandOutput {
-    match apply(detect_host()) {
+    match apply(detect_host(), &resolve_repo()) {
         Ok(out) => CommandOutput { success: true, output: out },
         Err(e) => CommandOutput { success: false, output: e },
     }
@@ -75,6 +75,16 @@ fn run_upgrade() -> CommandOutput {
 fn load_manifest() -> Option<schneeforge_core::Manifest> {
     let content = std::fs::read_to_string("config.toml").ok()?;
     schneeforge_core::Manifest::parse(&content).ok()
+}
+
+fn resolve_repo() -> String {
+    if let Ok(r) = std::env::var("NIX_SETTING_DIR") {
+        return r;
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return format!("{home}/nix_setting");
+    }
+    ".".to_string()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

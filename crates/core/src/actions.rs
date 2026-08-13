@@ -2,16 +2,17 @@ use crate::discovery::{has_git, has_homebrew, has_nix, Host};
 use std::process::Command;
 
 /// apply: ホストを検出して設定を適用 (switch)
-pub fn apply(host: Host) -> Result<String, String> {
+/// `flake` はリポジトリのパス (例: "$HOME/nix_setting")
+pub fn apply(host: Host, flake: &str) -> Result<String, String> {
     if host == Host::Unsupported {
         return Err("unsupported platform".to_string());
     }
     if host == Host::MacbookAir {
-        let flake = format!(".#darwinConfigurations.{host}");
-        run("nh", &["darwin", "switch", &flake])
+        let target = format!("{flake}#darwinConfigurations.{host}");
+        run("nh", &["darwin", "switch", &target])
     } else {
-        let flake = format!(".#homeConfigurations.{host}");
-        run("nh", &["home", "switch", &flake])
+        let target = format!("{flake}#homeConfigurations.{host}");
+        run("nh", &["home", "switch", &target])
     }
 }
 
@@ -83,7 +84,7 @@ mod tests {
 
     #[test]
     fn apply_unsupported_fails() {
-        assert!(apply(Host::Unsupported).is_err());
+        assert!(apply(Host::Unsupported, "/tmp/repo").is_err());
     }
 
     #[test]

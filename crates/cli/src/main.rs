@@ -5,6 +5,10 @@ use std::process::Command;
 #[derive(Parser)]
 #[command(name = "schneeforge", version, about)]
 struct Cli {
+    /// リポジトリのパス (default: $NIX_SETTING_DIR or ~/nix_setting)
+    #[arg(long, global = true)]
+    repo: Option<String>,
+
     #[command(subcommand)]
     command: Cmd,
 }
@@ -37,13 +41,14 @@ enum Cmd {
 
 fn main() {
     let cli = Cli::parse();
+    let repo = resolve_repo(cli.repo.as_deref());
     let result = match cli.command {
         Cmd::Doctor => doctor(),
-        Cmd::Scan => scan(),
-        Cmd::Setup => setup(),
-        Cmd::Status => status(),
-        Cmd::Plan => plan(),
-        Cmd::Apply => apply(),
+        Cmd::Scan => scan(&repo),
+        Cmd::Setup => setup(&repo),
+        Cmd::Status => status(&repo),
+        Cmd::Plan => plan(&repo),
+        Cmd::Apply => apply(&repo),
         Cmd::Rollback => rollback(),
         Cmd::Upgrade => upgrade(),
         Cmd::Sync => sync(),
@@ -54,6 +59,19 @@ fn main() {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
+}
+
+fn resolve_repo(cli_repo: Option<&str>) -> String {
+    if let Some(r) = cli_repo {
+        return r.to_string();
+    }
+    if let Ok(r) = std::env::var("NIX_SETTING_DIR") {
+        return r;
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return format!("{home}/nix_setting");
+    }
+    ".".to_string()
 }
 
 type Result = std::result::Result<(), String>;
@@ -84,9 +102,9 @@ fn doctor() -> Result {
     Ok(())
 }
 
-fn scan() -> Result {
+fn scan(repo: &str) -> Result {
     let host = detect_host();
-    let manifest = load_manifest();
+    let manifest = load_manifest(repo);
     println!("=== scan ===");
     println!();
     print!("{}", schneeforge_core::scan(host));
@@ -99,9 +117,9 @@ fn scan() -> Result {
     Ok(())
 }
 
-fn status() -> Result {
+fn status(repo: &str) -> Result {
     let host = detect_host();
-    let manifest = load_manifest();
+    let manifest = load_manifest(repo);
     let state = State::load(&State::default_path());
     println!("=== status ===");
     println!();
@@ -124,7 +142,7 @@ fn status() -> Result {
     Ok(())
 }
 
-fn apply() -> Result {
+fn apply(repo: &str) -> Result {
     let host = detect_host();
     if host == Host::Unsupported {
         return Err(format!(
@@ -134,10 +152,10 @@ fn apply() -> Result {
         ));
     }
     println!("applying host: {host}");
-    print!("{}", schneeforge_core::apply(host)?);
+    print!("{}", schneeforge_core::apply(host, repo)?);
 
     // 適用後に状態を記録
-    let revision = current_git_revision();
+    let revision = current_git_revision(repo);
     let state = State {
         host: Some(host.name().to_string()),
         applied_revision: revision,
@@ -149,7 +167,7 @@ fn apply() -> Result {
     Ok(())
 }
 
-fn setup() -> Result {
+fn setup(repo: &str) -> Result {
     println!("=== setup ===");
     println!();
 
@@ -174,7 +192,7 @@ fn setup() -> Result {
     println!("[host] {host}");
 
     println!();
-    apply()
+    apply(repo)
 }
 
 fn enable_flakes() {
@@ -201,7 +219,7 @@ fn enable_flakes() {
     }
 }
 
-fn plan() -> Result {
+fn plan(repo: &str) -> Result {
     let host = detect_host();
     if host == Host::Unsupported {
         return Err(format!(
@@ -215,9 +233,9 @@ fn plan() -> Result {
     println!("  host: {host}");
 
     let target = if host == Host::MacbookAir {
-        format!(".#darwinConfigurations.{host}.system")
+        format!("{repo}#darwinConfigurations.{host}.system")
     } else {
-        format!(".#homeConfigurations.{host}.activationPackage")
+        format!("{repo}#homeConfigurations.{host}.activationPackage")
     };
     println!("  target: {target}");
     println!();
@@ -343,8 +361,9 @@ fn uninstall() -> Result {
     Ok(())
 }
 
-fn load_manifest() -> Option<Manifest> {
-    let content = std::fs::read_to_string("config.toml").ok()?;
+fn load_manifest(repo: &str) -> Option<Manifest> {
+    let path = format!("{repo}/config.toml");
+    let content = std::fs::read_to_string(path).ok()?;
     Manifest::parse(&content).ok()
 }
 
@@ -372,8 +391,9 @@ where
     }
 }
 
-fn current_git_revision() -> Option<String> {
+fn current_git_revision(repo: &str) -> Option<String> {
     let out = Command::new("git")
+        .current_dir(repo)
         .args(["rev-parse", "HEAD"])
         .output()
         .ok()?;
@@ -387,10 +407,33 @@ fn current_git_revision() -> Option<String> {
 }
 
 fn now_string() -> String {
-    // 依存を増やさないための簡易タイムスタンプ (UNIX 秒)
+    // 人間が読める ISO 8601 (UTC)
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    secs.to_string()
+    let days = secs / 86400;
+    let rem = secs % 86400;
+    let hours = rem / 3600;
+    let mins = (rem % 3600) / 60;
+    let sec = rem % 60;
+
+    // 1970-01-01 からの日数 → 年/月/日 変換 (簡易)
+    let (year, month, day) = days_to_ymd(days);
+    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{mins:02}:{sec:02}Z")
+}
+
+fn days_to_ymd(days: u64) -> (u64, u64, u64) {
+    // Howard Hinnant の civil_from_days アルゴリズム
+    let z = days as i64 + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as u64, m, d)
 }
