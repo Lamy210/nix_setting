@@ -130,18 +130,6 @@ pub fn clone_repo(url: &str, dest: &str) -> Result<String> {
     )
 }
 
-/// state ファイルを削除する。削除した場合は true
-pub fn uninstall(store: &StateStore) -> Result<bool> {
-    let path = store.path();
-    if path.exists() {
-        std::fs::remove_file(path)
-            .map_err(|e| Error::Io(format!("remove {}: {e}", path.display())))?;
-        Ok(true)
-    } else {
-        Ok(false)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,13 +138,6 @@ mod tests {
     fn doctor_report_has_host() {
         let report = doctor();
         assert!(!report.host.is_empty());
-    }
-
-    #[test]
-    fn uninstall_missing_state_returns_false() {
-        let store =
-            StateStore::new(std::env::temp_dir().join("schneeforge-uninstall-missing.json"));
-        assert!(!uninstall(&store).unwrap());
     }
 
     #[test]

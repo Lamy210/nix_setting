@@ -61,3 +61,11 @@ bootstrap SHALL は apply 前に、committed された username ではなく OS 
 - **WHEN** 所有者（username が committed 値と一致）が bootstrap.sh を再実行する
 - **THEN** config.toml は実質変化せず、repo に差分が生じない
 
+### Requirement: uninstall は副作用を持たない
+uninstall コマンド SHALL は削除レベルと手順を表示するのみで、state や設定を変更しない。
+
+#### Scenario: uninstall を実行しても state が残る
+- **WHEN** ユーザーが uninstall コマンドを実行する
+- **THEN** 削除レベルと手順が表示される
+- **AND** state ファイルは削除されない
+

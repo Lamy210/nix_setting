@@ -209,15 +209,6 @@ fn uninstall() -> Result {
     println!();
     println!("ホスト: {target}");
     println!();
-
-    let removed = schneeforge_core::uninstall(&StateStore::default()).map_err(|e| e.to_string())?;
-    if removed {
-        println!("removed state");
-    } else {
-        println!("no state file found");
-    }
-
-    println!();
     println!("設定の完全な解除は手動で:");
     println!("  # Home Manager (Linux)");
     println!("  home-manager uninstall");
