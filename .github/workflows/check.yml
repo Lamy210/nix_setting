@@ -14,6 +14,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  openspec-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - uses: cachix/install-nix-action@08dcb3a5e62fa31e2da3d490afc4176ef55ecd72
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: openspec validate
+        run: nix run nixpkgs#openspec -- validate --all --no-interactive
+
   flake-check:
     runs-on: ubuntu-latest
     steps:
