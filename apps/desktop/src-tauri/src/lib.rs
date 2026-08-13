@@ -200,3 +200,44 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod tests {
+    /// frontend の invoke コマンド名と backend の generate_handler 登録名が一致することを検証する
+    /// (button → IPC の mapping がずれたままにならないよう静的クロスチェック)
+    #[test]
+    fn frontend_commands_match_backend() {
+        let js = include_str!("../../dist/main.js");
+        let rs = include_str!("lib.rs");
+
+        let mut frontend: Vec<String> = js
+            .split("invoke(\"")
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+            .map(|s| s.to_string())
+            .collect();
+        frontend.sort();
+        frontend.dedup();
+
+        let marker = ["tauri::", "generate_handler!["].concat();
+        let mut backend: Vec<String> = rs
+            .split(&marker)
+            .nth(1)
+            .and_then(|s| s.split(']').next())
+            .map(|block| {
+                block
+                    .lines()
+                    .map(|l| l.trim().trim_end_matches(',').to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        backend.sort();
+
+        assert_eq!(
+            frontend, backend,
+            "frontend invoke() names must match backend generate_handler commands"
+        );
+    }
+}
+

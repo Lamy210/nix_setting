@@ -74,13 +74,13 @@
 
 ## 8. GUI E2E
 
-- [ ] 8.1 boot
-- [ ] 8.2 host/status 表示
-- [ ] 8.3 missing repo
-- [ ] 8.4 action mapping（button → IPC）
-- [ ] 8.5 backend failure
-- [ ] 8.6 spinner/disable
-- [ ] 8.7 successful apply の state refresh
+- [x] 8.1 boot
+- [x] 8.2 host/status 表示
+- [x] 8.3 missing repo
+- [x] 8.4 action mapping（button → IPC）
+- [x] 8.5 backend failure
+- [x] 8.6 spinner/disable
+- [x] 8.7 successful apply の state refresh
 
 ## 9. Release gate
 
