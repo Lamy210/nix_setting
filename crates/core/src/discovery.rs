@@ -210,12 +210,13 @@ mod tests {
 
     #[test]
     fn target_separates_platform_from_name() {
-        let mac_mini = detect_target_for("macos", "aarch64");
-        let macbook_air = detect_target_for("macos", "aarch64");
-        // Platform / Architecture は同一だが、ConfigurationTarget は別々に識別できる
+        // 同一 platform/arch でも ConfigurationTarget の name は独立した data
+        let mac_mini = ConfigurationTarget::new("mac-mini", Platform::MacOS, Architecture::Aarch64);
+        let macbook_air =
+            ConfigurationTarget::new("macbook-air", Platform::MacOS, Architecture::Aarch64);
         assert_eq!(mac_mini.platform(), macbook_air.platform());
         assert_eq!(mac_mini.architecture(), macbook_air.architecture());
-        assert_eq!(mac_mini.name(), macbook_air.name());
+        assert_ne!(mac_mini.name(), macbook_air.name());
     }
 
     #[test]

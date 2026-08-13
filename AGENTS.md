@@ -70,7 +70,7 @@ openspec archive <name>
 ```
 schneeforge-core (crates/core)   ← 実ロジック唯一の置き場
   ├── actions     (apply/rollback/scan/upgrade)
-  ├── discovery   (detect_host/tool検出)
+  ├── discovery   (detect_target/Platform/Architecture/tool検出)
   ├── manifest    (config.toml)
   ├── repo        (repository解決)
   ├── state       (state.json)
