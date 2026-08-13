@@ -1,0 +1,8 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Nix (flakes, flake-parts), Home Manager, nix-darwin, Rust (schneeforge-core/cli), Tauri 2 (desktop GUI)
+  Repo: nix_setting (Declarative Developer Workstation Manager, codename SchneeForge)
+  Conventions: conventional commits, statix/deadnix/actionlint/shellcheck lint, treefmt-nix formatting
+  Architecture: CLI and GUI delegate to schneeforge-core (actions/discovery/manifest/repo/state/time)
+  Distribution: flake apps/templates, install.sh, GitHub Release (binaries + DMG), Homebrew, cargo install
