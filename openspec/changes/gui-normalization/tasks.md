@@ -28,13 +28,13 @@
 
 ## 3. Core operations（repo-aware）
 
-- [ ] 3.1 `plan(repo)`
-- [ ] 3.2 `apply(repo)`（state 保存込み）
-- [ ] 3.3 `verify(repo)`
-- [ ] 3.4 `rollback(repo)`（世代ロールバック）
-- [ ] 3.5 `upgrade(repo)` — `nix flake update --flake <repo>`
-- [ ] 3.6 `sync(repo)` — dirty check + `git -C <repo>` + `--ff-only`
-- [ ] 3.7 CLI を core delegation のみへ整理（doctor/setup/enable_flakes/plan/verify/sync/uninstall を core へ）
+- [x] 3.1 `plan(repo)`
+- [x] 3.2 `apply(repo)`（state 保存込み）
+- [x] 3.3 `verify(repo)`
+- [x] 3.4 `rollback(repo)`（世代ロールバック）
+- [x] 3.5 `upgrade(repo)` — `nix flake update --flake <repo>`
+- [x] 3.6 `sync(repo)` — dirty check + `git -C <repo>` + `--ff-only`
+- [x] 3.7 CLI を core delegation のみへ整理（doctor/setup/enable_flakes/plan/verify/sync/uninstall を core へ）
 
 ## 4. Bootstrap
 

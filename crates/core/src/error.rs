@@ -13,6 +13,8 @@ pub enum Error {
     Io(String),
     /// 別の操作が進行中のため開始できない
     Busy(String),
+    /// 前提条件を満たしていない (Nix 未インストール等)
+    Precondition(String),
 }
 
 impl fmt::Display for Error {
@@ -25,6 +27,7 @@ impl fmt::Display for Error {
             Error::Command { command, detail } => write!(f, "{command}: {detail}"),
             Error::Io(msg) => write!(f, "io error: {msg}"),
             Error::Busy(msg) => write!(f, "busy: {msg}"),
+            Error::Precondition(msg) => write!(f, "precondition not met: {msg}"),
         }
     }
 }

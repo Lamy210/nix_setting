@@ -84,6 +84,24 @@ impl ConfigurationTarget {
             Platform::Unsupported => String::new(),
         }
     }
+
+    /// apply/switch 用の flake 参照 (`<repo>#darwinConfigurations.<name>` / `#homeConfigurations.<name>`)
+    pub fn switch_ref(&self, repo: &str) -> String {
+        if self.platform == Platform::MacOS {
+            format!("{repo}#darwinConfigurations.{}", self.name)
+        } else {
+            format!("{repo}#homeConfigurations.{}", self.name)
+        }
+    }
+
+    /// build (dry-run) 用の flake 参照 (`...system` / `...activationPackage`)
+    pub fn build_ref(&self, repo: &str) -> String {
+        if self.platform == Platform::MacOS {
+            format!("{repo}#darwinConfigurations.{}.system", self.name)
+        } else {
+            format!("{repo}#homeConfigurations.{}.activationPackage", self.name)
+        }
+    }
 }
 
 impl fmt::Display for ConfigurationTarget {

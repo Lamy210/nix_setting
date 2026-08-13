@@ -1,6 +1,6 @@
 use crate::discovery::{has_git, has_homebrew, has_nix, ConfigurationTarget, Platform};
 use crate::error::{Error, Result};
-use std::process::Command;
+use crate::process::{run_capture, run_stream};
 
 /// switch コマンドを構築 (共有)
 fn switch_command(target: &ConfigurationTarget, flake: &str) -> (&'static str, Vec<String>) {
@@ -33,7 +33,7 @@ fn unsupported(target: &ConfigurationTarget) -> Error {
 }
 
 /// apply: ストリーミング実行 (stdio 継承、リアルタイム出力)
-pub fn apply(target: &ConfigurationTarget, flake: &str) -> Result<()> {
+pub(crate) fn apply(target: &ConfigurationTarget, flake: &str) -> Result<()> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
@@ -42,7 +42,7 @@ pub fn apply(target: &ConfigurationTarget, flake: &str) -> Result<()> {
 }
 
 /// apply_captured: 出力をキャプチャして返す (GUI 用)
-pub fn apply_captured(target: &ConfigurationTarget, flake: &str) -> Result<String> {
+pub(crate) fn apply_captured(target: &ConfigurationTarget, flake: &str) -> Result<String> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
@@ -51,7 +51,7 @@ pub fn apply_captured(target: &ConfigurationTarget, flake: &str) -> Result<Strin
 }
 
 /// rollback: ストリーミング実行
-pub fn rollback(target: &ConfigurationTarget) -> Result<()> {
+pub(crate) fn rollback(target: &ConfigurationTarget) -> Result<()> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
@@ -70,7 +70,7 @@ pub fn rollback(target: &ConfigurationTarget) -> Result<()> {
 }
 
 /// rollback_captured: 出力をキャプチャ (GUI 用)
-pub fn rollback_captured(target: &ConfigurationTarget) -> Result<String> {
+pub(crate) fn rollback_captured(target: &ConfigurationTarget) -> Result<String> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
@@ -88,14 +88,24 @@ pub fn rollback_captured(target: &ConfigurationTarget) -> Result<String> {
     }
 }
 
-/// upgrade: ストリーミング実行
-pub fn upgrade() -> Result<()> {
-    run_stream("nix", &["flake".to_string(), "update".to_string()])
+/// upgrade の引数を構築する (`nix flake update --flake <repo>`)
+fn upgrade_args(repo: &str) -> Vec<String> {
+    vec![
+        "flake".to_string(),
+        "update".to_string(),
+        "--flake".to_string(),
+        repo.to_string(),
+    ]
+}
+
+/// upgrade: `nix flake update` (repo-aware、`--flake <repo>`)
+pub(crate) fn upgrade(repo: &str) -> Result<()> {
+    run_stream("nix", &upgrade_args(repo))
 }
 
 /// upgrade_captured: 出力をキャプチャ (GUI 用)
-pub fn upgrade_captured() -> Result<String> {
-    run_capture("nix", &["flake".to_string(), "update".to_string()])
+pub(crate) fn upgrade_captured(repo: &str) -> Result<String> {
+    run_capture("nix", &upgrade_args(repo))
 }
 
 /// scan: 環境スキャン結果を文字列で返す
@@ -111,55 +121,6 @@ pub fn scan(target: &ConfigurationTarget) -> String {
     ));
     out.push_str(&format!("git:  {}\n", if has_git() { "yes" } else { "no" }));
     out
-}
-
-fn run_stream(cmd: &str, args: &[String]) -> Result<()> {
-    println!("running: {cmd} {}", args.join(" "));
-    let status = Command::new(cmd)
-        .args(args)
-        .status()
-        .map_err(|e| Error::Command {
-            command: cmd.to_string(),
-            detail: format!("failed to run: {e}"),
-        })?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(Error::Command {
-            command: cmd.to_string(),
-            detail: format!("exited with {}", status.code().unwrap_or(1)),
-        })
-    }
-}
-
-fn run_capture(cmd: &str, args: &[String]) -> Result<String> {
-    match Command::new(cmd).args(args).output() {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-            let combined = if stderr.is_empty() {
-                stdout
-            } else {
-                format!("{stdout}\n{stderr}")
-            };
-            if out.status.success() {
-                Ok(combined)
-            } else {
-                Err(Error::Command {
-                    command: cmd.to_string(),
-                    detail: if combined.is_empty() {
-                        format!("exited with {}", out.status.code().unwrap_or(1))
-                    } else {
-                        combined
-                    },
-                })
-            }
-        }
-        Err(e) => Err(Error::Command {
-            command: cmd.to_string(),
-            detail: format!("failed to run: {e}"),
-        }),
-    }
 }
 
 #[cfg(test)]
@@ -210,5 +171,18 @@ mod tests {
         assert_eq!(cmd, "nh");
         assert_eq!(args[0], "home");
         assert_eq!(args[2], "/tmp/repo#homeConfigurations.linux");
+    }
+
+    #[test]
+    fn upgrade_args_are_repo_aware() {
+        assert_eq!(
+            upgrade_args("/tmp/repo"),
+            vec![
+                "flake".to_string(),
+                "update".to_string(),
+                "--flake".to_string(),
+                "/tmp/repo".to_string(),
+            ]
+        );
     }
 }

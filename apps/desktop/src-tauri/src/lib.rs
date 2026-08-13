@@ -62,7 +62,8 @@ fn run_apply() -> CommandOutput {
 
 #[tauri::command]
 fn run_rollback() -> CommandOutput {
-    match schneeforge_core::rollback(&detect_target(), &StateStore::default(), true) {
+    match schneeforge_core::rollback(&detect_target(), &resolve_repo(None), &StateStore::default(), true)
+    {
         Ok(result) => CommandOutput {
             success: true,
             output: result.output.unwrap_or_default(),
@@ -73,7 +74,7 @@ fn run_rollback() -> CommandOutput {
 
 #[tauri::command]
 fn run_upgrade() -> CommandOutput {
-    match schneeforge_core::upgrade(true) {
+    match schneeforge_core::upgrade(&resolve_repo(None), true) {
         Ok(out) => CommandOutput { success: true, output: out.unwrap_or_default() },
         Err(e) => CommandOutput { success: false, output: e.to_string() },
     }
