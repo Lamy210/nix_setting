@@ -103,41 +103,49 @@ fn apply_linux_captured(target: &ConfigurationTarget, repo: &str) -> Result<Stri
     Ok(out)
 }
 
+/// macOS rollback の引数 (`nix run --inputs-from <repo> nix-darwin#darwin-rebuild -- --rollback`)
+fn darwin_rollback_args(repo: &str) -> Vec<String> {
+    vec![
+        "run".to_string(),
+        "--inputs-from".to_string(),
+        repo.to_string(),
+        "nix-darwin#darwin-rebuild".to_string(),
+        "--".to_string(),
+        "--rollback".to_string(),
+    ]
+}
+
+/// Linux rollback の引数 (`nh home switch --rollback`)
+/// rollback は apply 後（nh 導入済み）の便利操作のため nh 依存を許容
+fn linux_rollback_args() -> Vec<String> {
+    vec![
+        "home".to_string(),
+        "switch".to_string(),
+        "--rollback".to_string(),
+    ]
+}
+
 /// rollback: ストリーミング実行
-pub(crate) fn rollback(target: &ConfigurationTarget) -> Result<()> {
+pub(crate) fn rollback(target: &ConfigurationTarget, repo: &str) -> Result<()> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
     if target.platform() == Platform::MacOS {
-        run_stream("darwin-rebuild", &["--rollback".to_string()])
+        run_stream("nix", &darwin_rollback_args(repo))
     } else {
-        run_stream(
-            "nh",
-            &[
-                "home".to_string(),
-                "switch".to_string(),
-                "--rollback".to_string(),
-            ],
-        )
+        run_stream("nh", &linux_rollback_args())
     }
 }
 
 /// rollback_captured: 出力をキャプチャ (GUI 用)
-pub(crate) fn rollback_captured(target: &ConfigurationTarget) -> Result<String> {
+pub(crate) fn rollback_captured(target: &ConfigurationTarget, repo: &str) -> Result<String> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
     if target.platform() == Platform::MacOS {
-        run_capture("darwin-rebuild", &["--rollback".to_string()])
+        run_capture("nix", &darwin_rollback_args(repo))
     } else {
-        run_capture(
-            "nh",
-            &[
-                "home".to_string(),
-                "switch".to_string(),
-                "--rollback".to_string(),
-            ],
-        )
+        run_capture("nh", &linux_rollback_args())
     }
 }
 
@@ -204,7 +212,7 @@ mod tests {
     #[test]
     fn rollback_unsupported_fails() {
         let target = detect_target_for("windows", "x86_64");
-        assert!(rollback(&target).is_err());
+        assert!(rollback(&target, "/tmp/repo").is_err());
     }
 
     #[test]
@@ -257,5 +265,14 @@ mod tests {
         let linux = detect_target_for("linux", "x86_64");
         let linux_args = linux_build_args("/tmp/repo", &linux, "/tmp/link");
         assert!(!linux_args.iter().any(|a| a == "nh"));
+    }
+
+    #[test]
+    fn darwin_rollback_is_pinned_and_repo_aware() {
+        let args = darwin_rollback_args("/tmp/repo");
+        assert_eq!(args[1], "--inputs-from");
+        assert_eq!(args[2], "/tmp/repo");
+        assert_eq!(args[3], "nix-darwin#darwin-rebuild");
+        assert_eq!(args[5], "--rollback");
     }
 }

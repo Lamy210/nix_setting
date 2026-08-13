@@ -71,20 +71,19 @@ pub fn apply(
 
 /// rollback を実行し、State を更新して core 内で保存する (CLI/GUI 共通)
 ///
-/// `repo` は repository path を明示的に受け取る契約のため引数に持つが、
-/// 現在の世代ロールバック (`--rollback`) は既存 generation を使うため未使用。
+/// `repo` は macOS の pinned rollback (`--inputs-from <repo>`) で使用する。
 pub fn rollback(
     target: &ConfigurationTarget,
-    _repo: &str,
+    repo: &str,
     store: &StateStore,
     capture: bool,
 ) -> Result<ApplyResult> {
     let _guard = acquire()?;
 
     let output = if capture {
-        Some(actions::rollback_captured(target)?)
+        Some(actions::rollback_captured(target, repo)?)
     } else {
-        actions::rollback(target)?;
+        actions::rollback(target, repo)?;
         None
     };
 
