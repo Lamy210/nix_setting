@@ -30,6 +30,8 @@ enum Cmd {
     Upgrade,
     /// リモート設定を取得 (git pull)
     Sync,
+    /// インストール後の環境を検証
+    Verify,
     /// アンインストール手順を表示
     Uninstall,
 }
@@ -46,6 +48,7 @@ fn main() {
         Cmd::Rollback => rollback(),
         Cmd::Upgrade => upgrade(),
         Cmd::Sync => sync(),
+        Cmd::Verify => verify(),
         Cmd::Uninstall => uninstall(),
     };
     if let Err(e) = result {
@@ -277,6 +280,70 @@ fn sync() -> Result {
     }
     println!("pulling remote config...");
     run_command("git", ["pull"])
+}
+
+fn verify() -> Result {
+    let mut pass = 0;
+    let mut fail = 0;
+    println!("=== verify ===");
+    println!();
+
+    // 必須コマンド
+    let commands = ["nix", "zsh", "git"];
+    println!("[commands]");
+    for cmd in commands {
+        let ok = schneeforge_core::which(cmd).is_some();
+        println!("  {} {}", if ok { "✅" } else { "❌" }, cmd);
+        if ok {
+            pass += 1;
+        } else {
+            fail += 1;
+        }
+    }
+    println!();
+
+    // 設定ファイル
+    let home = std::env::var("HOME").unwrap_or_default();
+    let files = [
+        (".zshrc", format!("{home}/.zshrc")),
+        (".gitconfig", format!("{home}/.gitconfig")),
+        ("starship.toml", format!("{home}/.config/starship.toml")),
+    ];
+    println!("[config files]");
+    for (name, path) in files {
+        let ok = std::path::Path::new(&path).exists();
+        println!("  {} {}", if ok { "✅" } else { "❌" }, name);
+        if ok {
+            pass += 1;
+        } else {
+            fail += 1;
+        }
+    }
+    println!();
+
+    let state = State::load(&State::default_path());
+    println!("[state]");
+    match &state {
+        Some(s) => {
+            println!(
+                "  ✅ applied: {}",
+                s.applied_revision.as_deref().unwrap_or("(none)")
+            );
+            pass += 1;
+        }
+        None => {
+            println!("  ❌ state not found (apply not run yet)");
+            fail += 1;
+        }
+    }
+    println!();
+
+    println!("=== result: {pass} passed, {fail} failed ===");
+    if fail > 0 {
+        Err(format!("{fail} checks failed"))
+    } else {
+        Ok(())
+    }
 }
 
 fn uninstall() -> Result {

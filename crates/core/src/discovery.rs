@@ -124,4 +124,31 @@ mod tests {
         assert_eq!(Host::Linux.name(), "linux");
         assert_eq!(Host::LinuxArm.name(), "linux-arm");
     }
+
+    #[test]
+    fn home_directory_unsupported_is_empty() {
+        assert_eq!(Host::Unsupported.home_directory("alice"), "");
+    }
+
+    #[test]
+    fn host_name_unsupported() {
+        assert_eq!(Host::Unsupported.name(), "unsupported");
+    }
+
+    #[test]
+    fn host_equality() {
+        assert_eq!(Host::Linux, Host::Linux);
+        assert_ne!(Host::Linux, Host::LinuxArm);
+    }
+
+    #[test]
+    fn which_finds_existing_command() {
+        // PATH には何かしらのコマンドがある前提
+        assert!(which("sh").is_some() || which("ls").is_some());
+    }
+
+    #[test]
+    fn which_returns_none_for_nonexistent() {
+        assert!(which("__definitely_not_a_real_command__").is_none());
+    }
 }

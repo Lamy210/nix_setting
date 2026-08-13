@@ -51,4 +51,41 @@ mod tests {
         assert_eq!(back.host.as_deref(), Some("macbook-air"));
         assert_eq!(back.applied_revision.as_deref(), Some("abc123"));
     }
+
+    #[test]
+    fn save_and_load_to_file() {
+        let dir = std::env::temp_dir().join("schneeforge-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
+
+        let s = State {
+            host: Some("linux".to_string()),
+            applied_revision: Some("def456".to_string()),
+            applied_at: None,
+            product_version: Some("0.1.0".to_string()),
+        };
+        s.save(&path).unwrap();
+
+        let loaded = State::load(&path).unwrap();
+        assert_eq!(loaded.host.as_deref(), Some("linux"));
+        assert_eq!(loaded.applied_revision.as_deref(), Some("def456"));
+        assert_eq!(loaded.applied_at, None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_missing_file_returns_none() {
+        let path = std::env::temp_dir().join("schneeforge-nonexistent.json");
+        assert!(State::load(&path).is_none());
+    }
+
+    #[test]
+    fn default_state_is_empty() {
+        let s = State::default();
+        assert!(s.host.is_none());
+        assert!(s.applied_revision.is_none());
+        assert!(s.applied_at.is_none());
+        assert!(s.product_version.is_none());
+    }
 }

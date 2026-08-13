@@ -42,4 +42,22 @@ username = "alice"
         let r = Manifest::parse("schema = \"not-an-int\"");
         assert!(r.is_err());
     }
+
+    #[test]
+    fn parse_rejects_missing_user() {
+        let r = Manifest::parse("schema = 1");
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn parse_rejects_missing_username() {
+        let r = Manifest::parse("schema = 1\n[user]\n");
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn parse_rejects_empty_username() {
+        let r = Manifest::parse("schema = 1\n[user]\nusername = \"\"\n");
+        assert!(r.is_ok());
+    }
 }
