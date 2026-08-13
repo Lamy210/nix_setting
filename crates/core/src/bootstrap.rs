@@ -38,7 +38,7 @@ pub fn enable_flakes() -> Result<()> {
     let conf = base.join("nix").join("nix.conf");
 
     if let Ok(content) = std::fs::read_to_string(&conf) {
-        if content.contains("experimental-features") {
+        if content.contains("flakes") {
             return Ok(());
         }
     }
@@ -85,13 +85,16 @@ pub fn preflight() -> PreflightReport {
 
 /// 初回セットアップ: Nix 確認 → flakes 有効化 → apply
 pub fn setup(repo: &str, store: &StateStore) -> Result<ApplyResult> {
-    if !has_nix() {
+    let pre = preflight();
+    if !pre.nix {
         return Err(Error::Precondition(
             "Nix is not installed (install: curl -L https://nixos.org/nix/install | sh)"
                 .to_string(),
         ));
     }
-    enable_flakes()?;
+    if !pre.flakes {
+        enable_flakes()?;
+    }
     let target = detect_target();
     apply(&target, repo, store, false)
 }

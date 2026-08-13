@@ -35,6 +35,25 @@ fn activation_link() -> String {
         .to_string()
 }
 
+/// drop 時に一時 symlink を削除する RAII ガード
+struct ActivationLink {
+    path: String,
+}
+
+impl ActivationLink {
+    fn new() -> Self {
+        Self {
+            path: activation_link(),
+        }
+    }
+}
+
+impl Drop for ActivationLink {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 fn unsupported(target: &ConfigurationTarget) -> Error {
     Error::UnsupportedPlatform {
         os: target.platform().to_string(),
@@ -68,18 +87,15 @@ pub(crate) fn apply_captured(target: &ConfigurationTarget, repo: &str) -> Result
 
 /// Linux: activationPackage を build して activate する (nh 非依存)
 fn apply_linux(target: &ConfigurationTarget, repo: &str) -> Result<()> {
-    let link = activation_link();
-    run_stream("nix", &linux_build_args(repo, target, &link))?;
-    let result = run_stream(&format!("{link}/activate"), &[]);
-    let _ = std::fs::remove_file(&link);
-    result
+    let link = ActivationLink::new();
+    run_stream("nix", &linux_build_args(repo, target, &link.path))?;
+    run_stream(&format!("{}/activate", link.path), &[])
 }
 
 fn apply_linux_captured(target: &ConfigurationTarget, repo: &str) -> Result<String> {
-    let link = activation_link();
-    let mut out = run_capture("nix", &linux_build_args(repo, target, &link))?;
-    let activate = run_capture(&format!("{link}/activate"), &[])?;
-    let _ = std::fs::remove_file(&link);
+    let link = ActivationLink::new();
+    let mut out = run_capture("nix", &linux_build_args(repo, target, &link.path))?;
+    let activate = run_capture(&format!("{}/activate", link.path), &[])?;
     if !activate.is_empty() {
         out.push('\n');
         out.push_str(&activate);
