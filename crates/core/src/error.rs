@@ -9,6 +9,8 @@ pub enum Error {
     Manifest(String),
     /// コマンド実行エラー
     Command { command: String, detail: String },
+    /// ファイル入出力エラー (state 保存等)
+    Io(String),
 }
 
 impl fmt::Display for Error {
@@ -19,6 +21,7 @@ impl fmt::Display for Error {
             }
             Error::Manifest(msg) => write!(f, "manifest error: {msg}"),
             Error::Command { command, detail } => write!(f, "{command}: {detail}"),
+            Error::Io(msg) => write!(f, "io error: {msg}"),
         }
     }
 }

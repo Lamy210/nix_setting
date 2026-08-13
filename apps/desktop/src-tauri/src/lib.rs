@@ -1,6 +1,6 @@
 use schneeforge_core::{
-    apply_captured, detect_target, has_git, has_homebrew, has_nix, resolve_repo,
-    rollback_captured, scan, upgrade_captured, State,
+    detect_target, has_git, has_homebrew, has_nix, resolve_repo, scan, upgrade_captured,
+    StateStore,
 };
 use serde::Serialize;
 
@@ -23,7 +23,7 @@ struct CommandOutput {
 #[tauri::command]
 fn get_status() -> Status {
     let manifest = load_manifest();
-    let state = State::load(&State::default_path());
+    let state = StateStore::default().load();
     Status {
         host: detect_target().to_string(),
         user: manifest.as_ref().map(|m| m.user.username.clone()),
@@ -51,16 +51,23 @@ fn run_scan() -> CommandOutput {
 
 #[tauri::command]
 fn run_apply() -> CommandOutput {
-    match apply_captured(&detect_target(), &resolve_repo(None)) {
-        Ok(out) => CommandOutput { success: true, output: out },
+    match schneeforge_core::apply(&detect_target(), &resolve_repo(None), &StateStore::default(), true)
+    {
+        Ok(result) => CommandOutput {
+            success: true,
+            output: result.output.unwrap_or_default(),
+        },
         Err(e) => CommandOutput { success: false, output: e.to_string() },
     }
 }
 
 #[tauri::command]
 fn run_rollback() -> CommandOutput {
-    match rollback_captured(&detect_target()) {
-        Ok(out) => CommandOutput { success: true, output: out },
+    match schneeforge_core::rollback(&detect_target(), &StateStore::default(), true) {
+        Ok(result) => CommandOutput {
+            success: true,
+            output: result.output.unwrap_or_default(),
+        },
         Err(e) => CommandOutput { success: false, output: e.to_string() },
     }
 }

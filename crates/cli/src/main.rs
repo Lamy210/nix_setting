@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
-use schneeforge_core::{detect_target, has_git, has_homebrew, has_nix, Manifest, Platform, State};
+use schneeforge_core::{
+    detect_target, has_git, has_homebrew, has_nix, Manifest, Platform, State, StateStore,
+};
 use std::process::Command;
 /// Declarative Developer Workstation Manager
 #[derive(Parser)]
@@ -107,7 +109,7 @@ fn scan(repo: &str) -> Result {
 fn status(repo: &str) -> Result {
     let target = detect_target();
     let manifest = load_manifest(repo);
-    let state = State::load(&State::default_path());
+    let state = StateStore::default().load();
     println!("=== status ===");
     println!();
     println!("  host: {target}");
@@ -139,17 +141,8 @@ fn apply(repo: &str) -> Result {
         ));
     }
     println!("applying host: {target}");
-    schneeforge_core::apply(&target, repo).map_err(|e| e.to_string())?;
-
-    // 適用後に状態を記録
-    let revision = current_git_revision(repo);
-    let state = State {
-        host: Some(target.name().to_string()),
-        applied_revision: revision,
-        applied_at: Some(schneeforge_core::now_iso8601()),
-        product_version: Some(env!("CARGO_PKG_VERSION").to_string()),
-    };
-    let _ = state.save(&State::default_path());
+    schneeforge_core::apply(&target, repo, &StateStore::default(), false)
+        .map_err(|e| e.to_string())?;
     println!("state saved");
     Ok(())
 }
@@ -233,7 +226,8 @@ fn plan(repo: &str) -> Result {
 fn rollback() -> Result {
     let target = detect_target();
     println!("rolling back host: {target}");
-    schneeforge_core::rollback(&target).map_err(|e| e.to_string())?;
+    schneeforge_core::rollback(&target, &StateStore::default(), false)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -290,7 +284,7 @@ fn verify() -> Result {
     }
     println!();
 
-    let state = State::load(&State::default_path());
+    let state = StateStore::default().load();
     println!("[state]");
     match &state {
         Some(s) => {
@@ -373,20 +367,5 @@ where
         Ok(())
     } else {
         Err(format!("{cmd} exited with {}", status.code().unwrap_or(1)))
-    }
-}
-
-fn current_git_revision(repo: &str) -> Option<String> {
-    let out = Command::new("git")
-        .current_dir(repo)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()?;
-    if out.status.success() {
-        String::from_utf8(out.stdout)
-            .ok()
-            .map(|s| s.trim().to_string())
-    } else {
-        None
     }
 }

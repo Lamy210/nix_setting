@@ -20,11 +20,11 @@
 
 ## 2. State and operation safety
 
-- [ ] 2.1 State save を core へ移動（CLI/GUI 共通の ApplyResult に内包）
-- [ ] 2.2 atomic StateStore（temp → fsync → rename）
-- [ ] 2.3 process-wide operation lock を追加（CLI/GUI 共通）
-- [ ] 2.4 apply/rollback 後の state 更新
-- [ ] 2.5 state tests
+- [x] 2.1 State save を core へ移動（CLI/GUI 共通の ApplyResult に内包）
+- [x] 2.2 atomic StateStore（temp → fsync → rename）
+- [x] 2.3 process-wide operation lock を追加（CLI/GUI 共通）
+- [x] 2.4 apply/rollback 後の state 更新
+- [x] 2.5 state tests
 
 ## 3. Core operations（repo-aware）
 

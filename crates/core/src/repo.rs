@@ -22,6 +22,22 @@ impl RepoResolver {
     }
 }
 
+/// repository path から現在の git revision (HEAD) を取得する
+pub fn current_git_revision(repo: &str) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .current_dir(repo)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+    if out.status.success() {
+        String::from_utf8(out.stdout)
+            .ok()
+            .map(|s| s.trim().to_string())
+    } else {
+        None
+    }
+}
+
 /// リポジトリパスを解決する
 /// 優先順: CLI 引数 > NIX_SETTING_DIR > ~/nix_setting > "."
 pub fn resolve_repo(cli_repo: Option<&str>) -> String {
