@@ -11,12 +11,12 @@
 
 ## 1. Core environment model
 
-- [ ] 1.1 Platform / Architecture / ConfigurationTarget を分離
-- [ ] 1.2 `Manifest::validate` を追加（schema == 1, username != "", 実行ユーザー一致チェック）
-- [ ] 1.3 `ToolStatus` / `ToolResolver` を追加（PATH → 既知パス、実行可能フラグ）
-- [ ] 1.4 `RepoResolver` を独立実装（ToolResolver とは別責務）
-- [ ] 1.5 structured error model を追加
-- [ ] 1.6 unit tests
+- [x] 1.1 Platform / Architecture / ConfigurationTarget を分離
+- [x] 1.2 `Manifest::validate` を追加（schema == 1, username != "", 実行ユーザー一致チェック）
+- [x] 1.3 `ToolStatus` / `ToolResolver` を追加（PATH → 既知パス、実行可能フラグ）
+- [x] 1.4 `RepoResolver` を独立実装（ToolResolver とは別責務）
+- [x] 1.5 structured error model を追加
+- [x] 1.6 unit tests
 
 ## 2. State and operation safety
 

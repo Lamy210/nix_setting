@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use schneeforge_core::{detect_host, has_git, has_homebrew, has_nix, Host, Manifest, State};
+use schneeforge_core::{detect_target, has_git, has_homebrew, has_nix, Manifest, Platform, State};
 use std::process::Command;
 /// Declarative Developer Workstation Manager
 #[derive(Parser)]
@@ -85,16 +85,16 @@ fn doctor() -> Result {
     println!("  installed: {}", if has_git() { "yes" } else { "no" });
     println!();
     println!("[host detection]");
-    println!("  host: {}", detect_host());
+    println!("  host: {}", detect_target());
     Ok(())
 }
 
 fn scan(repo: &str) -> Result {
-    let host = detect_host();
+    let target = detect_target();
     let manifest = load_manifest(repo);
     println!("=== scan ===");
     println!();
-    print!("{}", schneeforge_core::scan(host));
+    print!("{}", schneeforge_core::scan(&target));
     println!();
     println!("[manifest]");
     match manifest {
@@ -105,12 +105,12 @@ fn scan(repo: &str) -> Result {
 }
 
 fn status(repo: &str) -> Result {
-    let host = detect_host();
+    let target = detect_target();
     let manifest = load_manifest(repo);
     let state = State::load(&State::default_path());
     println!("=== status ===");
     println!();
-    println!("  host: {host}");
+    println!("  host: {target}");
     match manifest {
         Some(m) => println!("  user: {}", m.user.username),
         None => println!("  user: (config.toml not found)"),
@@ -130,21 +130,21 @@ fn status(repo: &str) -> Result {
 }
 
 fn apply(repo: &str) -> Result {
-    let host = detect_host();
-    if host == Host::Unsupported {
+    let target = detect_target();
+    if !target.is_supported() {
         return Err(format!(
             "unsupported platform: {} {}",
             std::env::consts::OS,
             std::env::consts::ARCH
         ));
     }
-    println!("applying host: {host}");
-    schneeforge_core::apply(host, repo)?;
+    println!("applying host: {target}");
+    schneeforge_core::apply(&target, repo)?;
 
     // 適用後に状態を記録
     let revision = current_git_revision(repo);
     let state = State {
-        host: Some(host.name().to_string()),
+        host: Some(target.name().to_string()),
         applied_revision: revision,
         applied_at: Some(schneeforge_core::now_iso8601()),
         product_version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -168,15 +168,15 @@ fn setup(repo: &str) -> Result {
     enable_flakes();
     println!("[flakes] enabled");
 
-    let host = detect_host();
-    if host == Host::Unsupported {
+    let target = detect_target();
+    if !target.is_supported() {
         return Err(format!(
             "unsupported platform: {} {}",
             std::env::consts::OS,
             std::env::consts::ARCH
         ));
     }
-    println!("[host] {host}");
+    println!("[host] {target}");
 
     println!();
     apply(repo)
@@ -207,8 +207,8 @@ fn enable_flakes() {
 }
 
 fn plan(repo: &str) -> Result {
-    let host = detect_host();
-    if host == Host::Unsupported {
+    let target = detect_target();
+    if !target.is_supported() {
         return Err(format!(
             "unsupported platform: {} {}",
             std::env::consts::OS,
@@ -217,23 +217,23 @@ fn plan(repo: &str) -> Result {
     }
     println!("=== plan ===");
     println!();
-    println!("  host: {host}");
+    println!("  host: {target}");
 
-    let target = if host == Host::MacbookAir {
-        format!("{repo}#darwinConfigurations.{host}.system")
+    let flake_target = if target.platform() == Platform::MacOS {
+        format!("{repo}#darwinConfigurations.{target}.system")
     } else {
-        format!("{repo}#homeConfigurations.{host}.activationPackage")
+        format!("{repo}#homeConfigurations.{target}.activationPackage")
     };
-    println!("  target: {target}");
+    println!("  target: {flake_target}");
     println!();
     println!("dry-run build...");
-    run_nix(["build", "--dry-run", &target])
+    run_nix(["build", "--dry-run", &flake_target])
 }
 
 fn rollback() -> Result {
-    let host = detect_host();
-    println!("rolling back host: {host}");
-    schneeforge_core::rollback(host)?;
+    let target = detect_target();
+    println!("rolling back host: {target}");
+    schneeforge_core::rollback(&target)?;
     Ok(())
 }
 
@@ -316,7 +316,7 @@ fn verify() -> Result {
 }
 
 fn uninstall() -> Result {
-    let host = detect_host();
+    let target = detect_target();
     println!("=== uninstall ===");
     println!();
     println!("削除レベル:");
@@ -324,7 +324,7 @@ fn uninstall() -> Result {
     println!("  2. Home Manager / nix-darwin の managed config を解除");
     println!("  3. Nix 自体も削除 (既存 Nix は削除禁止)");
     println!();
-    println!("ホスト: {host}");
+    println!("ホスト: {target}");
     println!();
 
     // 状態ファイルを削除

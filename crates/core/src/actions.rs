@@ -1,15 +1,15 @@
-use crate::discovery::{has_git, has_homebrew, has_nix, Host};
+use crate::discovery::{has_git, has_homebrew, has_nix, ConfigurationTarget, Platform};
 use std::process::Command;
 
 /// switch コマンドを構築 (共有)
-fn switch_command(host: Host, flake: &str) -> (&'static str, Vec<String>) {
-    if host == Host::MacbookAir {
+fn switch_command(target: &ConfigurationTarget, flake: &str) -> (&'static str, Vec<String>) {
+    if target.platform() == Platform::MacOS {
         (
             "nh",
             vec![
                 "darwin".to_string(),
                 "switch".to_string(),
-                format!("{flake}#darwinConfigurations.{host}"),
+                format!("{flake}#darwinConfigurations.{target}"),
             ],
         )
     } else {
@@ -18,36 +18,36 @@ fn switch_command(host: Host, flake: &str) -> (&'static str, Vec<String>) {
             vec![
                 "home".to_string(),
                 "switch".to_string(),
-                format!("{flake}#homeConfigurations.{host}"),
+                format!("{flake}#homeConfigurations.{target}"),
             ],
         )
     }
 }
 
 /// apply: ストリーミング実行 (stdio 継承、リアルタイム出力)
-pub fn apply(host: Host, flake: &str) -> Result<(), String> {
-    if host == Host::Unsupported {
+pub fn apply(target: &ConfigurationTarget, flake: &str) -> Result<(), String> {
+    if !target.is_supported() {
         return Err("unsupported platform".to_string());
     }
-    let (cmd, args) = switch_command(host, flake);
+    let (cmd, args) = switch_command(target, flake);
     run_stream(cmd, &args)
 }
 
 /// apply_captured: 出力をキャプチャして返す (GUI 用)
-pub fn apply_captured(host: Host, flake: &str) -> Result<String, String> {
-    if host == Host::Unsupported {
+pub fn apply_captured(target: &ConfigurationTarget, flake: &str) -> Result<String, String> {
+    if !target.is_supported() {
         return Err("unsupported platform".to_string());
     }
-    let (cmd, args) = switch_command(host, flake);
+    let (cmd, args) = switch_command(target, flake);
     run_capture(cmd, &args)
 }
 
 /// rollback: ストリーミング実行
-pub fn rollback(host: Host) -> Result<(), String> {
-    if host == Host::Unsupported {
+pub fn rollback(target: &ConfigurationTarget) -> Result<(), String> {
+    if !target.is_supported() {
         return Err("unsupported platform".to_string());
     }
-    if host == Host::MacbookAir {
+    if target.platform() == Platform::MacOS {
         run_stream("darwin-rebuild", &["--rollback".to_string()])
     } else {
         run_stream(
@@ -62,11 +62,11 @@ pub fn rollback(host: Host) -> Result<(), String> {
 }
 
 /// rollback_captured: 出力をキャプチャ (GUI 用)
-pub fn rollback_captured(host: Host) -> Result<String, String> {
-    if host == Host::Unsupported {
+pub fn rollback_captured(target: &ConfigurationTarget) -> Result<String, String> {
+    if !target.is_supported() {
         return Err("unsupported platform".to_string());
     }
-    if host == Host::MacbookAir {
+    if target.platform() == Platform::MacOS {
         run_capture("darwin-rebuild", &["--rollback".to_string()])
     } else {
         run_capture(
@@ -91,11 +91,11 @@ pub fn upgrade_captured() -> Result<String, String> {
 }
 
 /// scan: 環境スキャン結果を文字列で返す
-pub fn scan(host: Host) -> String {
+pub fn scan(target: &ConfigurationTarget) -> String {
     let mut out = String::new();
     out.push_str(&format!("OS:   {}\n", std::env::consts::OS));
     out.push_str(&format!("arch: {}\n", std::env::consts::ARCH));
-    out.push_str(&format!("host: {host}\n"));
+    out.push_str(&format!("host: {target}\n"));
     out.push_str(&format!("nix:  {}\n", if has_nix() { "yes" } else { "no" }));
     out.push_str(&format!(
         "brew: {}\n",
@@ -145,26 +145,31 @@ fn run_capture(cmd: &str, args: &[String]) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discovery::detect_target_for;
 
     #[test]
     fn scan_contains_host() {
-        let out = scan(Host::MacbookAir);
+        let target = detect_target_for("macos", "aarch64");
+        let out = scan(&target);
         assert!(out.contains("macbook-air"));
     }
 
     #[test]
     fn apply_unsupported_fails() {
-        assert!(apply(Host::Unsupported, "/tmp/repo").is_err());
+        let target = detect_target_for("windows", "x86_64");
+        assert!(apply(&target, "/tmp/repo").is_err());
     }
 
     #[test]
     fn rollback_unsupported_fails() {
-        assert!(rollback(Host::Unsupported).is_err());
+        let target = detect_target_for("windows", "x86_64");
+        assert!(rollback(&target).is_err());
     }
 
     #[test]
     fn switch_command_macos() {
-        let (cmd, args) = switch_command(Host::MacbookAir, "/tmp/repo");
+        let target = detect_target_for("macos", "aarch64");
+        let (cmd, args) = switch_command(&target, "/tmp/repo");
         assert_eq!(cmd, "nh");
         assert_eq!(args[0], "darwin");
         assert_eq!(args[1], "switch");
@@ -173,7 +178,8 @@ mod tests {
 
     #[test]
     fn switch_command_linux() {
-        let (cmd, args) = switch_command(Host::Linux, "/tmp/repo");
+        let target = detect_target_for("linux", "x86_64");
+        let (cmd, args) = switch_command(&target, "/tmp/repo");
         assert_eq!(cmd, "nh");
         assert_eq!(args[0], "home");
         assert_eq!(args[2], "/tmp/repo#homeConfigurations.linux");

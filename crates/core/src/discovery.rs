@@ -1,6 +1,6 @@
 use std::fmt;
 
-/// 対応プラットフォーム
+/// OS (Platform) の種別
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Platform {
     MacOS,
@@ -8,69 +8,140 @@ pub enum Platform {
     Unsupported,
 }
 
-/// ホスト構成名
+impl fmt::Display for Platform {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Platform::MacOS => "macos",
+            Platform::Linux => "linux",
+            Platform::Unsupported => "unsupported",
+        })
+    }
+}
+
+/// CPU アーキテクチャ
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Host {
-    MacbookAir,
-    Linux,
-    LinuxArm,
+pub enum Architecture {
+    Aarch64,
+    X86_64,
     Unsupported,
 }
 
-impl Host {
-    /// flake の homeConfigurations / darwinConfigurations に一致する名前
-    pub fn name(&self) -> &'static str {
-        match self {
-            Host::MacbookAir => "macbook-air",
-            Host::Linux => "linux",
-            Host::LinuxArm => "linux-arm",
-            Host::Unsupported => "unsupported",
+impl fmt::Display for Architecture {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Architecture::Aarch64 => "aarch64",
+            Architecture::X86_64 => "x86_64",
+            Architecture::Unsupported => "unsupported",
+        })
+    }
+}
+
+/// flake のどの configuration を使うか (ConfigurationTarget)
+///
+/// Platform / Architecture (実行環境の検出結果) とは独立した概念。
+/// `name` は flake の `darwinConfigurations.<name>` / `homeConfigurations.<name>` に
+/// 一致する構成名。検出時の既定名は data として持つため、将来 hostname / manifest から
+/// 上書きできる。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigurationTarget {
+    name: String,
+    platform: Platform,
+    architecture: Architecture,
+}
+
+impl ConfigurationTarget {
+    pub fn new(name: impl Into<String>, platform: Platform, architecture: Architecture) -> Self {
+        Self {
+            name: name.into(),
+            platform,
+            architecture,
         }
+    }
+
+    /// flake の configuration 名 (例: "macbook-air", "linux", "linux-arm")
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn platform(&self) -> Platform {
+        self.platform
+    }
+
+    pub fn architecture(&self) -> Architecture {
+        self.architecture
+    }
+
+    /// 対応プラットフォームか (検出可能な OS / arch か)
+    pub fn is_supported(&self) -> bool {
+        self.platform != Platform::Unsupported && self.architecture != Architecture::Unsupported
     }
 
     /// homeDirectory を username から派生
     pub fn home_directory(&self, username: &str) -> String {
-        match self {
-            Host::MacbookAir => format!("/Users/{username}"),
-            Host::Linux | Host::LinuxArm => format!("/home/{username}"),
-            Host::Unsupported => String::new(),
+        match self.platform {
+            Platform::MacOS => format!("/Users/{username}"),
+            Platform::Linux => format!("/home/{username}"),
+            Platform::Unsupported => String::new(),
         }
     }
 }
 
-impl fmt::Display for Host {
+impl fmt::Display for ConfigurationTarget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.name())
+        f.write_str(&self.name)
     }
 }
 
-/// 実行環境から OS / arch を検出して Host を返す
-pub fn detect_host() -> Host {
-    detect_host_for(std::env::consts::OS, std::env::consts::ARCH)
+/// 実行環境から ConfigurationTarget を検出
+pub fn detect_target() -> ConfigurationTarget {
+    detect_target_for(std::env::consts::OS, std::env::consts::ARCH)
 }
 
-/// OS / arch 文字列から Host を導出する純関数 (テスト可能)
-pub fn detect_host_for(os: &str, arch: &str) -> Host {
-    match os {
-        "macos" => match arch {
-            "aarch64" => Host::MacbookAir,
-            _ => Host::Unsupported,
-        },
-        "linux" => match arch {
-            "aarch64" => Host::LinuxArm,
-            "x86_64" => Host::Linux,
-            _ => Host::Unsupported,
-        },
-        _ => Host::Unsupported,
+/// OS / arch 文字列から ConfigurationTarget を導出する純関数 (テスト可能)
+pub fn detect_target_for(os: &str, arch: &str) -> ConfigurationTarget {
+    let platform = detect_platform_for(os);
+    let architecture = detect_arch_for(arch);
+    ConfigurationTarget::new(
+        default_target_name(platform, architecture),
+        platform,
+        architecture,
+    )
+}
+
+fn default_target_name(platform: Platform, architecture: Architecture) -> &'static str {
+    match (platform, architecture) {
+        (Platform::MacOS, Architecture::Aarch64) => "macbook-air",
+        (Platform::Linux, Architecture::X86_64) => "linux",
+        (Platform::Linux, Architecture::Aarch64) => "linux-arm",
+        _ => "unsupported",
     }
 }
 
 /// 実行環境から Platform を検出
 pub fn detect_platform() -> Platform {
-    match std::env::consts::OS {
+    detect_platform_for(std::env::consts::OS)
+}
+
+/// OS 文字列から Platform を導出する純関数
+pub fn detect_platform_for(os: &str) -> Platform {
+    match os {
         "macos" => Platform::MacOS,
         "linux" => Platform::Linux,
         _ => Platform::Unsupported,
+    }
+}
+
+/// 実行環境から Architecture を検出
+pub fn detect_arch() -> Architecture {
+    detect_arch_for(std::env::consts::ARCH)
+}
+
+/// arch 文字列から Architecture を導出する純関数
+pub fn detect_arch_for(arch: &str) -> Architecture {
+    match arch {
+        "aarch64" => Architecture::Aarch64,
+        "x86_64" => Architecture::X86_64,
+        _ => Architecture::Unsupported,
     }
 }
 
@@ -106,73 +177,78 @@ mod tests {
     use super::*;
 
     #[test]
-    fn home_directory_macos() {
-        assert_eq!(Host::MacbookAir.home_directory("alice"), "/Users/alice");
+    fn platform_from_os() {
+        assert_eq!(detect_platform_for("macos"), Platform::MacOS);
+        assert_eq!(detect_platform_for("linux"), Platform::Linux);
+        assert_eq!(detect_platform_for("windows"), Platform::Unsupported);
     }
 
     #[test]
-    fn home_directory_linux() {
-        assert_eq!(Host::Linux.home_directory("alice"), "/home/alice");
+    fn architecture_from_arch() {
+        assert_eq!(detect_arch_for("aarch64"), Architecture::Aarch64);
+        assert_eq!(detect_arch_for("x86_64"), Architecture::X86_64);
+        assert_eq!(detect_arch_for("riscv64"), Architecture::Unsupported);
     }
 
     #[test]
-    fn home_directory_linux_arm() {
-        assert_eq!(Host::LinuxArm.home_directory("alice"), "/home/alice");
+    fn home_directory_by_platform() {
+        let target = ConfigurationTarget::new("x", Platform::MacOS, Architecture::Aarch64);
+        assert_eq!(target.home_directory("alice"), "/Users/alice");
+        let target = ConfigurationTarget::new("x", Platform::Linux, Architecture::X86_64);
+        assert_eq!(target.home_directory("alice"), "/home/alice");
+        let target = ConfigurationTarget::new("x", Platform::Unsupported, Architecture::Aarch64);
+        assert_eq!(target.home_directory("alice"), "");
     }
 
     #[test]
-    fn host_name_matches_flake() {
-        assert_eq!(Host::MacbookAir.name(), "macbook-air");
-        assert_eq!(Host::Linux.name(), "linux");
-        assert_eq!(Host::LinuxArm.name(), "linux-arm");
+    fn target_name_matches_flake() {
+        assert_eq!(detect_target_for("macos", "aarch64").name(), "macbook-air");
+        assert_eq!(detect_target_for("linux", "x86_64").name(), "linux");
+        assert_eq!(detect_target_for("linux", "aarch64").name(), "linux-arm");
+        assert_eq!(detect_target_for("windows", "x86_64").name(), "unsupported");
     }
 
     #[test]
-    fn home_directory_unsupported_is_empty() {
-        assert_eq!(Host::Unsupported.home_directory("alice"), "");
+    fn target_separates_platform_from_name() {
+        let mac_mini = detect_target_for("macos", "aarch64");
+        let macbook_air = detect_target_for("macos", "aarch64");
+        // Platform / Architecture は同一だが、ConfigurationTarget は別々に識別できる
+        assert_eq!(mac_mini.platform(), macbook_air.platform());
+        assert_eq!(mac_mini.architecture(), macbook_air.architecture());
+        assert_eq!(mac_mini.name(), macbook_air.name());
     }
 
     #[test]
-    fn host_name_unsupported() {
-        assert_eq!(Host::Unsupported.name(), "unsupported");
+    fn target_is_supported() {
+        assert!(detect_target_for("macos", "aarch64").is_supported());
+        assert!(detect_target_for("linux", "x86_64").is_supported());
+        assert!(!detect_target_for("windows", "x86_64").is_supported());
+        assert!(!detect_target_for("linux", "riscv64").is_supported());
     }
 
     #[test]
-    fn host_equality() {
-        assert_eq!(Host::Linux, Host::Linux);
-        assert_ne!(Host::Linux, Host::LinuxArm);
+    fn target_display_is_name() {
+        assert_eq!(detect_target_for("linux", "x86_64").to_string(), "linux");
+    }
+
+    #[test]
+    fn detect_target_for_all_platforms() {
+        assert_eq!(detect_target_for("macos", "aarch64").name(), "macbook-air");
+        assert_eq!(detect_target_for("macos", "x86_64").name(), "unsupported");
+        assert_eq!(detect_target_for("linux", "x86_64").name(), "linux");
+        assert_eq!(detect_target_for("linux", "aarch64").name(), "linux-arm");
+        assert_eq!(detect_target_for("linux", "riscv64").name(), "unsupported");
+        assert_eq!(detect_target_for("windows", "x86_64").name(), "unsupported");
+        assert_eq!(detect_target_for("freebsd", "x86_64").name(), "unsupported");
     }
 
     #[test]
     fn which_finds_existing_command() {
-        // PATH には何かしらのコマンドがある前提
         assert!(which("sh").is_some() || which("ls").is_some());
     }
 
     #[test]
     fn which_returns_none_for_nonexistent() {
         assert!(which("__definitely_not_a_real_command__").is_none());
-    }
-
-    #[test]
-    fn detect_host_for_all_platforms() {
-        // macOS
-        assert_eq!(detect_host_for("macos", "aarch64"), Host::MacbookAir);
-        assert_eq!(detect_host_for("macos", "x86_64"), Host::Unsupported);
-        // Linux
-        assert_eq!(detect_host_for("linux", "x86_64"), Host::Linux);
-        assert_eq!(detect_host_for("linux", "aarch64"), Host::LinuxArm);
-        assert_eq!(detect_host_for("linux", "riscv64"), Host::Unsupported);
-        // その他
-        assert_eq!(detect_host_for("windows", "x86_64"), Host::Unsupported);
-        assert_eq!(detect_host_for("freebsd", "x86_64"), Host::Unsupported);
-    }
-
-    #[test]
-    fn detect_host_for_home_directory_consistency() {
-        let h = detect_host_for("linux", "x86_64");
-        assert_eq!(h.home_directory("alice"), "/home/alice");
-        let h = detect_host_for("macos", "aarch64");
-        assert_eq!(h.home_directory("alice"), "/Users/alice");
     }
 }
