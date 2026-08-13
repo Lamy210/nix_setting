@@ -8,6 +8,8 @@ Nix + Home Manager + nix-darwin によるクロスプラットフォーム開発
 - **管理**: パッケージ・dotfiles・macOS設定・Homebrew cask を宣言的に管理
 - **検証**: CI で評価・ビルド・lint・secret scan を自動実行
 
+> 開発への参加は [CONTRIBUTING.md](./CONTRIBUTING.md) を参照（ブランチ運用・OpenSpec・PR ルール）。
+
 ## 構成
 
 詳細は [ARCHITECTURE.md](./ARCHITECTURE.md) を参照。
@@ -67,7 +69,7 @@ cargo install --git https://github.com/Lamy210/nix_setting schneeforge
 ### Homebrew (macOS)
 
 ```bash
-brew tap Lamy210/nix_setting
+brew tap Lamy210/homebrew-tap
 brew install schneeforge
 ```
 

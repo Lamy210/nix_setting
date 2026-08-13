@@ -48,6 +48,25 @@ macbook-air | linux | linux-arm)
   ;;
 esac
 
+echo
+USERNAME="$(whoami)"
+if [ -z "$USERNAME" ]; then
+  echo "Could not determine username" >&2
+  exit 1
+fi
+if grep -qF "username = \"$USERNAME\"" "config.toml" 2>/dev/null; then
+  echo "config.toml already personalized for $USERNAME"
+else
+  echo "Personalizing config.toml..."
+  cat >"config.toml" <<EOF
+# nix_setting manifest (schema version 1)
+schema = 1
+
+[user]
+username = "$USERNAME"
+EOF
+fi
+
 mkdir -p "$HOME/.config/nix"
 
 if ! grep -q "experimental-features" "$HOME/.config/nix/nix.conf" 2>/dev/null; then
@@ -68,7 +87,7 @@ echo "Backed up to $BACKUP_DIR"
 echo
 if [ "$HOST" = "macbook-air" ]; then
   echo "Applying nix-darwin + home-manager ($HOST)..."
-  nix run nix-darwin -- switch --flake ".#$HOST"
+  nix run --inputs-from . nix-darwin#darwin-rebuild -- switch --flake ".#$HOST"
 else
   echo "Building home-manager generation ($HOST)..."
   nix build ".#homeConfigurations.${HOST}.activationPackage" --out-link ./result
