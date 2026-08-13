@@ -176,7 +176,7 @@ fn sync(repo: &str) -> Result {
 }
 
 fn verify(repo: &str) -> Result {
-    let report = schneeforge_core::verify(repo).map_err(|e| e.to_string())?;
+    let report = schneeforge_core::verify(repo);
     println!("=== verify ===");
     println!();
     println!("[checks]");

@@ -6,7 +6,7 @@ use crate::discovery::{detect_target, has_git, has_homebrew, has_nix};
 use crate::error::{Error, Result};
 use crate::manifest::{Manifest, User};
 use crate::operations::{apply, ApplyResult};
-use crate::process::{command_succeeds, run_stream};
+use crate::process::{command_succeeds, run_capture};
 use crate::state::StateStore;
 
 /// システム診断情報
@@ -119,12 +119,12 @@ pub fn generate_config(repo: &str, username: &str) -> Result<()> {
     std::fs::write(&path, content).map_err(|e| Error::Io(format!("write {}: {e}", path.display())))
 }
 
-/// repository を clone する
-pub fn clone_repo(url: &str, dest: &str) -> Result<()> {
-    if url.trim().is_empty() || url.starts_with('-') {
+/// repository を clone する。clone 出力を返す
+pub fn clone_repo(url: &str, dest: &str) -> Result<String> {
+    if url.trim().is_empty() || url.starts_with('-') || url.contains("::") {
         return Err(Error::Precondition("invalid repository URL".to_string()));
     }
-    run_stream(
+    run_capture(
         "git",
         &["clone".to_string(), url.to_string(), dest.to_string()],
     )

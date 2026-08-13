@@ -37,8 +37,10 @@ fn option_output(r: schneeforge_core::Result<Option<String>>) -> CommandOutput {
 }
 
 #[tauri::command]
-fn get_status() -> Diagnostics {
-    schneeforge_core::diagnose(None)
+async fn get_status() -> Result<Diagnostics, String> {
+    tauri::async_runtime::spawn_blocking(|| schneeforge_core::diagnose(None))
+        .await
+        .map_err(|e| format!("task error: {e}"))
 }
 
 #[tauri::command]
@@ -103,8 +105,10 @@ async fn run_upgrade() -> CommandOutput {
 }
 
 #[tauri::command]
-fn run_preflight() -> PreflightReport {
-    schneeforge_core::preflight()
+async fn run_preflight() -> Result<PreflightReport, String> {
+    tauri::async_runtime::spawn_blocking(schneeforge_core::preflight)
+        .await
+        .map_err(|e| format!("task error: {e}"))
 }
 
 #[tauri::command]
@@ -132,9 +136,9 @@ async fn run_generate_config(username: String) -> CommandOutput {
 async fn run_clone_repo(url: String) -> CommandOutput {
     let dest = resolve_repo(None);
     tauri::async_runtime::spawn_blocking(move || match schneeforge_core::clone_repo(&url, &dest) {
-        Ok(()) => CommandOutput {
+        Ok(out) => CommandOutput {
             success: true,
-            output: "repository を clone しました".to_string(),
+            output: out,
         },
         Err(e) => CommandOutput {
             success: false,
@@ -170,8 +174,7 @@ async fn run_plan() -> CommandOutput {
 
 #[tauri::command]
 fn run_verify() -> VerifyReport {
-    let repo = resolve_repo(None);
-    schneeforge_core::verify(&repo).unwrap_or(VerifyReport { checks: Vec::new() })
+    schneeforge_core::verify(&resolve_repo(None))
 }
 
 fn load_manifest() -> Option<schneeforge_core::Manifest> {

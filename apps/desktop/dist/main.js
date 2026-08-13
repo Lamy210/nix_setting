@@ -109,7 +109,15 @@ async function stepPrereq(box, actions) {
   try {
     status = await invoke("get_status");
   } catch (_) {}
-  const pre = await invoke("run_preflight");
+  let pre;
+  try {
+    pre = await invoke("run_preflight");
+  } catch (e) {
+    box.innerHTML = errorBlock(`前提条件の確認に失敗しました: ${e}`);
+    actions.innerHTML = "";
+    actions.appendChild(actionBtn("再確認", () => renderStep()));
+    return;
+  }
   box.innerHTML =
     row("host", status ? status.host : "-") +
     row("platform", status ? `${status.platform}/${status.architecture}` : "-") +
@@ -157,9 +165,14 @@ async function stepUser(box, actions) {
     status = await invoke("get_status");
   } catch (_) {}
   const detected = (status && status.system_user) || "";
+  const escaped = detected
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
   box.innerHTML =
     '<p>ユーザー名を確認してください。</p>' +
-    `<input id="username" type="text" value="${detected}" />`;
+    `<input id="username" type="text" value="${escaped}" />`;
   actions.appendChild(
     actionBtn("config.toml を生成", async () => {
       const username = $("username").value.trim();

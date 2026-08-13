@@ -174,8 +174,8 @@ impl VerifyReport {
     }
 }
 
-/// verify: 環境・repo/manifest・state を検証する
-pub fn verify(repo: &str) -> Result<VerifyReport> {
+/// verify: 環境・repo/manifest・state を検証する (各検査は infallible)
+pub fn verify(repo: &str) -> VerifyReport {
     let mut checks = Vec::new();
 
     for cmd in ["nix", "zsh", "git"] {
@@ -210,7 +210,7 @@ pub fn verify(repo: &str) -> Result<VerifyReport> {
         ok: StateStore::default().load().is_some(),
     });
 
-    Ok(VerifyReport { checks })
+    VerifyReport { checks }
 }
 
 /// sync の引数を構築する (`git -C <repo> pull --ff-only`)
