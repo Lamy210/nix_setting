@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 use crate::error::{Error, Result};
 
 /// nix_setting manifest (config.toml)
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Manifest {
     pub schema: u32,
     pub user: User,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct User {
     pub username: String,
 }

@@ -1,9 +1,12 @@
 use std::path::PathBuf;
 
+use serde::Serialize;
+
 use crate::discovery::{detect_target, has_git, has_homebrew, has_nix};
 use crate::error::{Error, Result};
+use crate::manifest::{Manifest, User};
 use crate::operations::{apply, ApplyResult};
-use crate::process::command_succeeds;
+use crate::process::{command_succeeds, run_stream};
 use crate::state::StateStore;
 
 /// システム診断情報
@@ -61,7 +64,7 @@ pub fn enable_flakes() -> Result<()> {
 }
 
 /// 初回セットアップ前の前提条件チェック結果
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PreflightReport {
     pub nix: bool,
     pub git: bool,
@@ -97,6 +100,34 @@ pub fn setup(repo: &str, store: &StateStore) -> Result<ApplyResult> {
     }
     let target = detect_target();
     apply(&target, repo, store, false)
+}
+
+/// config.toml を生成する (schema=1, user.username=<username>)
+pub fn generate_config(repo: &str, username: &str) -> Result<()> {
+    if username.trim().is_empty() || username.chars().any(|c| c.is_control()) {
+        return Err(Error::Precondition("invalid username".to_string()));
+    }
+    let manifest = Manifest {
+        schema: 1,
+        user: User {
+            username: username.to_string(),
+        },
+    };
+    let content =
+        toml::to_string(&manifest).map_err(|e| Error::Io(format!("serialize config.toml: {e}")))?;
+    let path = std::path::Path::new(repo).join("config.toml");
+    std::fs::write(&path, content).map_err(|e| Error::Io(format!("write {}: {e}", path.display())))
+}
+
+/// repository を clone する
+pub fn clone_repo(url: &str, dest: &str) -> Result<()> {
+    if url.trim().is_empty() || url.starts_with('-') {
+        return Err(Error::Precondition("invalid repository URL".to_string()));
+    }
+    run_stream(
+        "git",
+        &["clone".to_string(), url.to_string(), dest.to_string()],
+    )
 }
 
 /// state ファイルを削除する。削除した場合は true
@@ -146,5 +177,27 @@ mod tests {
             flakes: false,
         };
         assert!(!report.is_ok());
+    }
+
+    #[test]
+    fn generate_config_writes_parseable_toml() {
+        let dir = std::env::temp_dir().join("schneeforge-config-gen");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = dir.to_string_lossy().to_string();
+
+        generate_config(&repo, "alice").unwrap();
+
+        let content = std::fs::read_to_string(format!("{repo}/config.toml")).unwrap();
+        let manifest = Manifest::parse(&content).unwrap();
+        assert_eq!(manifest.schema, 1);
+        assert_eq!(manifest.user.username, "alice");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn generate_config_rejects_invalid_username() {
+        assert!(generate_config("/tmp", "").is_err());
+        assert!(generate_config("/tmp", "a\nb").is_err());
     }
 }

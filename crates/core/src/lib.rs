@@ -14,7 +14,8 @@ pub mod tool;
 
 pub use actions::scan;
 pub use bootstrap::{
-    doctor, enable_flakes, preflight, setup, uninstall, DoctorReport, PreflightReport,
+    clone_repo, doctor, enable_flakes, generate_config, preflight, setup, uninstall, DoctorReport,
+    PreflightReport,
 };
 pub use diagnostics::{diagnose, Diagnostics, ToolsSummary};
 pub use discovery::{

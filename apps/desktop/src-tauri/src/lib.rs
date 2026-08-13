@@ -1,4 +1,7 @@
-use schneeforge_core::{detect_target, resolve_repo, scan, ApplyResult, Diagnostics, StateStore};
+use schneeforge_core::{
+    detect_target, resolve_repo, scan, ApplyResult, Diagnostics, PreflightReport, StateStore,
+    VerifyReport,
+};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -99,6 +102,78 @@ async fn run_upgrade() -> CommandOutput {
     })
 }
 
+#[tauri::command]
+fn run_preflight() -> PreflightReport {
+    schneeforge_core::preflight()
+}
+
+#[tauri::command]
+async fn run_generate_config(username: String) -> CommandOutput {
+    let repo = resolve_repo(None);
+    tauri::async_runtime::spawn_blocking(move || match schneeforge_core::generate_config(&repo, &username)
+    {
+        Ok(()) => CommandOutput {
+            success: true,
+            output: "config.toml を生成しました".to_string(),
+        },
+        Err(e) => CommandOutput {
+            success: false,
+            output: e.to_string(),
+        },
+    })
+    .await
+    .unwrap_or_else(|e| CommandOutput {
+        success: false,
+        output: format!("task error: {e}"),
+    })
+}
+
+#[tauri::command]
+async fn run_clone_repo(url: String) -> CommandOutput {
+    let dest = resolve_repo(None);
+    tauri::async_runtime::spawn_blocking(move || match schneeforge_core::clone_repo(&url, &dest) {
+        Ok(()) => CommandOutput {
+            success: true,
+            output: "repository を clone しました".to_string(),
+        },
+        Err(e) => CommandOutput {
+            success: false,
+            output: e.to_string(),
+        },
+    })
+    .await
+    .unwrap_or_else(|e| CommandOutput {
+        success: false,
+        output: format!("task error: {e}"),
+    })
+}
+
+#[tauri::command]
+async fn run_plan() -> CommandOutput {
+    let repo = resolve_repo(None);
+    tauri::async_runtime::spawn_blocking(move || match schneeforge_core::plan(&repo, true) {
+        Ok(r) => CommandOutput {
+            success: true,
+            output: r.output.unwrap_or_default(),
+        },
+        Err(e) => CommandOutput {
+            success: false,
+            output: e.to_string(),
+        },
+    })
+    .await
+    .unwrap_or_else(|e| CommandOutput {
+        success: false,
+        output: format!("task error: {e}"),
+    })
+}
+
+#[tauri::command]
+fn run_verify() -> VerifyReport {
+    let repo = resolve_repo(None);
+    schneeforge_core::verify(&repo).unwrap_or(VerifyReport { checks: Vec::new() })
+}
+
 fn load_manifest() -> Option<schneeforge_core::Manifest> {
     let repo = resolve_repo(None);
     schneeforge_core::Manifest::load(&repo).ok()
@@ -112,7 +187,12 @@ pub fn run() {
             run_scan,
             run_apply,
             run_rollback,
-            run_upgrade
+            run_upgrade,
+            run_preflight,
+            run_generate_config,
+            run_clone_repo,
+            run_plan,
+            run_verify
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

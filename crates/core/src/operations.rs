@@ -6,6 +6,7 @@ use crate::process::{run_capture, run_stream};
 use crate::repo::current_git_revision;
 use crate::state::{State, StateStore};
 use crate::time::now_iso8601;
+use serde::Serialize;
 
 /// apply / rollback の結果。output は capture 時のみ Some
 #[derive(Debug, Clone)]
@@ -147,14 +148,14 @@ pub fn plan(repo: &str, capture: bool) -> Result<PlanResult> {
 }
 
 /// verify の個別チェック
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct VerifyCheck {
     pub name: String,
     pub ok: bool,
 }
 
 /// verify の結果
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct VerifyReport {
     pub checks: Vec<VerifyCheck>,
 }

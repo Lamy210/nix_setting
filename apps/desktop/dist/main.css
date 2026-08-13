@@ -87,3 +87,26 @@ pre {
     transform: rotate(360deg);
   }
 }
+.hidden {
+  display: none;
+}
+.err {
+  color: #f87171;
+  margin: 0.5rem 0;
+  line-height: 1.5;
+}
+input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #e2e8f0;
+  margin: 0.5rem 0;
+}
+h2 {
+  font-size: 1.2rem;
+  margin: 0 0 0.5rem;
+}
+

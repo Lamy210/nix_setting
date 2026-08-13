@@ -63,14 +63,14 @@
 
 ## 7. First Run Wizard
 
-- [ ] 7.1 NeedsSetup UI
-- [ ] 7.2 prerequisite step（Nix/Git 検出）
-- [ ] 7.3 config generation（username/HOME を OS から取得）
-- [ ] 7.4 plan step
-- [ ] 7.5 explicit confirmation（自動 apply しない）
-- [ ] 7.6 apply
-- [ ] 7.7 verify
-- [ ] 7.8 resume after failure
+- [x] 7.1 NeedsSetup UI
+- [x] 7.2 prerequisite step（Nix/Git 検出）
+- [x] 7.3 config generation（username/HOME を OS から取得）
+- [x] 7.4 plan step
+- [x] 7.5 explicit confirmation（自動 apply しない）
+- [x] 7.6 apply
+- [x] 7.7 verify
+- [x] 7.8 resume after failure
 
 ## 8. GUI E2E
 

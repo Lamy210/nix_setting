@@ -8,29 +8,41 @@
   </head>
   <body>
     <h1>❄ SchneeForge</h1>
-    <div class="card" id="status">
-      <div class="row"><span class="key">host</span><span class="val" id="host">-</span></div>
-      <div class="row"><span class="key">user</span><span class="val" id="user">-</span></div>
-      <div class="row"><span class="key">nix</span><span class="val" id="nix">-</span></div>
-      <div class="row"><span class="key">homebrew</span><span class="val" id="homebrew">-</span></div>
-      <div class="row"><span class="key">applied</span><span class="val" id="applied">-</span></div>
+
+    <div id="ready-view">
+      <div class="card" id="status">
+        <div class="row"><span class="key">host</span><span class="val" id="host">-</span></div>
+        <div class="row"><span class="key">user</span><span class="val" id="user">-</span></div>
+        <div class="row"><span class="key">nix</span><span class="val" id="nix">-</span></div>
+        <div class="row"><span class="key">homebrew</span><span class="val" id="homebrew">-</span></div>
+        <div class="row"><span class="key">applied</span><span class="val" id="applied">-</span></div>
+      </div>
+
+      <div class="actions">
+        <button id="refresh">更新</button>
+        <button id="scan">スキャン</button>
+        <button id="apply">適用</button>
+        <button id="rollback" class="danger">ロールバック</button>
+        <button id="upgrade">アップグレード</button>
+      </div>
+
+      <div class="running-bar" id="running">
+        <div class="spinner"></div>
+        <span id="running-text">実行中...</span>
+      </div>
+
+      <div class="card">
+        <pre id="output">出力はここに表示されます</pre>
+      </div>
     </div>
 
-    <div class="actions">
-      <button id="refresh">更新</button>
-      <button id="scan">スキャン</button>
-      <button id="apply">適用</button>
-      <button id="rollback" class="danger">ロールバック</button>
-      <button id="upgrade">アップグレード</button>
-    </div>
-
-    <div class="running-bar" id="running">
-      <div class="spinner"></div>
-      <span id="running-text">実行中...</span>
-    </div>
-
-    <div class="card">
-      <pre id="output">出力はここに表示されます</pre>
+    <div id="setup-view" class="hidden">
+      <div class="card">
+        <h2>Set up SchneeForge</h2>
+        <p>このマシンにはまだ設定がありません。ウィザードに従ってセットアップしてください。</p>
+      </div>
+      <div class="card" id="setup-step"></div>
+      <div class="actions" id="setup-actions"></div>
     </div>
 
     <script src="main.js"></script>

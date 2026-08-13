@@ -34,6 +34,10 @@ pub struct Diagnostics {
     pub manifest_error: Option<String>,
     /// manifest の username (読めた場合のみ)
     pub username: Option<String>,
+    /// 実行 OS ユーザー (manifest の username とは独立)
+    pub system_user: Option<String>,
+    /// 実行ユーザーの HOME
+    pub home: Option<String>,
     /// manifest の実行時検証結果 (読めた場合のみ)
     pub validation: Option<Validation>,
     pub tools: ToolsSummary,
@@ -68,6 +72,8 @@ pub fn diagnose(cli_repo: Option<&str>) -> Diagnostics {
         manifest_found,
         manifest_error,
         username,
+        system_user: current_user(),
+        home: std::env::var("HOME").ok(),
         validation,
         tools,
         applied_revision: state.as_ref().and_then(|s| s.applied_revision.clone()),
