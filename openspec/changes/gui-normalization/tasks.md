@@ -47,10 +47,10 @@
 
 ## 5. Diagnostics API
 
-- [ ] 5.1 expanded Status（repo_path/repo_exists/manifest_found/manifest_error/ToolStatus）
-- [ ] 5.2 system user と config user の不一致検出
-- [ ] 5.3 repo/manifest/state の診断
-- [ ] 5.4 tool path/version 診断
+- [x] 5.1 expanded Status（repo_path/repo_exists/manifest_found/manifest_error/ToolStatus）
+- [x] 5.2 system user と config user の不一致検出
+- [x] 5.3 repo/manifest/state の診断
+- [x] 5.4 tool path/version 診断
 
 ## 6. Desktop operations
 

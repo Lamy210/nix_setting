@@ -1,17 +1,5 @@
-use schneeforge_core::{
-    detect_target, has_git, has_homebrew, has_nix, resolve_repo, scan, StateStore,
-};
+use schneeforge_core::{detect_target, resolve_repo, scan, Diagnostics, StateStore};
 use serde::Serialize;
-
-#[derive(Serialize)]
-struct Status {
-    host: String,
-    user: Option<String>,
-    nix: bool,
-    homebrew: bool,
-    git: bool,
-    applied_revision: Option<String>,
-}
 
 #[derive(Serialize)]
 struct CommandOutput {
@@ -20,17 +8,8 @@ struct CommandOutput {
 }
 
 #[tauri::command]
-fn get_status() -> Status {
-    let manifest = load_manifest();
-    let state = StateStore::default().load();
-    Status {
-        host: detect_target().to_string(),
-        user: manifest.as_ref().map(|m| m.user.username.clone()),
-        nix: has_nix(),
-        homebrew: has_homebrew(),
-        git: has_git(),
-        applied_revision: state.and_then(|s| s.applied_revision),
-    }
+fn get_status() -> Diagnostics {
+    schneeforge_core::diagnose(None)
 }
 
 #[tauri::command]

@@ -154,6 +154,14 @@ pub fn detect_arch() -> Architecture {
     detect_arch_for(std::env::consts::ARCH)
 }
 
+/// 現在の実行ユーザー名を取得する (USER / LOGNAME)
+pub fn current_user() -> Option<String> {
+    std::env::var("USER")
+        .ok()
+        .or_else(|| std::env::var("LOGNAME").ok())
+        .filter(|s| !s.is_empty())
+}
+
 /// arch 文字列から Architecture を導出する純関数
 pub fn detect_arch_for(arch: &str) -> Architecture {
     match arch {

@@ -1,5 +1,6 @@
 pub(crate) mod actions;
 pub mod bootstrap;
+pub mod diagnostics;
 pub mod discovery;
 pub mod error;
 pub mod lock;
@@ -15,10 +16,11 @@ pub use actions::scan;
 pub use bootstrap::{
     doctor, enable_flakes, preflight, setup, uninstall, DoctorReport, PreflightReport,
 };
+pub use diagnostics::{diagnose, Diagnostics, ToolsSummary};
 pub use discovery::{
-    detect_arch, detect_arch_for, detect_platform, detect_platform_for, detect_target,
-    detect_target_for, has_git, has_homebrew, has_nix, which, Architecture, ConfigurationTarget,
-    Platform,
+    current_user, detect_arch, detect_arch_for, detect_platform, detect_platform_for,
+    detect_target, detect_target_for, has_git, has_homebrew, has_nix, which, Architecture,
+    ConfigurationTarget, Platform,
 };
 pub use error::{Error, Result};
 pub use lock::{OperationGuard, OperationLock};

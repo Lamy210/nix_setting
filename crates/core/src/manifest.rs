@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 
@@ -15,7 +15,7 @@ pub struct User {
 }
 
 /// Manifest の実行時検証結果
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Validation {
     pub valid: bool,
     pub errors: Vec<String>,
