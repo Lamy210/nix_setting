@@ -1,4 +1,5 @@
 use crate::discovery::{has_git, has_homebrew, has_nix, ConfigurationTarget, Platform};
+use crate::error::{Error, Result};
 use std::process::Command;
 
 /// switch コマンドを構築 (共有)
@@ -24,28 +25,35 @@ fn switch_command(target: &ConfigurationTarget, flake: &str) -> (&'static str, V
     }
 }
 
+fn unsupported(target: &ConfigurationTarget) -> Error {
+    Error::UnsupportedPlatform {
+        os: target.platform().to_string(),
+        arch: target.architecture().to_string(),
+    }
+}
+
 /// apply: ストリーミング実行 (stdio 継承、リアルタイム出力)
-pub fn apply(target: &ConfigurationTarget, flake: &str) -> Result<(), String> {
+pub fn apply(target: &ConfigurationTarget, flake: &str) -> Result<()> {
     if !target.is_supported() {
-        return Err("unsupported platform".to_string());
+        return Err(unsupported(target));
     }
     let (cmd, args) = switch_command(target, flake);
     run_stream(cmd, &args)
 }
 
 /// apply_captured: 出力をキャプチャして返す (GUI 用)
-pub fn apply_captured(target: &ConfigurationTarget, flake: &str) -> Result<String, String> {
+pub fn apply_captured(target: &ConfigurationTarget, flake: &str) -> Result<String> {
     if !target.is_supported() {
-        return Err("unsupported platform".to_string());
+        return Err(unsupported(target));
     }
     let (cmd, args) = switch_command(target, flake);
     run_capture(cmd, &args)
 }
 
 /// rollback: ストリーミング実行
-pub fn rollback(target: &ConfigurationTarget) -> Result<(), String> {
+pub fn rollback(target: &ConfigurationTarget) -> Result<()> {
     if !target.is_supported() {
-        return Err("unsupported platform".to_string());
+        return Err(unsupported(target));
     }
     if target.platform() == Platform::MacOS {
         run_stream("darwin-rebuild", &["--rollback".to_string()])
@@ -62,9 +70,9 @@ pub fn rollback(target: &ConfigurationTarget) -> Result<(), String> {
 }
 
 /// rollback_captured: 出力をキャプチャ (GUI 用)
-pub fn rollback_captured(target: &ConfigurationTarget) -> Result<String, String> {
+pub fn rollback_captured(target: &ConfigurationTarget) -> Result<String> {
     if !target.is_supported() {
-        return Err("unsupported platform".to_string());
+        return Err(unsupported(target));
     }
     if target.platform() == Platform::MacOS {
         run_capture("darwin-rebuild", &["--rollback".to_string()])
@@ -81,12 +89,12 @@ pub fn rollback_captured(target: &ConfigurationTarget) -> Result<String, String>
 }
 
 /// upgrade: ストリーミング実行
-pub fn upgrade() -> Result<(), String> {
+pub fn upgrade() -> Result<()> {
     run_stream("nix", &["flake".to_string(), "update".to_string()])
 }
 
 /// upgrade_captured: 出力をキャプチャ (GUI 用)
-pub fn upgrade_captured() -> Result<String, String> {
+pub fn upgrade_captured() -> Result<String> {
     run_capture("nix", &["flake".to_string(), "update".to_string()])
 }
 
@@ -105,20 +113,26 @@ pub fn scan(target: &ConfigurationTarget) -> String {
     out
 }
 
-fn run_stream(cmd: &str, args: &[String]) -> Result<(), String> {
+fn run_stream(cmd: &str, args: &[String]) -> Result<()> {
     println!("running: {cmd} {}", args.join(" "));
     let status = Command::new(cmd)
         .args(args)
         .status()
-        .map_err(|e| format!("failed to run {cmd}: {e}"))?;
+        .map_err(|e| Error::Command {
+            command: cmd.to_string(),
+            detail: format!("failed to run: {e}"),
+        })?;
     if status.success() {
         Ok(())
     } else {
-        Err(format!("{cmd} exited with {}", status.code().unwrap_or(1)))
+        Err(Error::Command {
+            command: cmd.to_string(),
+            detail: format!("exited with {}", status.code().unwrap_or(1)),
+        })
     }
 }
 
-fn run_capture(cmd: &str, args: &[String]) -> Result<String, String> {
+fn run_capture(cmd: &str, args: &[String]) -> Result<String> {
     match Command::new(cmd).args(args).output() {
         Ok(out) => {
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -131,14 +145,20 @@ fn run_capture(cmd: &str, args: &[String]) -> Result<String, String> {
             if out.status.success() {
                 Ok(combined)
             } else {
-                Err(if combined.is_empty() {
-                    format!("{cmd} exited with {}", out.status.code().unwrap_or(1))
-                } else {
-                    combined
+                Err(Error::Command {
+                    command: cmd.to_string(),
+                    detail: if combined.is_empty() {
+                        format!("exited with {}", out.status.code().unwrap_or(1))
+                    } else {
+                        combined
+                    },
                 })
             }
         }
-        Err(e) => Err(format!("failed to run {cmd}: {e}")),
+        Err(e) => Err(Error::Command {
+            command: cmd.to_string(),
+            detail: format!("failed to run: {e}"),
+        }),
     }
 }
 
@@ -157,7 +177,14 @@ mod tests {
     #[test]
     fn apply_unsupported_fails() {
         let target = detect_target_for("windows", "x86_64");
-        assert!(apply(&target, "/tmp/repo").is_err());
+        let err = apply(&target, "/tmp/repo").unwrap_err();
+        assert_eq!(
+            err,
+            Error::UnsupportedPlatform {
+                os: "unsupported".to_string(),
+                arch: "x86_64".to_string(),
+            }
+        );
     }
 
     #[test]

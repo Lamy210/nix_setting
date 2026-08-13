@@ -20,4 +20,4 @@ pub use manifest::{Manifest, Validation};
 pub use repo::{resolve_repo, Repo, RepoResolver};
 pub use state::State;
 pub use time::{days_to_ymd, format_unix_secs, now_iso8601};
-pub use tool::{find_executable, ToolResolver, ToolStatus};
+pub use tool::{find_executable, version_of, ToolResolver, ToolStatus};

@@ -7,10 +7,6 @@ pub enum Error {
     UnsupportedPlatform { os: String, arch: String },
     /// manifest (config.toml) の読み込み・parse・検証エラー
     Manifest(String),
-    /// ツール解決エラー
-    Tool(String),
-    /// repository 解決エラー
-    Repo(String),
     /// コマンド実行エラー
     Command { command: String, detail: String },
 }
@@ -22,8 +18,6 @@ impl fmt::Display for Error {
                 write!(f, "unsupported platform: {os} {arch}")
             }
             Error::Manifest(msg) => write!(f, "manifest error: {msg}"),
-            Error::Tool(msg) => write!(f, "tool error: {msg}"),
-            Error::Repo(msg) => write!(f, "repository error: {msg}"),
             Error::Command { command, detail } => write!(f, "{command}: {detail}"),
         }
     }

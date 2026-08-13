@@ -21,9 +21,17 @@ impl ToolStatus {
     fn found(path: String) -> Self {
         Self {
             available: true,
-            path: Some(path.clone()),
-            version: version_of(&path),
+            path: Some(path),
+            version: None,
         }
+    }
+
+    /// 解決済みパスから version を取得して埋める (subprocess spawn を伴う)
+    pub fn with_version(mut self) -> Self {
+        if let Some(path) = &self.path {
+            self.version = version_of(path);
+        }
+        self
     }
 }
 
@@ -52,7 +60,7 @@ impl ToolResolver {
         Self { known_paths }
     }
 
-    /// ツール名を解決して ToolStatus を返す
+    /// ツール名を解決して ToolStatus を返す (可用性 + パス。subprocess なし)
     pub fn resolve(&self, tool: &str) -> ToolStatus {
         let path_dirs: Vec<String> = std::env::var("PATH")
             .map(|p| p.split(':').map(String::from).collect())
@@ -61,6 +69,11 @@ impl ToolResolver {
             Some(path) => ToolStatus::found(path),
             None => ToolStatus::not_found(),
         }
+    }
+
+    /// ツール名を解決し、version も取得して返す (`--version` の subprocess spawn を伴う)
+    pub fn resolve_with_version(&self, tool: &str) -> ToolStatus {
+        self.resolve(tool).with_version()
     }
 }
 
@@ -113,7 +126,7 @@ fn is_executable(path: &Path) -> bool {
 }
 
 /// `<path> --version` の先頭行を version として返す (失敗時 None)
-fn version_of(path: &str) -> Option<String> {
+pub fn version_of(path: &str) -> Option<String> {
     let out = std::process::Command::new(path)
         .arg("--version")
         .output()

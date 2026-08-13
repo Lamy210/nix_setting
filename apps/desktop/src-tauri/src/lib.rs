@@ -53,7 +53,7 @@ fn run_scan() -> CommandOutput {
 fn run_apply() -> CommandOutput {
     match apply_captured(&detect_target(), &resolve_repo(None)) {
         Ok(out) => CommandOutput { success: true, output: out },
-        Err(e) => CommandOutput { success: false, output: e },
+        Err(e) => CommandOutput { success: false, output: e.to_string() },
     }
 }
 
@@ -61,7 +61,7 @@ fn run_apply() -> CommandOutput {
 fn run_rollback() -> CommandOutput {
     match rollback_captured(&detect_target()) {
         Ok(out) => CommandOutput { success: true, output: out },
-        Err(e) => CommandOutput { success: false, output: e },
+        Err(e) => CommandOutput { success: false, output: e.to_string() },
     }
 }
 
@@ -69,7 +69,7 @@ fn run_rollback() -> CommandOutput {
 fn run_upgrade() -> CommandOutput {
     match upgrade_captured() {
         Ok(out) => CommandOutput { success: true, output: out },
-        Err(e) => CommandOutput { success: false, output: e },
+        Err(e) => CommandOutput { success: false, output: e.to_string() },
     }
 }
 

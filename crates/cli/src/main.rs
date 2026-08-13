@@ -139,7 +139,7 @@ fn apply(repo: &str) -> Result {
         ));
     }
     println!("applying host: {target}");
-    schneeforge_core::apply(&target, repo)?;
+    schneeforge_core::apply(&target, repo).map_err(|e| e.to_string())?;
 
     // 適用後に状態を記録
     let revision = current_git_revision(repo);
@@ -233,13 +233,13 @@ fn plan(repo: &str) -> Result {
 fn rollback() -> Result {
     let target = detect_target();
     println!("rolling back host: {target}");
-    schneeforge_core::rollback(&target)?;
+    schneeforge_core::rollback(&target).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 fn upgrade() -> Result {
     println!("updating flake.lock...");
-    schneeforge_core::upgrade()?;
+    schneeforge_core::upgrade().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -349,9 +349,7 @@ fn uninstall() -> Result {
 }
 
 fn load_manifest(repo: &str) -> Option<Manifest> {
-    let path = format!("{repo}/config.toml");
-    let content = std::fs::read_to_string(path).ok()?;
-    Manifest::parse(&content).ok()
+    Manifest::load(repo).ok()
 }
 
 fn run_nix<I, S>(args: I) -> Result
