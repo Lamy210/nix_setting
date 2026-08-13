@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{Error, Result};
+
+/// 一時ファイル名をユニーク化するプロセス内シーケンス
+static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// 適用状態を記録する State
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -76,15 +80,17 @@ impl StateStore {
         Ok(())
     }
 
-    /// プロセス ID を含む一時ファイルパス (プロセス間の tmp 衝突を避ける)
+    /// プロセス ID とシーケンスを含む一時ファイルパス
+    /// (プロセス間・スレッド間の tmp 衝突を避け、rename は last-writer-wins で原子的)
     fn tmp_path(&self) -> PathBuf {
+        let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
         let file_name = self
             .path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "state.json".to_string());
         self.path
-            .with_file_name(format!("{file_name}.{}.tmp", std::process::id()))
+            .with_file_name(format!("{file_name}.{}.{seq}.tmp", std::process::id()))
     }
 }
 
@@ -152,7 +158,11 @@ mod tests {
     fn save_leaves_no_tmp_file() {
         let (store, dir) = temp_store("tmp-cleanup");
         store.save(&State::default()).unwrap();
-        assert!(!store.tmp_path().exists());
+        let has_tmp = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_name().to_string_lossy().ends_with(".tmp"));
+        assert!(!has_tmp);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -233,7 +233,7 @@ fn rollback() -> Result {
 
 fn upgrade() -> Result {
     println!("updating flake.lock...");
-    schneeforge_core::upgrade().map_err(|e| e.to_string())?;
+    schneeforge_core::upgrade(false).map_err(|e| e.to_string())?;
     Ok(())
 }
 

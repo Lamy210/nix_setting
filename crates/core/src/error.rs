@@ -11,6 +11,8 @@ pub enum Error {
     Command { command: String, detail: String },
     /// ファイル入出力エラー (state 保存等)
     Io(String),
+    /// 別の操作が進行中のため開始できない
+    Busy(String),
 }
 
 impl fmt::Display for Error {
@@ -22,6 +24,7 @@ impl fmt::Display for Error {
             Error::Manifest(msg) => write!(f, "manifest error: {msg}"),
             Error::Command { command, detail } => write!(f, "{command}: {detail}"),
             Error::Io(msg) => write!(f, "io error: {msg}"),
+            Error::Busy(msg) => write!(f, "busy: {msg}"),
         }
     }
 }

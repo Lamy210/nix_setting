@@ -1,6 +1,5 @@
 use schneeforge_core::{
-    detect_target, has_git, has_homebrew, has_nix, resolve_repo, scan, upgrade_captured,
-    StateStore,
+    detect_target, has_git, has_homebrew, has_nix, resolve_repo, scan, StateStore,
 };
 use serde::Serialize;
 
@@ -74,8 +73,8 @@ fn run_rollback() -> CommandOutput {
 
 #[tauri::command]
 fn run_upgrade() -> CommandOutput {
-    match upgrade_captured() {
-        Ok(out) => CommandOutput { success: true, output: out },
+    match schneeforge_core::upgrade(true) {
+        Ok(out) => CommandOutput { success: true, output: out.unwrap_or_default() },
         Err(e) => CommandOutput { success: false, output: e.to_string() },
     }
 }

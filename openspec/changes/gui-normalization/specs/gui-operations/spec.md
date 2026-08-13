@@ -57,7 +57,7 @@ backend の CommandOutput.success SHALL に基づいて成功/失敗を表示す
 - **THEN** GUI は失敗としてエラーを表示する
 
 ### Requirement: プロセス間操作ロック
-mutating 操作 SHALL は process-wide なロックで直列化する。
+mutating 操作 SHALL はプロセス間で共有されるロック（ロックファイルの flock）で直列化する。
 
 #### Scenario: CLI と GUI の同時実行
 - **WHEN** GUI で apply 実行中に別 terminal から upgrade を実行する

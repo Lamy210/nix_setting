@@ -23,6 +23,7 @@ SchneeForge GUI は起動するが、Frontend → IPC → Core → Nix の縦方
 - **ToolResolver を core に追加**: PATH → /nix/var/nix/profiles/default/bin → ~/.nix-profile/bin → /opt/homebrew/bin → /usr/local/bin の順で解決
 - **Status を診断 API に拡張**: `ToolStatus { available, path, version }` と repo/manifest/state の存在・エラーを返す
 - **Tauri command を `spawn_blocking` で非同期化**: plan/apply/verify/rollback/upgrade の重い操作のみ（scan/status は同期）
+- **操作ロックはクロスプロセス flock**: ロックファイル（state と同ディレクトリの `operation.lock`）に対する排他 flock で、CLI（別 terminal）と GUI の同時実行を直列化。取得失敗時は Busy エラーを返す
 - **権限昇格**: GUI（.app）は TTY が無いため sudo 直接実行せず、認証を伴う昇格（macOS の authorization / 昇格ヘルパー）を経由する。CLI は従来どおり sudo を要求
 - **Vanilla JS を維持**: `withGlobalTauri: true` で `window.__TAURI__` を利用
 
