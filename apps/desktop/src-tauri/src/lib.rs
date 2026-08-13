@@ -1,6 +1,6 @@
 use schneeforge_core::{
-    apply_captured, detect_host, has_git, has_homebrew, has_nix, rollback_captured, scan,
-    upgrade_captured, State,
+    apply_captured, detect_host, has_git, has_homebrew, has_nix, resolve_repo,
+    rollback_captured, scan, upgrade_captured, State,
 };
 use serde::Serialize;
 
@@ -51,7 +51,7 @@ fn run_scan() -> CommandOutput {
 
 #[tauri::command]
 fn run_apply() -> CommandOutput {
-    match apply_captured(detect_host(), &resolve_repo()) {
+    match apply_captured(detect_host(), &resolve_repo(None)) {
         Ok(out) => CommandOutput { success: true, output: out },
         Err(e) => CommandOutput { success: false, output: e },
     }
@@ -74,19 +74,9 @@ fn run_upgrade() -> CommandOutput {
 }
 
 fn load_manifest() -> Option<schneeforge_core::Manifest> {
-    let repo = resolve_repo();
+    let repo = resolve_repo(None);
     let content = std::fs::read_to_string(format!("{repo}/config.toml")).ok()?;
     schneeforge_core::Manifest::parse(&content).ok()
-}
-
-fn resolve_repo() -> String {
-    if let Ok(r) = std::env::var("NIX_SETTING_DIR") {
-        return r;
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        return format!("{home}/nix_setting");
-    }
-    ".".to_string()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

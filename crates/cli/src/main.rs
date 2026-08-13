@@ -41,7 +41,7 @@ enum Cmd {
 
 fn main() {
     let cli = Cli::parse();
-    let repo = resolve_repo(cli.repo.as_deref());
+    let repo = schneeforge_core::resolve_repo(cli.repo.as_deref());
     let result = match cli.command {
         Cmd::Doctor => doctor(),
         Cmd::Scan => scan(&repo),
@@ -59,19 +59,6 @@ fn main() {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
-}
-
-fn resolve_repo(cli_repo: Option<&str>) -> String {
-    if let Some(r) = cli_repo {
-        return r.to_string();
-    }
-    if let Ok(r) = std::env::var("NIX_SETTING_DIR") {
-        return r;
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        return format!("{home}/nix_setting");
-    }
-    ".".to_string()
 }
 
 type Result = std::result::Result<(), String>;
@@ -159,7 +146,7 @@ fn apply(repo: &str) -> Result {
     let state = State {
         host: Some(host.name().to_string()),
         applied_revision: revision,
-        applied_at: Some(now_string()),
+        applied_at: Some(schneeforge_core::now_iso8601()),
         product_version: Some(env!("CARGO_PKG_VERSION").to_string()),
     };
     let _ = state.save(&State::default_path());
@@ -404,36 +391,4 @@ fn current_git_revision(repo: &str) -> Option<String> {
     } else {
         None
     }
-}
-
-fn now_string() -> String {
-    // 人間が読める ISO 8601 (UTC)
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let days = secs / 86400;
-    let rem = secs % 86400;
-    let hours = rem / 3600;
-    let mins = (rem % 3600) / 60;
-    let sec = rem % 60;
-
-    // 1970-01-01 からの日数 → 年/月/日 変換 (簡易)
-    let (year, month, day) = days_to_ymd(days);
-    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{mins:02}:{sec:02}Z")
-}
-
-fn days_to_ymd(days: u64) -> (u64, u64, u64) {
-    // Howard Hinnant の civil_from_days アルゴリズム
-    let z = days as i64 + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    (y as u64, m, d)
 }
