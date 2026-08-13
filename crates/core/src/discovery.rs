@@ -172,6 +172,9 @@ pub fn detect_arch_for(arch: &str) -> Architecture {
 }
 
 /// PATH から実行可能ファイルを探す (ToolResolver と同じ実行ビット判定に委譲)
+///
+/// 注: 新しいコードは `Toolchain` を使うこと。この関数は `verify` の zsh 等の
+/// toolchain 外ツール探索のために残されている。
 pub fn which(cmd: &str) -> Option<String> {
     let path_dirs: Vec<String> = std::env::var("PATH")
         .map(|p| p.split(':').map(String::from).collect())
@@ -179,17 +182,17 @@ pub fn which(cmd: &str) -> Option<String> {
     crate::tool::find_executable(cmd, &path_dirs, &[])
 }
 
-/// Nix がインストールされているか
+/// Nix がインストールされているか（後方互換・`ToolResolver::resolve_tool` を使うべき）
 pub fn has_nix() -> bool {
     which("nix").is_some()
 }
 
-/// Homebrew がインストールされているか
+/// Homebrew がインストールされているか（後方互換・`ToolResolver::resolve_tool` を使うべき）
 pub fn has_homebrew() -> bool {
     which("brew").is_some()
 }
 
-/// Git がインストールされているか
+/// Git がインストールされているか（後方互換・`ToolResolver::resolve_tool` を使うべき）
 pub fn has_git() -> bool {
     which("git").is_some()
 }

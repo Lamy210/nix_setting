@@ -1,8 +1,9 @@
 use schneeforge_core::{
     detect_target, resolve_repo, scan, ApplyResult, Diagnostics, PreflightReport, StateStore,
-    VerifyReport,
+    Toolchain, VerifyReport,
 };
 use serde::Serialize;
+use std::sync::Mutex;
 
 #[derive(Serialize)]
 struct CommandOutput {
@@ -36,6 +37,25 @@ fn option_output(r: schneeforge_core::Result<Option<String>>) -> CommandOutput {
     }
 }
 
+/// desktop アプリ内で Toolchain を1回解決してキャッシュする State。
+///
+/// `fix_path_env::fix()` が `main()` で呼ばれた後に resolve するため、
+/// macOS の .app から起動しても PATH 補正後の解決結果が使われる。
+#[derive(Default)]
+struct CachedToolchain(Mutex<Option<Toolchain>>);
+
+impl CachedToolchain {
+    fn get_or_resolve(&self) -> Result<Toolchain, String> {
+        let mut lock = self.0.lock().map_err(|e| format!("lock error: {e}"))?;
+        if let Some(tc) = lock.as_ref() {
+            return Ok(tc.clone());
+        }
+        let tc = Toolchain::resolve().map_err(|e| e.to_string())?;
+        *lock = Some(tc.clone());
+        Ok(tc)
+    }
+}
+
 #[tauri::command]
 async fn get_status() -> Result<Diagnostics, String> {
     tauri::async_runtime::spawn_blocking(|| schneeforge_core::diagnose(None))
@@ -44,75 +64,80 @@ async fn get_status() -> Result<Diagnostics, String> {
 }
 
 #[tauri::command]
-fn run_scan() -> CommandOutput {
+fn run_scan(state: tauri::State<'_, CachedToolchain>) -> Result<CommandOutput, String> {
+    let tc = state.get_or_resolve()?;
     let target = detect_target();
-    let mut out = scan(&target);
+    let mut out = scan(&target, &tc);
     if let Some(m) = load_manifest() {
         out.push_str(&format!("user: {}\n", m.user.username));
     } else {
         out.push_str("user: (config.toml not found)\n");
     }
-    CommandOutput {
+    Ok(CommandOutput {
         success: true,
         output: out,
-    }
+    })
 }
 
 #[tauri::command]
-async fn run_apply() -> CommandOutput {
-    tauri::async_runtime::spawn_blocking(|| {
+async fn run_apply(state: tauri::State<'_, CachedToolchain>) -> Result<CommandOutput, String> {
+    let tc = state.get_or_resolve()?;
+    tauri::async_runtime::spawn_blocking(move || {
         apply_output(schneeforge_core::apply(
             &detect_target(),
             &resolve_repo(None),
             &StateStore::default(),
+            &tc,
             true,
         ))
     })
     .await
-    .unwrap_or_else(|e| CommandOutput {
-        success: false,
-        output: format!("task error: {e}"),
-    })
+    .map(Some)
+    .unwrap_or(None)
+    .ok_or_else(|| "task error".to_string())
 }
 
 #[tauri::command]
-async fn run_rollback() -> CommandOutput {
-    tauri::async_runtime::spawn_blocking(|| {
+async fn run_rollback(state: tauri::State<'_, CachedToolchain>) -> Result<CommandOutput, String> {
+    let tc = state.get_or_resolve()?;
+    tauri::async_runtime::spawn_blocking(move || {
         apply_output(schneeforge_core::rollback(
             &detect_target(),
             &resolve_repo(None),
             &StateStore::default(),
+            &tc,
             true,
         ))
     })
     .await
-    .unwrap_or_else(|e| CommandOutput {
-        success: false,
-        output: format!("task error: {e}"),
-    })
+    .map(Some)
+    .unwrap_or(None)
+    .ok_or_else(|| "task error".to_string())
 }
 
 #[tauri::command]
-async fn run_upgrade() -> CommandOutput {
-    tauri::async_runtime::spawn_blocking(|| {
-        option_output(schneeforge_core::upgrade(&resolve_repo(None), true))
+async fn run_upgrade(state: tauri::State<'_, CachedToolchain>) -> Result<CommandOutput, String> {
+    let tc = state.get_or_resolve()?;
+    let repo = resolve_repo(None);
+    tauri::async_runtime::spawn_blocking(move || {
+        option_output(schneeforge_core::upgrade(&repo, &tc, true))
     })
     .await
-    .unwrap_or_else(|e| CommandOutput {
-        success: false,
-        output: format!("task error: {e}"),
-    })
+    .map(Some)
+    .unwrap_or(None)
+    .ok_or_else(|| "task error".to_string())
 }
 
 #[tauri::command]
-async fn run_preflight() -> Result<PreflightReport, String> {
-    tauri::async_runtime::spawn_blocking(schneeforge_core::preflight)
+async fn run_preflight(state: tauri::State<'_, CachedToolchain>) -> Result<PreflightReport, String> {
+    let tc = state.get_or_resolve()?;
+    tauri::async_runtime::spawn_blocking(move || schneeforge_core::preflight(&tc))
         .await
         .map_err(|e| format!("task error: {e}"))
 }
 
 #[tauri::command]
-async fn run_generate_config(username: String) -> CommandOutput {
+async fn run_generate_config(username: String) -> Result<CommandOutput, String> {
     let repo = resolve_repo(None);
     tauri::async_runtime::spawn_blocking(move || match schneeforge_core::generate_config(&repo, &username)
     {
@@ -126,36 +151,37 @@ async fn run_generate_config(username: String) -> CommandOutput {
         },
     })
     .await
-    .unwrap_or_else(|e| CommandOutput {
-        success: false,
-        output: format!("task error: {e}"),
-    })
+    .map_err(|e| format!("task error: {e}"))
 }
 
 #[tauri::command]
-async fn run_clone_repo(url: String) -> CommandOutput {
+async fn run_clone_repo(
+    url: String,
+    state: tauri::State<'_, CachedToolchain>,
+) -> Result<CommandOutput, String> {
+    let tc = state.get_or_resolve()?;
     let dest = resolve_repo(None);
-    tauri::async_runtime::spawn_blocking(move || match schneeforge_core::clone_repo(&url, &dest) {
-        Ok(out) => CommandOutput {
-            success: true,
-            output: out,
-        },
-        Err(e) => CommandOutput {
-            success: false,
-            output: e.to_string(),
-        },
+    tauri::async_runtime::spawn_blocking(move || {
+        match schneeforge_core::clone_repo(&url, &dest, &tc) {
+            Ok(out) => CommandOutput {
+                success: true,
+                output: out,
+            },
+            Err(e) => CommandOutput {
+                success: false,
+                output: e.to_string(),
+            },
+        }
     })
     .await
-    .unwrap_or_else(|e| CommandOutput {
-        success: false,
-        output: format!("task error: {e}"),
-    })
+    .map_err(|e| format!("task error: {e}"))
 }
 
 #[tauri::command]
-async fn run_plan() -> CommandOutput {
+async fn run_plan(state: tauri::State<'_, CachedToolchain>) -> Result<CommandOutput, String> {
+    let tc = state.get_or_resolve()?;
     let repo = resolve_repo(None);
-    tauri::async_runtime::spawn_blocking(move || match schneeforge_core::plan(&repo, true) {
+    tauri::async_runtime::spawn_blocking(move || match schneeforge_core::plan(&repo, &tc, true) {
         Ok(r) => CommandOutput {
             success: true,
             output: r.output.unwrap_or_default(),
@@ -166,15 +192,13 @@ async fn run_plan() -> CommandOutput {
         },
     })
     .await
-    .unwrap_or_else(|e| CommandOutput {
-        success: false,
-        output: format!("task error: {e}"),
-    })
+    .map_err(|e| format!("task error: {e}"))
 }
 
 #[tauri::command]
-fn run_verify() -> VerifyReport {
-    schneeforge_core::verify(&resolve_repo(None))
+fn run_verify(state: tauri::State<'_, CachedToolchain>) -> Result<VerifyReport, String> {
+    let tc = state.get_or_resolve()?;
+    Ok(schneeforge_core::verify(&resolve_repo(None), &tc))
 }
 
 fn load_manifest() -> Option<schneeforge_core::Manifest> {
@@ -185,6 +209,7 @@ fn load_manifest() -> Option<schneeforge_core::Manifest> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(CachedToolchain::default())
         .invoke_handler(tauri::generate_handler![
             get_status,
             run_scan,
@@ -240,4 +265,3 @@ mod tests {
         );
     }
 }
-

@@ -87,13 +87,48 @@ jobs:
         run: nix run nixpkgs#actionlint
 
       - name: shellcheck
-        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh
+        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh
 
       - name: statix check
         run: nix run nixpkgs#statix -- check .
 
       - name: deadnix check
         run: nix run nixpkgs#deadnix -- --fail .
+
+      - name: forbid raw tool spawns
+        # tool.rs 以外で Command::new("nix") 等の文字列リテラル spawn を禁止する。
+        # 全ての操作は Toolchain の解決済みパスを経由しなければならない。
+        # 詳細: openspec/changes/runtime-tool-resolution-hardening/specs/tool-resolution/spec.md
+        # 例外: tool.rs (resolver 本体), crates/cli/tests/ (テストヘルパ)
+        run: |
+          set -euo pipefail
+          # Rust 側: tool.rs と CLI テストヘルパ以外で文字列リテラル spawn を使っていないか検出
+          # コメント行（// で始まるか /// doc comment）は除外
+          rust_hits=$(grep -rnE 'Command::new\("(nix|git|brew|nh)"|run_(capture|stream)\("(nix|git|brew|nh)"|command_succeeds\("(nix|git|brew|nh)"' crates apps 2>/dev/null \
+            | grep -v 'crates/core/src/tool.rs' \
+            | grep -v 'crates/cli/tests/' \
+            | grep -v '^Binary file' \
+            | grep -vE ':\s*(///?|\*).*Command::new' \
+            | grep -vE ':\s*///' \
+            || true)
+          if [ -n "$rust_hits" ]; then
+            echo "ERROR: raw tool spawns detected. Use Toolchain instead." >&2
+            echo "$rust_hits" >&2
+            exit 1
+          fi
+          # shell 側: install.sh / bootstrap.sh で直接 nix/git/brew を呼んでいないか
+          shell_hits=$(grep -nE '(^| )nix |(^| )git |(^| )brew ' install.sh bootstrap.sh 2>/dev/null \
+            | grep -v '^#' \
+            | grep -v '\$NIX_BIN' \
+            | grep -v '\$GIT_BIN' \
+            | grep -v '\$BREW_BIN' \
+            || true)
+          if [ -n "$shell_hits" ]; then
+            echo "ERROR: raw tool invocations in shell. Use \$NIX_BIN / \$GIT_BIN / \$BREW_BIN (resolve-tools.sh)." >&2
+            echo "$shell_hits" >&2
+            exit 1
+          fi
+          echo "OK: no raw tool spawns"
 
   rust-check:
     runs-on: ubuntu-latest
@@ -136,8 +171,11 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
-      - name: bats test
+      - name: bats test (bootstrap)
         run: nix run nixpkgs#bats -- tests/bootstrap.bats
+
+      - name: bats test (resolve-tools)
+        run: nix run nixpkgs#bats -- tests/resolve-tools.bats
 
       - name: nix-unit test
         run: nix run nixpkgs#nix-unit -- tests/nix-unit.nix

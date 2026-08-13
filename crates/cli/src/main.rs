@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use schneeforge_core::{detect_target, Manifest, StateStore};
+use schneeforge_core::{detect_target, Manifest, StateStore, Toolchain};
 /// Declarative Developer Workstation Manager
 #[derive(Parser)]
 #[command(name = "schneeforge", version, about)]
@@ -41,17 +41,21 @@ enum Cmd {
 fn main() {
     let cli = Cli::parse();
     let repo = schneeforge_core::resolve_repo(cli.repo.as_deref());
+
+    // Nix/Git を必要とするコマンドでは起動直後に Toolchain を1回解決する。
+    // status / uninstall のような info 系コマンドは Toolchain 無しで動かし、
+    // CI の素の Linux runner でもテスト可能にする。
     let result = match cli.command {
-        Cmd::Doctor => doctor(),
-        Cmd::Scan => scan(&repo),
-        Cmd::Setup => setup(&repo),
+        Cmd::Doctor => with_toolchain(doctor, &repo),
+        Cmd::Scan => with_toolchain(|tc| scan(&repo, tc), &repo),
+        Cmd::Setup => with_toolchain(|tc| setup(&repo, tc), &repo),
         Cmd::Status => status(&repo),
-        Cmd::Plan => plan(&repo),
-        Cmd::Apply => apply(&repo),
-        Cmd::Rollback => rollback(&repo),
-        Cmd::Upgrade => upgrade(&repo),
-        Cmd::Sync => sync(&repo),
-        Cmd::Verify => verify(&repo),
+        Cmd::Plan => with_toolchain(|tc| plan(&repo, tc), &repo),
+        Cmd::Apply => with_toolchain(|tc| apply(&repo, tc), &repo),
+        Cmd::Rollback => with_toolchain(|tc| rollback(&repo, tc), &repo),
+        Cmd::Upgrade => with_toolchain(|tc| upgrade(&repo, tc), &repo),
+        Cmd::Sync => with_toolchain(|tc| sync(&repo, tc), &repo),
+        Cmd::Verify => with_toolchain(|tc| verify(&repo, tc), &repo),
         Cmd::Uninstall => uninstall(),
     };
     if let Err(e) = result {
@@ -62,8 +66,17 @@ fn main() {
 
 type Result = std::result::Result<(), String>;
 
-fn doctor() -> Result {
-    let r = schneeforge_core::doctor();
+/// Toolchain 必須コマンドのラッパ。解決失敗時はユーザーフレンドリなエラーを返す
+fn with_toolchain<F>(f: F, _repo: &str) -> Result
+where
+    F: FnOnce(&Toolchain) -> Result,
+{
+    let tc = Toolchain::resolve().map_err(|e| e.to_string())?;
+    f(&tc)
+}
+
+fn doctor(tc: &Toolchain) -> Result {
+    let r = schneeforge_core::doctor(tc);
     println!("=== doctor ===");
     println!();
     println!("[system]");
@@ -71,6 +84,11 @@ fn doctor() -> Result {
     println!("  arch: {}", r.arch);
     println!();
     println!("[nix]");
+    println!("  path:   {}", tc.nix.path.display());
+    println!("  source: {}", tc.nix.source);
+    if let Some(v) = &tc.nix.version {
+        println!("  version: {v}");
+    }
     if r.nix {
         println!("  installed: yes");
     } else {
@@ -82,6 +100,8 @@ fn doctor() -> Result {
     println!("  installed: {}", if r.homebrew { "yes" } else { "no" });
     println!();
     println!("[git]");
+    println!("  path:   {}", tc.git.path.display());
+    println!("  source: {}", tc.git.source);
     println!("  installed: {}", if r.git { "yes" } else { "no" });
     println!();
     println!("[host detection]");
@@ -89,12 +109,12 @@ fn doctor() -> Result {
     Ok(())
 }
 
-fn scan(repo: &str) -> Result {
+fn scan(repo: &str, tc: &Toolchain) -> Result {
     let target = detect_target();
     let manifest = load_manifest(repo);
     println!("=== scan ===");
     println!();
-    print!("{}", schneeforge_core::scan(&target));
+    print!("{}", schneeforge_core::scan(&target, tc));
     println!();
     println!("[manifest]");
     match manifest {
@@ -129,23 +149,23 @@ fn status(repo: &str) -> Result {
     Ok(())
 }
 
-fn apply(repo: &str) -> Result {
+fn apply(repo: &str, tc: &Toolchain) -> Result {
     let target = detect_target();
     println!("applying host: {target}");
-    schneeforge_core::apply(&target, repo, &StateStore::default(), false)
+    schneeforge_core::apply(&target, repo, &StateStore::default(), tc, false)
         .map_err(|e| e.to_string())?;
     println!("state saved");
     Ok(())
 }
 
-fn setup(repo: &str) -> Result {
+fn setup(repo: &str, tc: &Toolchain) -> Result {
     println!("=== setup ===");
-    schneeforge_core::setup(repo, &StateStore::default()).map_err(|e| e.to_string())?;
+    schneeforge_core::setup(repo, &StateStore::default(), tc).map_err(|e| e.to_string())?;
     println!("state saved");
     Ok(())
 }
 
-fn plan(repo: &str) -> Result {
+fn plan(repo: &str, tc: &Toolchain) -> Result {
     let t = schneeforge_core::plan_target(repo).map_err(|e| e.to_string())?;
     println!("=== plan ===");
     println!();
@@ -153,32 +173,32 @@ fn plan(repo: &str) -> Result {
     println!("  target: {}", t.flake_target);
     println!();
     println!("dry-run build...");
-    schneeforge_core::plan(repo, false).map_err(|e| e.to_string())?;
+    schneeforge_core::plan(repo, tc, false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn rollback(repo: &str) -> Result {
+fn rollback(repo: &str, tc: &Toolchain) -> Result {
     let target = detect_target();
     println!("rolling back host: {target}");
-    schneeforge_core::rollback(&target, repo, &StateStore::default(), false)
+    schneeforge_core::rollback(&target, repo, &StateStore::default(), tc, false)
         .map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn upgrade(repo: &str) -> Result {
+fn upgrade(repo: &str, tc: &Toolchain) -> Result {
     println!("updating flake.lock...");
-    schneeforge_core::upgrade(repo, false).map_err(|e| e.to_string())?;
+    schneeforge_core::upgrade(repo, tc, false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn sync(repo: &str) -> Result {
+fn sync(repo: &str, tc: &Toolchain) -> Result {
     println!("pulling remote config...");
-    schneeforge_core::sync(repo, false).map_err(|e| e.to_string())?;
+    schneeforge_core::sync(repo, tc, false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn verify(repo: &str) -> Result {
-    let report = schneeforge_core::verify(repo);
+fn verify(repo: &str, tc: &Toolchain) -> Result {
+    let report = schneeforge_core::verify(repo, tc);
     println!("=== verify ===");
     println!();
     println!("[checks]");

@@ -1,11 +1,12 @@
 use crate::actions;
-use crate::discovery::{detect_target, which, ConfigurationTarget};
+use crate::discovery::{detect_target, ConfigurationTarget};
 use crate::error::{Error, Result};
 use crate::lock::{OperationGuard, OperationLock};
 use crate::process::{run_capture, run_stream};
 use crate::repo::current_git_revision;
 use crate::state::{State, StateStore};
 use crate::time::now_iso8601;
+use crate::tool::Toolchain;
 use serde::Serialize;
 
 /// apply / rollback の結果。output は capture 時のみ Some
@@ -53,18 +54,19 @@ pub fn apply(
     target: &ConfigurationTarget,
     repo: &str,
     store: &StateStore,
+    tc: &Toolchain,
     capture: bool,
 ) -> Result<ApplyResult> {
     let _guard = acquire()?;
 
     let output = if capture {
-        Some(actions::apply_captured(target, repo)?)
+        Some(actions::apply_captured(target, repo, tc)?)
     } else {
-        actions::apply(target, repo)?;
+        actions::apply(target, repo, tc)?;
         None
     };
 
-    let state = applied_state(target, current_git_revision(repo));
+    let state = applied_state(target, current_git_revision(repo, &tc.git.path));
     store.save(&state)?;
 
     Ok(ApplyResult { output, state })
@@ -77,14 +79,15 @@ pub fn rollback(
     target: &ConfigurationTarget,
     repo: &str,
     store: &StateStore,
+    tc: &Toolchain,
     capture: bool,
 ) -> Result<ApplyResult> {
     let _guard = acquire()?;
 
     let output = if capture {
-        Some(actions::rollback_captured(target, repo)?)
+        Some(actions::rollback_captured(target, repo, tc)?)
     } else {
-        actions::rollback(target, repo)?;
+        actions::rollback(target, repo, tc)?;
         None
     };
 
@@ -95,12 +98,12 @@ pub fn rollback(
 }
 
 /// upgrade (`nix flake update --flake <repo>`) をロック付きで実行する
-pub fn upgrade(repo: &str, capture: bool) -> Result<Option<String>> {
+pub fn upgrade(repo: &str, tc: &Toolchain, capture: bool) -> Result<Option<String>> {
     let _guard = acquire()?;
     let output = if capture {
-        Some(actions::upgrade_captured(repo)?)
+        Some(actions::upgrade_captured(repo, tc)?)
     } else {
-        actions::upgrade(repo)?;
+        actions::upgrade(repo, tc)?;
         None
     };
     Ok(output)
@@ -131,7 +134,7 @@ pub fn plan_target(repo: &str) -> Result<PlanResult> {
 }
 
 /// plan: 適用内容の dry-run を実行する (CWD 非依存)
-pub fn plan(repo: &str, capture: bool) -> Result<PlanResult> {
+pub fn plan(repo: &str, tc: &Toolchain, capture: bool) -> Result<PlanResult> {
     let mut result = plan_target(repo)?;
     let args = [
         "build".to_string(),
@@ -139,9 +142,9 @@ pub fn plan(repo: &str, capture: bool) -> Result<PlanResult> {
         result.flake_target.clone(),
     ];
     result.output = if capture {
-        Some(run_capture("nix", &args)?)
+        Some(run_capture(&tc.nix.path, &args)?)
     } else {
-        run_stream("nix", &args)?;
+        run_stream(&tc.nix.path, &args)?;
         None
     };
     Ok(result)
@@ -175,15 +178,23 @@ impl VerifyReport {
 }
 
 /// verify: 環境・repo/manifest・state を検証する (各検査は infallible)
-pub fn verify(repo: &str) -> VerifyReport {
+pub fn verify(repo: &str, tc: &Toolchain) -> VerifyReport {
     let mut checks = Vec::new();
 
-    for cmd in ["nix", "zsh", "git"] {
-        checks.push(VerifyCheck {
-            name: cmd.to_string(),
-            ok: which(cmd).is_some(),
-        });
-    }
+    // 解決済み toolchain の各ツールが実際に実行可能か
+    checks.push(VerifyCheck {
+        name: "nix".to_string(),
+        ok: tc.nix.path.is_file(),
+    });
+    checks.push(VerifyCheck {
+        name: "git".to_string(),
+        ok: tc.git.path.is_file(),
+    });
+    // zsh は shell 必須だが toolchain 対象外なので PATH 探索
+    checks.push(VerifyCheck {
+        name: "zsh".to_string(),
+        ok: crate::discovery::which("zsh").is_some(),
+    });
 
     let home = std::env::var("HOME").unwrap_or_default();
     for (name, path) in [
@@ -224,10 +235,10 @@ fn sync_args(repo: &str) -> Vec<String> {
 }
 
 /// sync: dirty check の後 `git -C <repo> pull --ff-only` で更新する
-pub fn sync(repo: &str, capture: bool) -> Result<Option<String>> {
+pub fn sync(repo: &str, tc: &Toolchain, capture: bool) -> Result<Option<String>> {
     let _guard = acquire()?;
 
-    if git_dirty(repo)? {
+    if git_dirty(repo, tc)? {
         return Err(Error::Busy(
             "repository has uncommitted changes; commit or stash first".to_string(),
         ));
@@ -235,18 +246,18 @@ pub fn sync(repo: &str, capture: bool) -> Result<Option<String>> {
 
     let args = sync_args(repo);
     let output = if capture {
-        Some(run_capture("git", &args)?)
+        Some(run_capture(&tc.git.path, &args)?)
     } else {
-        run_stream("git", &args)?;
+        run_stream(&tc.git.path, &args)?;
         None
     };
     Ok(output)
 }
 
 /// repository の working tree に未コミット変更があるか
-fn git_dirty(repo: &str) -> Result<bool> {
+fn git_dirty(repo: &str, tc: &Toolchain) -> Result<bool> {
     let out = run_capture(
-        "git",
+        &tc.git.path,
         &[
             "-C".to_string(),
             repo.to_string(),
@@ -261,6 +272,17 @@ fn git_dirty(repo: &str) -> Result<bool> {
 mod tests {
     use super::*;
     use crate::discovery::detect_target_for;
+    use crate::tool::{ResolvedTool, ToolSource};
+    use std::path::PathBuf;
+
+    fn dummy_tc() -> Toolchain {
+        Toolchain {
+            nix: ResolvedTool::new(PathBuf::from("/usr/local/bin/nix"), ToolSource::Homebrew),
+            git: ResolvedTool::new(PathBuf::from("/usr/bin/git"), ToolSource::Path),
+            homebrew: None,
+            nh: None,
+        }
+    }
 
     #[test]
     fn applied_state_contains_host_and_revision() {
@@ -333,5 +355,18 @@ mod tests {
         assert_eq!(report.passed(), 2);
         assert_eq!(report.failed(), 1);
         assert!(!report.is_ok());
+    }
+
+    #[test]
+    fn verify_uses_resolved_toolchain_paths() {
+        // toolchain が指すパスが file として存在するかで判定される。
+        // dummy_tc の /usr/local/bin/nix は存在しないので ok=false になるはず
+        let report = verify("/tmp", &dummy_tc());
+        let nix_check = report
+            .checks
+            .iter()
+            .find(|c| c.name == "nix")
+            .expect("nix check should exist");
+        assert!(!nix_check.ok, "dummy /usr/local/bin/nix should not exist");
     }
 }

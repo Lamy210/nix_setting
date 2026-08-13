@@ -1,6 +1,8 @@
-use crate::discovery::{has_git, has_homebrew, has_nix, ConfigurationTarget, Platform};
+use crate::discovery::ConfigurationTarget;
 use crate::error::{Error, Result};
 use crate::process::{run_capture, run_stream};
+use crate::tool::Toolchain;
+use std::path::Path;
 
 /// macOS apply の引数 (`nix run --inputs-from <repo> nix-darwin#darwin-rebuild -- switch --flake <ref>`)
 /// `--inputs-from <repo>` で repo の flake.lock に pin された nix-darwin を使う (registry 非依存)
@@ -62,40 +64,48 @@ fn unsupported(target: &ConfigurationTarget) -> Error {
 }
 
 /// apply: ストリーミング実行 (stdio 継承、リアルタイム出力)
-pub(crate) fn apply(target: &ConfigurationTarget, repo: &str) -> Result<()> {
+pub(crate) fn apply(target: &ConfigurationTarget, repo: &str, tc: &Toolchain) -> Result<()> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
-    if target.platform() == Platform::MacOS {
-        run_stream("nix", &darwin_switch_args(repo, target))
+    if target.platform() == crate::discovery::Platform::MacOS {
+        run_stream(&tc.nix.path, &darwin_switch_args(repo, target))
     } else {
-        apply_linux(target, repo)
+        apply_linux(target, repo, tc)
     }
 }
 
 /// apply_captured: 出力をキャプチャして返す (GUI 用)
-pub(crate) fn apply_captured(target: &ConfigurationTarget, repo: &str) -> Result<String> {
+pub(crate) fn apply_captured(
+    target: &ConfigurationTarget,
+    repo: &str,
+    tc: &Toolchain,
+) -> Result<String> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
-    if target.platform() == Platform::MacOS {
-        run_capture("nix", &darwin_switch_args(repo, target))
+    if target.platform() == crate::discovery::Platform::MacOS {
+        run_capture(&tc.nix.path, &darwin_switch_args(repo, target))
     } else {
-        apply_linux_captured(target, repo)
+        apply_linux_captured(target, repo, tc)
     }
 }
 
 /// Linux: activationPackage を build して activate する (nh 非依存)
-fn apply_linux(target: &ConfigurationTarget, repo: &str) -> Result<()> {
+fn apply_linux(target: &ConfigurationTarget, repo: &str, tc: &Toolchain) -> Result<()> {
     let link = ActivationLink::new();
-    run_stream("nix", &linux_build_args(repo, target, &link.path))?;
-    run_stream(&format!("{}/activate", link.path), &[])
+    run_stream(&tc.nix.path, &linux_build_args(repo, target, &link.path))?;
+    run_stream(Path::new(&format!("{}/activate", link.path)), &[])
 }
 
-fn apply_linux_captured(target: &ConfigurationTarget, repo: &str) -> Result<String> {
+fn apply_linux_captured(
+    target: &ConfigurationTarget,
+    repo: &str,
+    tc: &Toolchain,
+) -> Result<String> {
     let link = ActivationLink::new();
-    let mut out = run_capture("nix", &linux_build_args(repo, target, &link.path))?;
-    let activate = run_capture(&format!("{}/activate", link.path), &[])?;
+    let mut out = run_capture(&tc.nix.path, &linux_build_args(repo, target, &link.path))?;
+    let activate = run_capture(Path::new(&format!("{}/activate", link.path)), &[])?;
     if !activate.is_empty() {
         out.push('\n');
         out.push_str(&activate);
@@ -126,26 +136,38 @@ fn linux_rollback_args() -> Vec<String> {
 }
 
 /// rollback: ストリーミング実行
-pub(crate) fn rollback(target: &ConfigurationTarget, repo: &str) -> Result<()> {
+pub(crate) fn rollback(target: &ConfigurationTarget, repo: &str, tc: &Toolchain) -> Result<()> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
-    if target.platform() == Platform::MacOS {
-        run_stream("nix", &darwin_rollback_args(repo))
+    if target.platform() == crate::discovery::Platform::MacOS {
+        run_stream(&tc.nix.path, &darwin_rollback_args(repo))
     } else {
-        run_stream("nh", &linux_rollback_args())
+        let nh = tc
+            .nh
+            .as_ref()
+            .ok_or_else(|| Error::Precondition("nh is required for Linux rollback".to_string()))?;
+        run_stream(&nh.path, &linux_rollback_args())
     }
 }
 
 /// rollback_captured: 出力をキャプチャ (GUI 用)
-pub(crate) fn rollback_captured(target: &ConfigurationTarget, repo: &str) -> Result<String> {
+pub(crate) fn rollback_captured(
+    target: &ConfigurationTarget,
+    repo: &str,
+    tc: &Toolchain,
+) -> Result<String> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
-    if target.platform() == Platform::MacOS {
-        run_capture("nix", &darwin_rollback_args(repo))
+    if target.platform() == crate::discovery::Platform::MacOS {
+        run_capture(&tc.nix.path, &darwin_rollback_args(repo))
     } else {
-        run_capture("nh", &linux_rollback_args())
+        let nh = tc
+            .nh
+            .as_ref()
+            .ok_or_else(|| Error::Precondition("nh is required for Linux rollback".to_string()))?;
+        run_capture(&nh.path, &linux_rollback_args())
     }
 }
 
@@ -160,27 +182,41 @@ fn upgrade_args(repo: &str) -> Vec<String> {
 }
 
 /// upgrade: `nix flake update` (repo-aware、`--flake <repo>`)
-pub(crate) fn upgrade(repo: &str) -> Result<()> {
-    run_stream("nix", &upgrade_args(repo))
+pub(crate) fn upgrade(repo: &str, tc: &Toolchain) -> Result<()> {
+    run_stream(&tc.nix.path, &upgrade_args(repo))
 }
 
 /// upgrade_captured: 出力をキャプチャ (GUI 用)
-pub(crate) fn upgrade_captured(repo: &str) -> Result<String> {
-    run_capture("nix", &upgrade_args(repo))
+pub(crate) fn upgrade_captured(repo: &str, tc: &Toolchain) -> Result<String> {
+    run_capture(&tc.nix.path, &upgrade_args(repo))
 }
 
 /// scan: 環境スキャン結果を文字列で返す
-pub fn scan(target: &ConfigurationTarget) -> String {
+pub fn scan(target: &ConfigurationTarget, tc: &Toolchain) -> String {
     let mut out = String::new();
     out.push_str(&format!("OS:   {}\n", std::env::consts::OS));
     out.push_str(&format!("arch: {}\n", std::env::consts::ARCH));
     out.push_str(&format!("host: {target}\n"));
-    out.push_str(&format!("nix:  {}\n", if has_nix() { "yes" } else { "no" }));
     out.push_str(&format!(
-        "brew: {}\n",
-        if has_homebrew() { "yes" } else { "no" }
+        "nix:  {} ({}, {})\n",
+        tc.nix.path.display(),
+        tc.nix.source,
+        tc.nix.version.as_deref().unwrap_or("unknown")
     ));
-    out.push_str(&format!("git:  {}\n", if has_git() { "yes" } else { "no" }));
+    if let Some(brew) = &tc.homebrew {
+        out.push_str(&format!(
+            "brew: {} ({})\n",
+            brew.path.display(),
+            brew.version.as_deref().unwrap_or("unknown")
+        ));
+    } else {
+        out.push_str("brew: not found\n");
+    }
+    out.push_str(&format!(
+        "git:  {} ({})\n",
+        tc.git.path.display(),
+        tc.git.version.as_deref().unwrap_or("unknown")
+    ));
     out
 }
 
@@ -188,18 +224,37 @@ pub fn scan(target: &ConfigurationTarget) -> String {
 mod tests {
     use super::*;
     use crate::discovery::detect_target_for;
+    use crate::tool::{ResolvedTool, ToolSource};
+    use std::path::PathBuf;
+
+    fn dummy_tc() -> Toolchain {
+        Toolchain {
+            nix: ResolvedTool::new(PathBuf::from("/usr/local/bin/nix"), ToolSource::Homebrew),
+            git: ResolvedTool::new(PathBuf::from("/usr/bin/git"), ToolSource::Path),
+            homebrew: None,
+            nh: None,
+        }
+    }
 
     #[test]
     fn scan_contains_host() {
         let target = detect_target_for("macos", "aarch64");
-        let out = scan(&target);
+        let out = scan(&target, &dummy_tc());
         assert!(out.contains("macbook-air"));
+        assert!(out.contains("/usr/local/bin/nix"));
+    }
+
+    #[test]
+    fn scan_reports_missing_brew() {
+        let target = detect_target_for("linux", "x86_64");
+        let out = scan(&target, &dummy_tc());
+        assert!(out.contains("brew: not found"));
     }
 
     #[test]
     fn apply_unsupported_fails() {
         let target = detect_target_for("windows", "x86_64");
-        let err = apply(&target, "/tmp/repo").unwrap_err();
+        let err = apply(&target, "/tmp/repo", &dummy_tc()).unwrap_err();
         assert_eq!(
             err,
             Error::UnsupportedPlatform {
@@ -212,7 +267,22 @@ mod tests {
     #[test]
     fn rollback_unsupported_fails() {
         let target = detect_target_for("windows", "x86_64");
-        assert!(rollback(&target, "/tmp/repo").is_err());
+        assert!(rollback(&target, "/tmp/repo", &dummy_tc()).is_err());
+    }
+
+    #[test]
+    fn rollback_linux_without_nh_returns_precondition_error() {
+        let target = detect_target_for("linux", "x86_64");
+        let err = rollback(&target, "/tmp/repo", &dummy_tc()).unwrap_err();
+        assert!(matches!(err, Error::Precondition(_)));
+    }
+
+    #[test]
+    fn rollback_macos_uses_resolved_nix() {
+        // macOS rollback は tc.nix.path を使う。ここでは引数組み立てまで検証
+        let args = darwin_rollback_args("/tmp/repo");
+        assert_eq!(args[1], "--inputs-from");
+        assert_eq!(args[2], "/tmp/repo");
     }
 
     #[test]

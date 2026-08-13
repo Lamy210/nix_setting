@@ -2,17 +2,17 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-08-14
+最終更新: 2026-08-13
 
 ## 完成済み
 
 | 領域 | 内容 |
 |------|------|
 | Nix 基盤 | flake-parts / hosts / profiles / manifest / 3システム / CI 10+ジョブ |
-| Rust core | actions / discovery / diagnostics / manifest / repo / state / time / tool / lock / operations / process / bootstrap（+ 68 unit tests） |
-| CLI | 11 コマンド（core 委譲のみの adapter 化済み） |
-| Tauri GUI | 診断 Status + First Run Wizard + 非同期コマンド + CSP + 状態機械 + Plan/Verify ボタン |
-| OpenSpec | `gui-normalization` 63/63 merge 済み・アーカイブ済み / main specs 5件 |
+| Rust core | actions / discovery / diagnostics / manifest / repo / state / time / tool / lock / operations / process / bootstrap（+ 98 unit tests） |
+| CLI | 11 コマンド（core 委譲のみの adapter 化済み / `with_toolchain` wrapper） |
+| Tauri GUI | 診断 Status + First Run Wizard + 非同期コマンド + CSP + 状態機械 + Plan/Verify ボタン + `fix-path-env-rs` による macOS PATH 補正 |
+| OpenSpec | `gui-normalization` 63/63 merge 済み・アーカイブ済み / `runtime-tool-resolution-hardening` 実装完了（archive 待ち）/ main specs 5件 |
 
 ### gui-normalization（63/63 完了・PR #4 merge 済み）
 
@@ -37,11 +37,25 @@
 | uninstall の副作用排除（#10） | #7 |
 | archive-before-pr のドキュメント修正（プロセス改善） | #8 |
 
+### runtime-tool-resolution-hardening（実装完了・archive 待ち）
+
+P0-1〜P0-5 を 1 change に統合して実装。
+
+- **P0-1 ToolResolver 強化**: `ToolSource` / `ResolvedTool` / `Toolchain` / `ToolchainError` 追加。8 段階の探索優先度（env → PATH → XDG state → Nix profile 群 → per-user → system profile → Homebrew）。`canonicalize` で symlink 解決。
+- **P0-2 全操作の Toolchain 経由化**: `actions` / `operations` / `bootstrap` の全関数が `&Toolchain` 受け。`process` 系は `&str` → `&Path` へ型変更。
+- **P0-3 Nix Health Check**: `NixHealth` struct 追加。`nix store ping` / `nix config show experimental-features` で実環境検証。
+- **P0-4 Flakes 検出バグ修正**: `PreflightReport` を `{ nix_installed, flakes_enabled, git_installed }` へ分離。`nix config show` を使って正確に判定。
+- **P0-5 install.sh / bootstrap.sh 探索統一**: `scripts/resolve-tools.sh` 新設。Rust 側と同一の探索順序。`tests/resolve-tools.bats` (11 ケース) で回帰テスト。
+- **前提**: `fix-path-env-rs` 追加（macOS の Finder/Spotlight 起動時の PATH 欠損を補正）。
+- **CI 再発防止**: `lint` job に "forbid raw tool spawns" step 追加。`tool.rs` / `cli/tests/` 以外での文字列リテラル spawn を禁止。
+- **GUI 側**: `CachedToolchain` (`Mutex<Option<Toolchain>>`) を `tauri::State` で保持。フロントエンド型定義の更新（`NixHealth` / `ToolchainSummary` 表示）は後続の GUI P1 変更で対応。
+
 ## 進行中
 
 | 項目 | 進捗 | 場所 |
 |------|------|------|
-| （なし） | PR #6/#7/#8/#9 が review 待ち | GitHub |
+| runtime-tool-resolution-hardening | 実装完了・品質ゲート通過（cargo test/clippy/fmt, openspec validate） | feature branch |
+| PR #6/#7/#8/#9 | review 待ち | GitHub |
 
 ## 既知のデグレ・機能漏れ（要対応）
 
@@ -49,7 +63,7 @@
 
 | # | 問題 | 対応 |
 |---|------|------|
-| 5 | GUI apply の sudo/TTY 問題（privileged helper 未実装） | desktop: 昇格ヘルパー実装（設計は design.md に済み。macOS authorization / osascript） |
+| 5 | GUI apply の sudo/TTY 問題（privileged helper 未実装） | desktop: 昇格ヘルパー実装（設計は design.md に済み。macOS authorization / osascript）。※ runtime-tool-resolution-hardening で「GUI 起動時に Nix が見つからない」副次症状は解消（`fix-path-env-rs` + `Toolchain` 解決） |
 
 ### 中
 

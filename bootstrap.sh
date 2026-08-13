@@ -4,11 +4,22 @@ set -eu
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$REPO_DIR"
 
-if ! command -v nix >/dev/null 2>&1; then
+# 共通関数を source
+# shellcheck source=scripts/resolve-tools.sh
+. "$REPO_DIR/scripts/resolve-tools.sh"
+
+if ! resolve_nix; then
   echo "Nix is not installed."
   echo
   echo "Install Nix first:"
   echo "  curl -L https://nixos.org/nix/install | sh"
+  exit 1
+fi
+
+if ! resolve_git; then
+  echo "Git is not installed."
+  echo
+  echo "Install Git first via your OS package manager."
   exit 1
 fi
 
@@ -87,10 +98,10 @@ echo "Backed up to $BACKUP_DIR"
 echo
 if [ "$HOST" = "macbook-air" ]; then
   echo "Applying nix-darwin + home-manager ($HOST)..."
-  nix run --inputs-from . nix-darwin#darwin-rebuild -- switch --flake ".#$HOST"
+  "$NIX_BIN" run --inputs-from . nix-darwin#darwin-rebuild -- switch --flake ".#$HOST"
 else
   echo "Building home-manager generation ($HOST)..."
-  nix build ".#homeConfigurations.${HOST}.activationPackage" --out-link ./result
+  "$NIX_BIN" build ".#homeConfigurations.${HOST}.activationPackage" --out-link ./result
   echo "Activating..."
   ./result/activate
 fi
