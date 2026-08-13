@@ -68,7 +68,7 @@ echo "Backed up to $BACKUP_DIR"
 echo
 if [ "$HOST" = "macbook-air" ]; then
   echo "Applying nix-darwin + home-manager ($HOST)..."
-  nix run nix-darwin -- switch --flake ".#$HOST"
+  nix run --inputs-from . nix-darwin#darwin-rebuild -- switch --flake ".#$HOST"
 else
   echo "Building home-manager generation ($HOST)..."
   nix build ".#homeConfigurations.${HOST}.activationPackage" --out-link ./result
