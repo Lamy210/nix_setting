@@ -9,7 +9,40 @@ permissions:
   contents: write
 
 jobs:
+  build-binaries:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-linux
+            artifact: schneeforge-x86_64-linux
+          - os: macos-latest
+            target: aarch64-darwin
+            artifact: schneeforge-aarch64-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - uses: cachix/install-nix-action@08dcb3a5e62fa31e2da3d490afc4176ef55ecd72
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: build binary
+        run: nix build .#schneeforge
+
+      - name: package binary
+        run: |
+          mkdir -p dist
+          cp result/bin/schneeforge "dist/${{ matrix.artifact }}"
+
+      - name: upload binary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+
   release:
+    needs: build-binaries
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -17,6 +50,11 @@ jobs:
       - uses: cachix/install-nix-action@08dcb3a5e62fa31e2da3d490afc4176ef55ecd72
         with:
           nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: download binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: dist
 
       - name: generate SBOM
         run: |
@@ -28,6 +66,9 @@ jobs:
         run: |
           {
             echo "# nix_setting ${{ github.ref_name }}"
+            echo
+            echo "## Binaries"
+            sha256sum dist/*/*
             echo
             echo "## SBOM"
             sha256sum sbom.cdx.json
@@ -43,6 +84,7 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: |
+            dist/*/*
             sbom.cdx.json
             CHECKSUMS.txt
           generate_release_notes: true
