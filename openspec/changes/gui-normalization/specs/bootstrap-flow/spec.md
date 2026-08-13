@@ -17,8 +17,26 @@ core SHALL は `nh` に依存せず適用できる。
 
 #### Scenario: macOS での適用
 - **WHEN** macOS で apply する
-- **THEN** `nix run nix-darwin -- switch --flake <repo>#macbook-air` を実行する
+- **THEN** pinned な `nix-darwin#darwin-rebuild` を `--inputs-from <repo>` で利用して switch する
 
 #### Scenario: Linux での適用
 - **WHEN** Linux で apply する
 - **THEN** `homeConfigurations.<host>.activationPackage` を build して activate する
+
+### Requirement: 権限の明示
+管理者権限が必要な操作 SHALL は明示的に権限昇格を要求する。
+
+#### Scenario: macOS での system 変更
+- **WHEN** nix-darwin switch が管理者権限を必要とする
+- **THEN** 事前に権限が必要であることを示し、明示的な昇格を行う
+
+### Requirement: rollback の意味論
+rollback SHALL は何を戻すかを明確にする（Generation Rollback / Configuration Revert / Restore Pre-install）。
+
+#### Scenario: 世代ロールバック
+- **WHEN** 直前の generation へ戻す
+- **THEN** Nix/HM/nix-darwin の generation を明示的に選択して戻す
+
+#### Scenario: 導入前の復元
+- **WHEN** SchneeForge 導入前の状態へ戻す
+- **THEN** 導入前にバックアップした dotfiles を復元する（generation rollback とは別操作）

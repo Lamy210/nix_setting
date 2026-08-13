@@ -19,3 +19,21 @@ GUI は host/repo/manifest/tool の存在・パス・バージョン・エラー
 #### Scenario: ツール検出
 - **WHEN** ユーザーが Status を取得する
 - **THEN** 各ツールは `available`/`path`/`version` を持つ
+
+### Requirement: Platform と ConfigurationTarget の分離
+OS/arch 検出（Platform）と、どの configuration を使うか（ConfigurationTarget）を分けて返す SHALL である。
+
+#### Scenario: 異なるハードウェア
+- **WHEN** M1 Mac mini と M4 MacBook Air で Status を取得する
+- **THEN** Platform はどちらも macOS/arm64 だが、ConfigurationTarget は別々に識別できる
+
+### Requirement: manifest の実行時検証
+Status SHALL は manifest の parse だけでなく、schema/username の実行時検証結果も返す。
+
+#### Scenario: 空 username
+- **WHEN** config.toml の username が空
+- **THEN** Status は validation error を返し、有効とみなさない
+
+#### Scenario: 実行ユーザーとの不一致
+- **WHEN** config.toml の username が実行ユーザーと異なる
+- **THEN** Status は不一致を警告として返す
