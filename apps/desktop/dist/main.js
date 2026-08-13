@@ -261,8 +261,30 @@ async function boot() {
 
 $("refresh").addEventListener("click", refresh);
 $("scan").addEventListener("click", () => run(() => invoke("run_scan"), "scan", "スキャン"));
+$("plan").addEventListener("click", () => run(() => invoke("run_plan"), "plan", "プラン"));
 $("apply").addEventListener("click", () => run(() => invoke("run_apply"), "apply", "適用"));
 $("rollback").addEventListener("click", () => run(() => invoke("run_rollback"), "rollback", "ロールバック"));
 $("upgrade").addEventListener("click", () => run(() => invoke("run_upgrade"), "upgrade", "アップグレード"));
+$("verify").addEventListener("click", verify);
+
+async function verify() {
+  const btn = $("verify");
+  btn.disabled = true;
+  $("output").textContent = "検証中...";
+  try {
+    const report = await invoke("run_verify");
+    const rows = report.checks
+      .map((c) => `${c.ok ? "✅" : "❌"} ${c.name}`)
+      .join("\n");
+    const failed = report.checks.filter((c) => !c.ok).length;
+    $("output").textContent = `検証結果:\n${rows}\n\n${
+      failed === 0 ? "すべて OK" : `${failed} 件 NG`
+    }`;
+  } catch (e) {
+    $("output").textContent = `検証エラー: ${e}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 boot();
