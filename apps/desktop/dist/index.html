@@ -141,36 +141,44 @@
         }
       }
 
-      function setRunning(name, active) {
+      function setRunning(label, active) {
         const bar = $("running");
         bar.classList.toggle("active", active);
         if (active) {
-          $("running-text").textContent = `${name} を実行中... (nix ビルドには数分かかります)`;
+          $("running-text").textContent = `${label} を実行中... (nix ビルドには数分かかります)`;
         }
       }
 
-      async function run(fn, name) {
-        const btn = $(name);
+      async function run(fn, buttonId, label) {
+        const btn = $(buttonId);
+        if (!btn) {
+          $("output").textContent = `ボタンが見つかりません: ${buttonId}`;
+          return;
+        }
         btn.disabled = true;
-        setRunning(name, true);
-        $("output").textContent = `${name} を実行中...`;
+        setRunning(label, true);
+        $("output").textContent = `${label} を実行中...`;
         try {
           const r = await fn();
-          $("output").textContent = r.output || "(完了)";
+          if (r.success) {
+            $("output").textContent = r.output || "(完了)";
+          } else {
+            $("output").textContent = `${label} 失敗: ${r.output}`;
+          }
         } catch (e) {
-          $("output").textContent = `${name} エラー: ${e}`;
+          $("output").textContent = `${label} エラー: ${e}`;
         } finally {
           btn.disabled = false;
-          setRunning(name, false);
+          setRunning(label, false);
           refresh();
         }
       }
 
       $("refresh").addEventListener("click", refresh);
-      $("scan").addEventListener("click", () => run(() => invoke("run_scan"), "スキャン"));
-      $("apply").addEventListener("click", () => run(() => invoke("run_apply"), "適用"));
-      $("rollback").addEventListener("click", () => run(() => invoke("run_rollback"), "ロールバック"));
-      $("upgrade").addEventListener("click", () => run(() => invoke("run_upgrade"), "アップグレード"));
+      $("scan").addEventListener("click", () => run(() => invoke("run_scan"), "scan", "スキャン"));
+      $("apply").addEventListener("click", () => run(() => invoke("run_apply"), "apply", "適用"));
+      $("rollback").addEventListener("click", () => run(() => invoke("run_rollback"), "rollback", "ロールバック"));
+      $("upgrade").addEventListener("click", () => run(() => invoke("run_upgrade"), "upgrade", "アップグレード"));
 
       refresh();
     </script>
