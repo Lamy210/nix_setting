@@ -49,15 +49,23 @@ macbook-air | linux | linux-arm)
 esac
 
 echo
-echo "Personalizing config.toml..."
 USERNAME="$(whoami)"
-cat >"config.toml" <<EOF
+if [ -z "$USERNAME" ]; then
+  echo "Could not determine username" >&2
+  exit 1
+fi
+if grep -qF "username = \"$USERNAME\"" "config.toml" 2>/dev/null; then
+  echo "config.toml already personalized for $USERNAME"
+else
+  echo "Personalizing config.toml..."
+  cat >"config.toml" <<EOF
 # nix_setting manifest (schema version 1)
 schema = 1
 
 [user]
 username = "$USERNAME"
 EOF
+fi
 
 mkdir -p "$HOME/.config/nix"
 
