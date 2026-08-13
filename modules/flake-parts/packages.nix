@@ -1,6 +1,14 @@
 _: {
   perSystem =
     { pkgs, ... }:
+    let
+      linuxBuildInputs = with pkgs; [
+        webkitgtk_4_1
+        gtk3
+        libayatana-appindicator
+        librsvg
+      ];
+    in
     {
       packages.schneeforge = pkgs.rustPlatform.buildRustPackage {
         pname = "schneeforge";
@@ -10,6 +18,24 @@ _: {
         meta = {
           description = "Declarative Developer Workstation Manager";
           mainProgram = "schneeforge";
+        };
+      };
+
+      packages.schneeforge-desktop = pkgs.rustPlatform.buildRustPackage {
+        pname = "schneeforge-desktop";
+        version = "0.1.0";
+        src = ../..;
+        cargoHash = "sha256-qsph1Y3gLddAYk3+tdm8juctHTwv+roT5vAkNEhwVVw=";
+        nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [
+          pkgs.pkg-config
+        ];
+        buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux linuxBuildInputs;
+        cargoBuildCommand = "cargo build --release --manifest-path apps/desktop/src-tauri/Cargo.toml";
+        cargoCheckCommand = "cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml";
+        cargoTestCommand = null;
+        meta = {
+          description = "SchneeForge Desktop (Tauri 2)";
+          mainProgram = "schneeforge-desktop";
         };
       };
     };
