@@ -54,7 +54,7 @@ if [ -z "$USERNAME" ]; then
   echo "Could not determine username" >&2
   exit 1
 fi
-if grep -q "username = \"$USERNAME\"" "config.toml" 2>/dev/null; then
+if grep -qF "username = \"$USERNAME\"" "config.toml" 2>/dev/null; then
   echo "config.toml already personalized for $USERNAME"
 else
   echo "Personalizing config.toml..."
