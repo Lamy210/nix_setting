@@ -152,7 +152,7 @@ fn apply(repo: &str) -> Result {
         ));
     }
     println!("applying host: {host}");
-    print!("{}", schneeforge_core::apply(host, repo)?);
+    schneeforge_core::apply(host, repo)?;
 
     // 適用後に状態を記録
     let revision = current_git_revision(repo);
@@ -246,13 +246,13 @@ fn plan(repo: &str) -> Result {
 fn rollback() -> Result {
     let host = detect_host();
     println!("rolling back host: {host}");
-    print!("{}", schneeforge_core::rollback(host)?);
+    schneeforge_core::rollback(host)?;
     Ok(())
 }
 
 fn upgrade() -> Result {
     println!("updating flake.lock...");
-    print!("{}", schneeforge_core::upgrade()?);
+    schneeforge_core::upgrade()?;
     Ok(())
 }
 

@@ -67,6 +67,33 @@
         white-space: pre-wrap;
         min-height: 8rem;
       }
+      .running-bar {
+        display: none;
+        align-items: center;
+        gap: 0.6rem;
+        background: #1e293b;
+        border-radius: 0.5rem;
+        padding: 0.6rem 1rem;
+        margin-bottom: 1rem;
+        color: #7dd3fc;
+      }
+      .running-bar.active {
+        display: flex;
+      }
+      .spinner {
+        width: 1rem;
+        height: 1rem;
+        border: 2px solid #334155;
+        border-top-color: #38bdf8;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        flex-shrink: 0;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
     </style>
   </head>
   <body>
@@ -87,6 +114,11 @@
       <button id="upgrade">アップグレード</button>
     </div>
 
+    <div class="running-bar" id="running">
+      <div class="spinner"></div>
+      <span id="running-text">実行中...</span>
+    </div>
+
     <div class="card">
       <pre id="output">出力はここに表示されます</pre>
     </div>
@@ -97,34 +129,48 @@
       const $ = (id) => document.getElementById(id);
 
       async function refresh() {
-        const s = await invoke("get_status");
-        $("host").textContent = s.host;
-        $("user").textContent = s.user ?? "-";
-        $("nix").textContent = s.nix ? "yes" : "no";
-        $("homebrew").textContent = s.homebrew ? "yes" : "no";
-        $("applied").textContent = s.applied_revision ?? "(never)";
+        try {
+          const s = await invoke("get_status");
+          $("host").textContent = s.host;
+          $("user").textContent = s.user ?? "-";
+          $("nix").textContent = s.nix ? "yes" : "no";
+          $("homebrew").textContent = s.homebrew ? "yes" : "no";
+          $("applied").textContent = s.applied_revision ?? "(never)";
+        } catch (e) {
+          $("output").textContent = `get_status エラー: ${e}`;
+        }
+      }
+
+      function setRunning(name, active) {
+        const bar = $("running");
+        bar.classList.toggle("active", active);
+        if (active) {
+          $("running-text").textContent = `${name} を実行中... (nix ビルドには数分かかります)`;
+        }
       }
 
       async function run(fn, name) {
         const btn = $(name);
         btn.disabled = true;
-        $("output").textContent = `running ${name}...`;
+        setRunning(name, true);
+        $("output").textContent = `${name} を実行中...`;
         try {
           const r = await fn();
-          $("output").textContent = r.output;
+          $("output").textContent = r.output || "(完了)";
         } catch (e) {
-          $("output").textContent = String(e);
+          $("output").textContent = `${name} エラー: ${e}`;
         } finally {
           btn.disabled = false;
+          setRunning(name, false);
           refresh();
         }
       }
 
       $("refresh").addEventListener("click", refresh);
-      $("scan").addEventListener("click", () => run(() => invoke("run_scan"), "scan"));
-      $("apply").addEventListener("click", () => run(() => invoke("run_apply"), "apply"));
-      $("rollback").addEventListener("click", () => run(() => invoke("run_rollback"), "rollback"));
-      $("upgrade").addEventListener("click", () => run(() => invoke("run_upgrade"), "upgrade"));
+      $("scan").addEventListener("click", () => run(() => invoke("run_scan"), "スキャン"));
+      $("apply").addEventListener("click", () => run(() => invoke("run_apply"), "適用"));
+      $("rollback").addEventListener("click", () => run(() => invoke("run_rollback"), "ロールバック"));
+      $("upgrade").addEventListener("click", () => run(() => invoke("run_upgrade"), "アップグレード"));
 
       refresh();
     </script>

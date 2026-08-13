@@ -1,5 +1,6 @@
 use schneeforge_core::{
-    apply, detect_host, has_git, has_homebrew, has_nix, rollback, scan, upgrade, State,
+    apply_captured, detect_host, has_git, has_homebrew, has_nix, rollback_captured, scan,
+    upgrade_captured, State,
 };
 use serde::Serialize;
 
@@ -50,7 +51,7 @@ fn run_scan() -> CommandOutput {
 
 #[tauri::command]
 fn run_apply() -> CommandOutput {
-    match apply(detect_host(), &resolve_repo()) {
+    match apply_captured(detect_host(), &resolve_repo()) {
         Ok(out) => CommandOutput { success: true, output: out },
         Err(e) => CommandOutput { success: false, output: e },
     }
@@ -58,7 +59,7 @@ fn run_apply() -> CommandOutput {
 
 #[tauri::command]
 fn run_rollback() -> CommandOutput {
-    match rollback(detect_host()) {
+    match rollback_captured(detect_host()) {
         Ok(out) => CommandOutput { success: true, output: out },
         Err(e) => CommandOutput { success: false, output: e },
     }
@@ -66,7 +67,7 @@ fn run_rollback() -> CommandOutput {
 
 #[tauri::command]
 fn run_upgrade() -> CommandOutput {
-    match upgrade() {
+    match upgrade_captured() {
         Ok(out) => CommandOutput { success: true, output: out },
         Err(e) => CommandOutput { success: false, output: e },
     }
