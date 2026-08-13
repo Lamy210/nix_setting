@@ -48,6 +48,17 @@ macbook-air | linux | linux-arm)
   ;;
 esac
 
+echo
+echo "Personalizing config.toml..."
+USERNAME="$(whoami)"
+cat >"config.toml" <<EOF
+# nix_setting manifest (schema version 1)
+schema = 1
+
+[user]
+username = "$USERNAME"
+EOF
+
 mkdir -p "$HOME/.config/nix"
 
 if ! grep -q "experimental-features" "$HOME/.config/nix/nix.conf" 2>/dev/null; then
