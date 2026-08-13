@@ -1,12 +1,17 @@
 ## ADDED Requirements
 
 ### Requirement: 非同期操作
-apply/rollback/upgrade/verify SHALL は UI スレッドを占有せず非同期で実行する。
+plan/apply/verify/rollback/upgrade SHALL は UI スレッドを占有せず非同期で実行する。scan と status は軽量のため同期実行でよい。
 
 #### Scenario: apply 実行中も UI が応答する
 - **WHEN** ユーザーが apply を実行する
 - **THEN** スピナーが表示され、UI は応答し続ける
 - **AND** 完了時に出力が表示される
+
+#### Scenario: plan/verify の非同期実行
+- **WHEN** ユーザーが plan または verify を実行する
+- **THEN** スピナーが表示され、UI は応答し続ける
+- **AND** 完了時に結果が表示される
 
 ### Requirement: 実行状態の可視化
 操作中 SHALL は Running 状態を明示する。

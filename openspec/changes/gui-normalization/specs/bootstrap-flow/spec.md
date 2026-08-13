@@ -10,7 +10,8 @@ repository が存在しない場合、通常画面ではなくセットアップ
 
 #### Scenario: セットアップフロー
 - **WHEN** ユーザーが Setup を実行する
-- **THEN** OS/arch 検出 → Nix/Git 検出 → repository clone → username 確認 → config.toml 生成 → apply の順で進む
+- **THEN** OS/arch 検出 → Nix/Git 検出 → repository clone → username 確認 → config.toml 生成 → plan（dry-run）→ 明示的確認 → apply → verify の順で進む
+- **AND** plan/verify は apply の前後に分離して実行される
 
 ### Requirement: nh 非依存の適用
 core SHALL は `nh` に依存せず適用できる。
@@ -29,6 +30,10 @@ core SHALL は `nh` に依存せず適用できる。
 #### Scenario: macOS での system 変更
 - **WHEN** nix-darwin switch が管理者権限を必要とする
 - **THEN** 事前に権限が必要であることを示し、明示的な昇格を行う
+
+#### Scenario: GUI（.app）から管理者権限を要求
+- **WHEN** .app から起動した GUI が管理者権限を必要とする操作を実行する
+- **THEN** TTY に依存せず、認証を伴う昇格（sudo プロンプト相当）を明示的に要求してから実行する
 
 ### Requirement: rollback の意味論
 rollback SHALL は何を戻すかを明確にする（Generation Rollback / Configuration Revert / Restore Pre-install）。

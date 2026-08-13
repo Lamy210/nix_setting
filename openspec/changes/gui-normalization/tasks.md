@@ -1,13 +1,13 @@
 ## 0. Specification reconciliation
 
-- [ ] 0.1 P0 hotfix requirements を gui-operations spec へ追加（Tauri API init / button dispatch / failure rendering）
-- [ ] 0.2 Plan / Verify の仕様差異を解消（proposal と tasks の齟齬を統一）
-- [ ] 0.3 Platform と ConfigurationTarget を分離して仕様化
-- [ ] 0.4 privilege escalation strategy を仕様化
-- [ ] 0.5 rollback semantics を仕様化（Generation Rollback / Configuration Revert / Restore Pre-install）
-- [ ] 0.6 state persistence（apply 後の State 保存）を core 責務として仕様化
-- [ ] 0.7 repo-aware operation（upgrade/sync が CWD 非依存）を仕様化
-- [ ] 0.8 `openspec validate` を通す
+- [x] 0.1 P0 hotfix requirements を gui-operations spec へ追加（Tauri API init / button dispatch / failure rendering）
+- [x] 0.2 Plan / Verify の仕様差異を解消（proposal と tasks の齟齬を統一）
+- [x] 0.3 Platform と ConfigurationTarget を分離して仕様化
+- [x] 0.4 privilege escalation strategy を仕様化
+- [x] 0.5 rollback semantics を仕様化（Generation Rollback / Configuration Revert / Restore Pre-install）
+- [x] 0.6 state persistence（apply 後の State 保存）を core 責務として仕様化
+- [x] 0.7 repo-aware operation（upgrade/sync が CWD 非依存）を仕様化
+- [x] 0.8 `openspec validate` を通す
 
 ## 1. Core environment model
 
