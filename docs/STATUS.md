@@ -9,13 +9,12 @@
 | 領域 | 内容 |
 |------|------|
 | Nix 基盤 | flake-parts / hosts / profiles / manifest / 3システム / CI 10+ジョブ |
-| Rust core | actions / discovery / diagnostics / manifest / repo / state / time / tool / lock / operations / process / bootstrap（+ 69 unit tests） |
+| Rust core | actions / discovery / diagnostics / manifest / repo / state / time / tool / lock / operations / process / bootstrap（+ 68 unit tests） |
 | CLI | 11 コマンド（core 委譲のみの adapter 化済み） |
-| Tauri GUI | 診断 Status + First Run Wizard + 非同期コマンド + CSP + 状態機械 |
-| OpenSpec | `gui-normalization` 63/63 tasks 完了（未アーカイブ） |
-| 運用 | Git Flow / ブランチ保護 / CONTRIBUTING / PR テンプレ / OpenSpec CI |
+| Tauri GUI | 診断 Status + First Run Wizard + 非同期コマンド + CSP + 状態機械 + Plan/Verify ボタン |
+| OpenSpec | `gui-normalization` 63/63 merge 済み・アーカイブ済み / main specs 5件 |
 
-### gui-normalization（63/63 完了）
+### gui-normalization（63/63 完了・PR #4 merge 済み）
 
 - **Phase 0**: spec 整合
 - **Phase 1**: Platform/Architecture/ConfigurationTarget 分離、`Manifest::validate`、`ToolResolver`、`RepoResolver`、structured error
@@ -28,11 +27,21 @@
 - **Phase 8**: GUI E2E 計画 + action mapping 静的クロスチェック
 - **Phase 9**: CI smoke（CLI/desktop）、Homebrew tap 分離、README/RELEASE 同期
 
+### 追加で対応済み（gui-normalization 後）
+
+| 項目 | PR |
+|------|----|
+| install.sh / bootstrap.sh の username 個人化（#1） | #5 merge 済み |
+| config.toml 生成の冪等化 + username 空ガード（#2/#3） | #9 |
+| Ready 画面 Plan/Verify ボタン（#13） | #6 |
+| uninstall の副作用排除（#10） | #7 |
+| archive-before-pr のドキュメント修正（プロセス改善） | #8 |
+
 ## 進行中
 
 | 項目 | 進捗 | 場所 |
 |------|------|------|
-| （なし） | — | — |
+| （なし） | PR #6/#7/#8/#9 が review 待ち | GitHub |
 
 ## 既知のデグレ・機能漏れ（要対応）
 
@@ -40,34 +49,32 @@
 
 | # | 問題 | 対応 |
 |---|------|------|
-| 1 | install.sh が repo の config.toml（username=lamy210）をそのまま適用（第三者に誤適用） | bootstrap-flow: 導入時に username/HOME を OS から取得して config 生成 |
-| 5 | GUI apply の sudo/TTY 問題（privileged helper 未実装） | desktop: 昇格ヘルパー実装（設計は design.md に済み） |
+| 5 | GUI apply の sudo/TTY 問題（privileged helper 未実装） | desktop: 昇格ヘルパー実装（設計は design.md に済み。macOS authorization / osascript） |
 
 ### 中
 
 | # | 問題 | 対応 |
 |---|------|------|
-| 10 | uninstall に副作用（表示コマンドなのに state 削除）+ darwin-uninstaller が古い | 別 change で対応 |
 | 12 | install.sh が main 固定（Stable/Edge 分離無し） | release hardening |
 
 ### 低
 
 | # | 問題 | 対応 |
 |---|------|------|
-| 13 | GUI メイン画面（Ready）に Plan/Verify ボタンが無い（First Run Wizard のみ） | GUI 設計 |
+| — | バージョン文字列が `0.1.0` のまま（Cargo.toml / tauri.conf.json / packages.nix） | release/* で v0.2.0-rc.1 に bump |
 
 ## 次の作業（推奨順）
 
-1. `openspec archive gui-normalization`（63/63 完了済み）
-2. ブランチ `feat/gui-normalization` を PR → develop へ merge
+1. 開いている PR（#6/#7/#8/#9）のレビュー・merge
+2. merge 後に各 change を archive（`openspec archive <name>`、PR 前にやる流儀に統一）
 3. 残デグレ対応:
-   - #1 install.sh の username 個人化（bootstrap-flow の残り）
-   - #13 Ready 画面への Plan/Verify ボタン追加
-   - #10 uninstall の副作用修正（別 change）
+   - #5 GUI 特権ヘルパー（macOS authorization）— 大きな変更、新規 change で
+   - #12 install.sh の Stable/Edge 分離（release 方針の判断）
+   - バージョン bump（release/* ブランチで）
 
 ## 開発フロー
 
 - ブランチ: `git checkout develop` → `feat/*` → PR → develop
-- OpenSpec 必須: `openspec new change` → proposal → specs → tasks → 実装 → archive
+- OpenSpec 必須: `openspec new change` → proposal → specs → tasks → 実装 → **archive（PR 前）** → PR
 - 品質ゲート: `cargo test` / `clippy` / `fmt` / `nix flake check` / `openspec validate --all`
 - 詳細: [CONTRIBUTING.md](../CONTRIBUTING.md) / [RELEASE.md](../RELEASE.md)
