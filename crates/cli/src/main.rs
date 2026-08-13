@@ -1,6 +1,5 @@
 use clap::{Parser, Subcommand};
-use schneeforge_core::{detect_host, has_git, has_homebrew, has_nix, Host, Manifest, State};
-use std::process::Command;
+use schneeforge_core::{detect_target, Manifest, StateStore};
 /// Declarative Developer Workstation Manager
 #[derive(Parser)]
 #[command(name = "schneeforge", version, about)]
@@ -49,10 +48,10 @@ fn main() {
         Cmd::Status => status(&repo),
         Cmd::Plan => plan(&repo),
         Cmd::Apply => apply(&repo),
-        Cmd::Rollback => rollback(),
-        Cmd::Upgrade => upgrade(),
-        Cmd::Sync => sync(),
-        Cmd::Verify => verify(),
+        Cmd::Rollback => rollback(&repo),
+        Cmd::Upgrade => upgrade(&repo),
+        Cmd::Sync => sync(&repo),
+        Cmd::Verify => verify(&repo),
         Cmd::Uninstall => uninstall(),
     };
     if let Err(e) = result {
@@ -64,14 +63,15 @@ fn main() {
 type Result = std::result::Result<(), String>;
 
 fn doctor() -> Result {
+    let r = schneeforge_core::doctor();
     println!("=== doctor ===");
     println!();
     println!("[system]");
-    println!("  OS:   {}", std::env::consts::OS);
-    println!("  arch: {}", std::env::consts::ARCH);
+    println!("  OS:   {}", r.os);
+    println!("  arch: {}", r.arch);
     println!();
     println!("[nix]");
-    if has_nix() {
+    if r.nix {
         println!("  installed: yes");
     } else {
         println!("  installed: no");
@@ -79,22 +79,22 @@ fn doctor() -> Result {
     }
     println!();
     println!("[homebrew]");
-    println!("  installed: {}", if has_homebrew() { "yes" } else { "no" });
+    println!("  installed: {}", if r.homebrew { "yes" } else { "no" });
     println!();
     println!("[git]");
-    println!("  installed: {}", if has_git() { "yes" } else { "no" });
+    println!("  installed: {}", if r.git { "yes" } else { "no" });
     println!();
     println!("[host detection]");
-    println!("  host: {}", detect_host());
+    println!("  host: {}", r.host);
     Ok(())
 }
 
 fn scan(repo: &str) -> Result {
-    let host = detect_host();
+    let target = detect_target();
     let manifest = load_manifest(repo);
     println!("=== scan ===");
     println!();
-    print!("{}", schneeforge_core::scan(host));
+    print!("{}", schneeforge_core::scan(&target));
     println!();
     println!("[manifest]");
     match manifest {
@@ -105,12 +105,12 @@ fn scan(repo: &str) -> Result {
 }
 
 fn status(repo: &str) -> Result {
-    let host = detect_host();
+    let target = detect_target();
     let manifest = load_manifest(repo);
-    let state = State::load(&State::default_path());
+    let state = StateStore::default().load();
     println!("=== status ===");
     println!();
-    println!("  host: {host}");
+    println!("  host: {target}");
     match manifest {
         Some(m) => println!("  user: {}", m.user.username),
         None => println!("  user: (config.toml not found)"),
@@ -130,193 +130,76 @@ fn status(repo: &str) -> Result {
 }
 
 fn apply(repo: &str) -> Result {
-    let host = detect_host();
-    if host == Host::Unsupported {
-        return Err(format!(
-            "unsupported platform: {} {}",
-            std::env::consts::OS,
-            std::env::consts::ARCH
-        ));
-    }
-    println!("applying host: {host}");
-    schneeforge_core::apply(host, repo)?;
-
-    // 適用後に状態を記録
-    let revision = current_git_revision(repo);
-    let state = State {
-        host: Some(host.name().to_string()),
-        applied_revision: revision,
-        applied_at: Some(schneeforge_core::now_iso8601()),
-        product_version: Some(env!("CARGO_PKG_VERSION").to_string()),
-    };
-    let _ = state.save(&State::default_path());
+    let target = detect_target();
+    println!("applying host: {target}");
+    schneeforge_core::apply(&target, repo, &StateStore::default(), false)
+        .map_err(|e| e.to_string())?;
     println!("state saved");
     Ok(())
 }
 
 fn setup(repo: &str) -> Result {
     println!("=== setup ===");
-    println!();
-
-    if !has_nix() {
-        println!("Nix not installed.");
-        println!("  curl -L https://nixos.org/nix/install | sh");
-        return Ok(());
-    }
-    println!("[nix] installed");
-
-    enable_flakes();
-    println!("[flakes] enabled");
-
-    let host = detect_host();
-    if host == Host::Unsupported {
-        return Err(format!(
-            "unsupported platform: {} {}",
-            std::env::consts::OS,
-            std::env::consts::ARCH
-        ));
-    }
-    println!("[host] {host}");
-
-    println!();
-    apply(repo)
-}
-
-fn enable_flakes() {
-    let base = std::env::var("XDG_CONFIG_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|_| std::env::var("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))
-        .unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let conf = base.join("nix").join("nix.conf");
-    if let Ok(content) = std::fs::read_to_string(&conf) {
-        if content.contains("experimental-features") {
-            return;
-        }
-    }
-    let _ = std::fs::create_dir_all(conf.parent().unwrap());
-    let line = "experimental-features = nix-command flakes\n";
-    match std::fs::OpenOptions::new().append(true).open(&conf) {
-        Ok(mut f) => {
-            use std::io::Write;
-            let _ = f.write_all(line.as_bytes());
-        }
-        Err(_) => {
-            let _ = std::fs::write(&conf, line);
-        }
-    }
+    schneeforge_core::setup(repo, &StateStore::default()).map_err(|e| e.to_string())?;
+    println!("state saved");
+    Ok(())
 }
 
 fn plan(repo: &str) -> Result {
-    let host = detect_host();
-    if host == Host::Unsupported {
-        return Err(format!(
-            "unsupported platform: {} {}",
-            std::env::consts::OS,
-            std::env::consts::ARCH
-        ));
-    }
+    let t = schneeforge_core::plan_target(repo).map_err(|e| e.to_string())?;
     println!("=== plan ===");
     println!();
-    println!("  host: {host}");
-
-    let target = if host == Host::MacbookAir {
-        format!("{repo}#darwinConfigurations.{host}.system")
-    } else {
-        format!("{repo}#homeConfigurations.{host}.activationPackage")
-    };
-    println!("  target: {target}");
+    println!("  host: {}", t.host);
+    println!("  target: {}", t.flake_target);
     println!();
     println!("dry-run build...");
-    run_nix(["build", "--dry-run", &target])
-}
-
-fn rollback() -> Result {
-    let host = detect_host();
-    println!("rolling back host: {host}");
-    schneeforge_core::rollback(host)?;
+    schneeforge_core::plan(repo, false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn upgrade() -> Result {
+fn rollback(repo: &str) -> Result {
+    let target = detect_target();
+    println!("rolling back host: {target}");
+    schneeforge_core::rollback(&target, repo, &StateStore::default(), false)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn upgrade(repo: &str) -> Result {
     println!("updating flake.lock...");
-    schneeforge_core::upgrade()?;
+    schneeforge_core::upgrade(repo, false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn sync() -> Result {
-    if !has_git() {
-        return Err("git not found".to_string());
-    }
+fn sync(repo: &str) -> Result {
     println!("pulling remote config...");
-    run_command("git", ["pull"])
+    schneeforge_core::sync(repo, false).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
-fn verify() -> Result {
-    let mut pass = 0;
-    let mut fail = 0;
+fn verify(repo: &str) -> Result {
+    let report = schneeforge_core::verify(repo);
     println!("=== verify ===");
     println!();
-
-    // 必須コマンド
-    let commands = ["nix", "zsh", "git"];
-    println!("[commands]");
-    for cmd in commands {
-        let ok = schneeforge_core::which(cmd).is_some();
-        println!("  {} {}", if ok { "✅" } else { "❌" }, cmd);
-        if ok {
-            pass += 1;
-        } else {
-            fail += 1;
-        }
+    println!("[checks]");
+    for c in &report.checks {
+        println!("  {} {}", if c.ok { "✅" } else { "❌" }, c.name);
     }
     println!();
-
-    // 設定ファイル
-    let home = std::env::var("HOME").unwrap_or_default();
-    let files = [
-        (".zshrc", format!("{home}/.zshrc")),
-        (".gitconfig", format!("{home}/.gitconfig")),
-        ("starship.toml", format!("{home}/.config/starship.toml")),
-    ];
-    println!("[config files]");
-    for (name, path) in files {
-        let ok = std::path::Path::new(&path).exists();
-        println!("  {} {}", if ok { "✅" } else { "❌" }, name);
-        if ok {
-            pass += 1;
-        } else {
-            fail += 1;
-        }
-    }
-    println!();
-
-    let state = State::load(&State::default_path());
-    println!("[state]");
-    match &state {
-        Some(s) => {
-            println!(
-                "  ✅ applied: {}",
-                s.applied_revision.as_deref().unwrap_or("(none)")
-            );
-            pass += 1;
-        }
-        None => {
-            println!("  ❌ state not found (apply not run yet)");
-            fail += 1;
-        }
-    }
-    println!();
-
-    println!("=== result: {pass} passed, {fail} failed ===");
-    if fail > 0 {
-        Err(format!("{fail} checks failed"))
-    } else {
+    println!(
+        "=== result: {} passed, {} failed ===",
+        report.passed(),
+        report.failed()
+    );
+    if report.is_ok() {
         Ok(())
+    } else {
+        Err(format!("{} checks failed", report.failed()))
     }
 }
 
 fn uninstall() -> Result {
-    let host = detect_host();
+    let target = detect_target();
     println!("=== uninstall ===");
     println!();
     println!("削除レベル:");
@@ -324,16 +207,12 @@ fn uninstall() -> Result {
     println!("  2. Home Manager / nix-darwin の managed config を解除");
     println!("  3. Nix 自体も削除 (既存 Nix は削除禁止)");
     println!();
-    println!("ホスト: {host}");
+    println!("ホスト: {target}");
     println!();
 
-    // 状態ファイルを削除
-    let state_path = State::default_path();
-    if state_path.exists() {
-        match std::fs::remove_file(&state_path) {
-            Ok(()) => println!("removed state: {}", state_path.display()),
-            Err(e) => println!("failed to remove state: {e}"),
-        }
+    let removed = schneeforge_core::uninstall(&StateStore::default()).map_err(|e| e.to_string())?;
+    if removed {
+        println!("removed state");
     } else {
         println!("no state file found");
     }
@@ -349,46 +228,5 @@ fn uninstall() -> Result {
 }
 
 fn load_manifest(repo: &str) -> Option<Manifest> {
-    let path = format!("{repo}/config.toml");
-    let content = std::fs::read_to_string(path).ok()?;
-    Manifest::parse(&content).ok()
-}
-
-fn run_nix<I, S>(args: I) -> Result
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<std::ffi::OsStr>,
-{
-    run_command("nix", args)
-}
-
-fn run_command<I, S>(cmd: &str, args: I) -> Result
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<std::ffi::OsStr>,
-{
-    let status = Command::new(cmd)
-        .args(args)
-        .status()
-        .map_err(|e| format!("failed to run {cmd}: {e}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("{cmd} exited with {}", status.code().unwrap_or(1)))
-    }
-}
-
-fn current_git_revision(repo: &str) -> Option<String> {
-    let out = Command::new("git")
-        .current_dir(repo)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()?;
-    if out.status.success() {
-        String::from_utf8(out.stdout)
-            .ok()
-            .map(|s| s.trim().to_string())
-    } else {
-        None
-    }
+    Manifest::load(repo).ok()
 }

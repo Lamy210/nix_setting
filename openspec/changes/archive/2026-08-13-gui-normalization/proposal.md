@@ -17,7 +17,7 @@ SchneeForge GUI は起動するが、ホスト/ユーザーが「-」表示の�
 - `gui-diagnostics`: 診断 Status API。host/repo/manifest/tool の存在・パス・バージョン・エラー原因を返す
 - `tool-resolution`: PATH と既知パス（/nix/.../bin, ~/.nix-profile/bin, /opt/homebrew/bin 等）からツールを解決
 - `bootstrap-flow`: fresh install のセットアップフロー（repository 発見・clone・config 生成・適用・権限・rollback 意味論）
-- `gui-operations`: 非同期の scan/plan/apply/rollback/upgrade 操作、progress 表示、操作ロック、CSP
+- `gui-operations`: 非同期の plan/apply/verify/rollback/upgrade 操作（scan/status は同期）、progress 表示、操作ロック、CSP
 - `core-operations`: repo-aware な plan/apply/verify/rollback/upgrade/sync と State 永続化（CWD 非依存）
 
 ### Modified Capabilities

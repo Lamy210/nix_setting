@@ -20,6 +20,23 @@ release/*   リリース準備（develop から切り、main へ merge 後に ta
 hotfix/*    緊急修正（main から切り、main + develop 両方へ）
 ```
 
+## 大きな OpenSpec change の取り扱い
+
+1 つの OpenSpec change が多数のタスク（例: `gui-normalization` は 63 tasks / 9 phase）に
+またがる場合の運用:
+
+- **ブランチ / PR は change 単位で 1 本**にする（phase ごとに切らない）。`feat/<change-name>` を
+  develop から切り、全タスク完了まで積み、最後に 1 PR で develop へ merge する。
+- change のアーティファクト（proposal/design/specs/tasks）が**既に develop に commit 済み**の場合
+  （過去に仕様だけ先行で入れた等）は、その change 用の feature ブランチを develop から切って継続し、
+  全タスク完了後に `openspec archive <name>` する。
+- **マージ済みの feature/release/hotfix ブランチは削除**する（孤児ブランチを残さない）。
+  ```bash
+  git push origin --delete <branch>   # リモート削除
+  git branch -d <branch>              # ローカル削除
+  ```
+- セッション開始時は `git fetch --prune` で孤児リモートブランチの状況を確認する。
+
 ## 日常の開発フロー
 
 ```bash
