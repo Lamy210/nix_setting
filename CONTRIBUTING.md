@@ -61,11 +61,12 @@ nix flake check && openspec validate --all
 # 6. コミット（conventional commits）
 git commit -m "feat: ..."
 
-# 7. PR を作成 → レビュー → develop へ merge
-gh pr create --base develop --title "feat: ..."
-
-# 8. 完了時に OpenSpec change をアーカイブ
+# 7. 完了時に OpenSpec change をアーカイブ（feature ブランチ上で。develop へ直接 push しない）
 openspec archive <name>
+git add -A && git commit -m "chore: archive <name> + sync specs"
+
+# 8. PR を作成 → レビュー → develop へ merge
+gh pr create --base develop --title "feat: ..."
 ```
 
 ## リリースフロー

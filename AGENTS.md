@@ -39,12 +39,13 @@ openspec new change <kebab-case-name>
 # 5. コミット（conventional commits）
 git commit -m "feat: ..."
 
-# 6. PR を作成してレビュー後に merge
+# 6. 完了時にアーカイブ（feature ブランチ上で。develop へ直接 push しない）
+openspec archive <name>
+git add -A && git commit -m "chore: archive <name> + sync specs"
+
+# 7. PR を作成してレビュー後に merge
 gh pr create --title "feat: ..."
 # → レビュー → merge
-
-# 7. 完了時にアーカイブ
-openspec archive <name>
 ```
 
 ## ブランチ・コミット規約
