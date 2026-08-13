@@ -64,6 +64,13 @@ chmod +x schneeforge-aarch64-darwin
 cargo install --git https://github.com/Lamy210/nix_setting schneeforge
 ```
 
+### Homebrew (macOS)
+
+```bash
+brew tap Lamy210/nix_setting
+brew install schneeforge
+```
+
 ### デスクトップ GUI (Tauri)
 
 ```bash
