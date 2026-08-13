@@ -48,6 +48,30 @@ cd "$HOME/nix_setting"
 nix run github:Lamy210/nix_setting#doctor
 ```
 
+### CLI バイナリ (Nix 不要)
+
+GitHub Release から対応プラットフォームのバイナリを取得:
+
+```bash
+# v0.1.0 以降の Release から schneeforge-<os>-<arch> をダウンロード
+chmod +x schneeforge-aarch64-darwin
+./schneeforge-aarch64-darwin doctor
+```
+
+### Rust (cargo install)
+
+```bash
+cargo install --git https://github.com/Lamy210/nix_setting schneeforge
+```
+
+### デスクトップ GUI (Tauri)
+
+```bash
+nix build github:Lamy210/nix_setting#schneeforge-desktop
+# または開発用
+cd apps/desktop/src-tauri && cargo tauri dev
+```
+
 ## プロジェクトテンプレート
 
 ```bash
