@@ -97,3 +97,5 @@ openspec validate --all
 ## 現在進行中
 
 - `openspec/changes/gui-normalization/` — GUI を動く installer へ（tasks.md 63件、Phase 1 の Core Foundation から着手）
+- 状態・既知のデグレ・次の作業は [docs/STATUS.md](./docs/STATUS.md) を参照（セッション開始時に必ず読む）
+- リリース運用は [RELEASE.md](./RELEASE.md) を参照
