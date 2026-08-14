@@ -260,7 +260,8 @@ fn uninstall() -> Result {
     println!("  home-manager uninstall");
     println!();
     println!("  # nix-darwin (macOS)");
-    println!("  nix run nix-darwin -- uninstall");
+    println!("  sudo nix --extra-experimental-features \"nix-command flakes\" \\");
+    println!("    run nix-darwin#darwin-uninstaller");
     Ok(())
 }
 

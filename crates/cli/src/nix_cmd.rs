@@ -30,10 +30,6 @@ pub enum NixSub {
 
 #[derive(Args, Debug, Default)]
 pub struct InstallArgs {
-    /// bootstrap-manifest.toml の代わりに使う plan.json (Phase 1 では通常未指定)
-    #[arg(long)]
-    pub plan: Option<PathBuf>,
-
     /// `nix-installer plan` へ渡す extra-conf 行 (複数指定可)
     #[arg(long = "extra-conf")]
     pub extra_conf: Vec<String>,
@@ -113,43 +109,24 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
                 args.extra_conf.join("' --extra-conf '")
             );
         }
-        if let Some(plan) = &args.plan {
-            eprintln!("    --plan {}", plan.display());
-        }
         return Err("not running as root (privilege escalation required)".to_string());
     }
 
     let mut progress = ShellProgress::new();
 
-    // D8: detailed plan 生成 → 表示 → 最終確認 → install
-    let plan_file = match &args.plan {
-        Some(p) => {
-            if !p.exists() {
-                return Err(format!(
-                    "plan file not found: {} (PlanFileNotFound)",
-                    p.display()
-                ));
-            }
-            eprintln!("[plan]     using user-supplied plan: {}", p.display());
-            // user-supplied plan でも download + verify は必須
-            let (binary, sha) = mn
-                .fetch_binary(preflight.platform, preflight.arch)
-                .map_err(|e| format!("fetch binary: {e}"))?;
-            eprintln!("[verify]   SHA256 OK: {} ({sha})", binary.display());
-            p.clone()
-        }
-        None => {
-            let plan_dir = secure_plan_dir().map_err(|e| e.to_string())?;
-            mn.prepare_plan(
-                preflight.platform,
-                preflight.arch,
-                &plan_dir,
-                &args.extra_conf,
-                &mut progress,
-            )
-            .map_err(|e| format!("plan generation failed: {e}"))?
-        }
-    };
+    // D8: detailed plan 生成 → 表示 → 最終確認 → install。
+    // plan は secure_plan_dir 内で生成したもののみを使う (user-supplied plan は
+    // 確認と実行の間の差し替え (TOCTOU) を防げないため Phase 1 では受け付けない)
+    let plan_dir = secure_plan_dir().map_err(|e| e.to_string())?;
+    let plan_file = mn
+        .prepare_plan(
+            preflight.platform,
+            preflight.arch,
+            &plan_dir,
+            &args.extra_conf,
+            &mut progress,
+        )
+        .map_err(|e| format!("plan generation failed: {e}"))?;
 
     // detailed plan の内容を表示 (actions の概要)
     print_plan_summary(&plan_file)?;
@@ -403,8 +380,11 @@ pub fn run_uninstall(args: UninstallArgs) -> Result {
     if has_nix_darwin_markers() {
         eprintln!("⚠ nix-darwin の markers を検出しました。");
         eprintln!("  SchneeForge は現在 nix-darwin の自動取り外しをサポートしません。");
-        eprintln!("  先に `nix run nix-darwin -- uninstall` (macOS) 等で nix-darwin を");
-        eprintln!("  取り外してから再実行してください (ADR-0001 Open Question 4)。");
+        eprintln!("  先に nix-darwin 公式 uninstaller で nix-darwin を取り外してから");
+        eprintln!("  再実行してください:");
+        eprintln!("    sudo nix --extra-experimental-features \"nix-command flakes\" \\");
+        eprintln!("      run nix-darwin#darwin-uninstaller");
+        eprintln!("  (/install 済みの場合は `sudo darwin-uninstaller` も可)");
         return Err("nix-darwin detected; uninstall aborted (D6 policy)".to_string());
     }
 
@@ -584,7 +564,6 @@ mod tests {
         let a = InstallArgs::default();
         assert!(!a.dry_run);
         assert!(!a.yes);
-        assert!(a.plan.is_none());
         assert!(a.extra_conf.is_empty());
     }
 
@@ -593,6 +572,14 @@ mod tests {
         // spec: root でなければ sudo 再実行を案内して停止。
         // --allow-non-root は削除済みで、使われたら error になる
         let res = Probe::try_parse_from(["probe", "install", "--allow-non-root"]);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn install_rejects_plan_flag() {
+        // user-supplied plan は「確認表示 → 実行」の間の差し替え (TOCTOU) を
+        // 防げないため削除済み。plan は SchneeForge が secure dir へ生成する
+        let res = Probe::try_parse_from(["probe", "install", "--plan", "/tmp/plan.json"]);
         assert!(res.is_err());
     }
 
