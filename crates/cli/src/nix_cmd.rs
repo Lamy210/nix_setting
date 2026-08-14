@@ -6,7 +6,7 @@ use clap::Args;
 
 use schneeforge_core::{
     cache_path, default_ownership_path, default_receipt_path, detect_arch, detect_platform,
-    has_nix, installed_binary_path, nix_health, run_with_json_logs, secure_plan_dir,
+    existing_nix_detected, installed_binary_path, nix_health, run_with_json_logs, secure_plan_dir,
     uninstall_args as build_uninstall_args, JsonLogLine, ManagedNix, ManagedNixError, NoProgress,
     OwnershipRecord, ProgressSink, Receipt, ToolInventory,
 };
@@ -41,10 +41,6 @@ pub struct InstallArgs {
     /// preflight 表示だけで終了する (download / plan / install を skipping)
     #[arg(long)]
     pub dry_run: bool,
-
-    /// root 未実行時に即座に終了せず、処理を継続しようとする (Phase 1 では推奨しない)
-    #[arg(long)]
-    pub allow_non_root: bool,
 
     /// detailed plan 表示後の最終確認を skip する (automation 用)。
     /// upstream は --no-confirm で呼ぶため、確認責任は SchneeForge 側にある (D8)。
@@ -107,7 +103,7 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
         );
     }
 
-    if !preflight.is_root && !args.allow_non_root {
+    if !preflight.is_root {
         eprintln!();
         eprintln!("root 権限が必要です。以下で再実行してください:");
         eprintln!("  sudo schneeforge nix install");
@@ -136,10 +132,10 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
             }
             eprintln!("[plan]     using user-supplied plan: {}", p.display());
             // user-supplied plan でも download + verify は必須
-            let binary = mn
+            let (binary, sha) = mn
                 .fetch_binary(preflight.platform, preflight.arch)
                 .map_err(|e| format!("fetch binary: {e}"))?;
-            eprintln!("[verify]   SHA256 OK: {}", binary.display());
+            eprintln!("[verify]   SHA256 OK: {} ({sha})", binary.display());
             p.clone()
         }
         None => {
@@ -168,10 +164,15 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
         eprintln!("[confirm]  --yes 指定のため最終確認を skip します。");
     }
 
+    let (binary, expected_sha) = mn
+        .fetch_binary(preflight.platform, preflight.arch)
+        .map_err(|e| format!("fetch binary for install: {e}"))?;
+
     mn.execute_plan(
         preflight.platform,
         preflight.arch,
         &plan_file,
+        &binary,
         &mut progress,
     )
     .map_err(|e| format!("install failed: {e}"))?;
@@ -189,7 +190,8 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
             // SchneeForge 経由の install であることを記録 (uninstall 対称性のため)。
             // この record は uninstall safety の根拠なので、書けなければ success にしない。
             // ただし Nix 自体は install 済みのため自動 rollback はしない。
-            let ownership = OwnershipRecord::new(mn.version(), None);
+            // installer_sha256 を保存し、uninstall 時に cached binary の trust を再確立する。
+            let ownership = OwnershipRecord::new(mn.version(), Some(expected_sha));
             let ownership_path = default_ownership_path();
             if let Err(e) = ownership.write(&ownership_path) {
                 eprintln!();
@@ -209,6 +211,35 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
         }
         Err(e) => return Err(format!("read receipt: {e}")),
     }
+
+    // post-install gate: installer exit 0 + receipt 存在だけでは「動く Nix」を
+    // 保証しない (upstream の self-test 失敗は warning のため)。nix_health で
+    // binary / store / flakes を確認してから成功を宣言する。
+    // 失敗しても自動 rollback はしない (危険操作のため)。
+    eprintln!("[verify]   post-install verification...");
+    let tc = ToolInventory::discover();
+    let health = nix_health(&tc);
+    let mut failures = Vec::new();
+    if !health.installed {
+        failures.push("nix binary not found".to_string());
+    }
+    if !health.store_accessible {
+        failures.push("nix store ping failed".to_string());
+    }
+    if !health.flakes_available {
+        failures.push("experimental-features does not include flakes".to_string());
+    }
+    if !failures.is_empty() {
+        eprintln!("⚠ Nix の install 自体は完了しましたが、post-install 検証に失敗しました:");
+        for f in &failures {
+            eprintln!("  - {f}");
+        }
+        eprintln!("  `schneeforge nix doctor` で詳細を確認してください。");
+        eprintln!("  (SchneeForge は install 済み Nix の自動 rollback を行いません)");
+        return Err("post-install verification failed".to_string());
+    }
+    eprintln!("  nix binary / store / flakes: OK");
+
     eprintln!();
     eprintln!("Managed Nix install 完了。`schneeforge nix doctor` で状態を確認してください。");
     Ok(())
@@ -260,7 +291,7 @@ pub fn run_doctor(tc: Option<&ToolInventory>) -> Result {
     println!("[environment]");
     println!("  platform: {}", detect_platform());
     println!("  arch:     {}", detect_arch());
-    println!("  has_nix:  {}", has_nix());
+    println!("  has_nix:  {}", existing_nix_detected());
     println!();
 
     println!("[receipt]");
@@ -329,12 +360,13 @@ pub fn run_uninstall(args: UninstallArgs) -> Result {
     // SchneeForge 経由で install されたものか確認 (install 拒否 policy との対称性)。
     // record が無い = 用户が nix-installer 直接等で入れた Nix。既定では abort。
     let ownership_path = default_ownership_path();
-    match OwnershipRecord::load(&ownership_path) {
+    let ownership = match OwnershipRecord::load(&ownership_path) {
         Ok(rec) => {
             eprintln!(
                 "ownership: SchneeForge managed (installer {})",
                 rec.installer_version
             );
+            Some(rec)
         }
         Err(ManagedNixError::OwnershipNotFound { .. }) if !args.force => {
             eprintln!("⚠ SchneeForge の ownership record が見つかりません:");
@@ -350,8 +382,22 @@ pub fn run_uninstall(args: UninstallArgs) -> Result {
         }
         Err(ManagedNixError::OwnershipNotFound { .. }) => {
             eprintln!("⚠ ownership record がありませんが --force により続行します。");
+            None
         }
         Err(e) => return Err(format!("read ownership record: {e}")),
+    };
+
+    // custom receipt は ownership record の upstream_receipt と一致しなければ
+    // 受け付けない (valid な ownership を別 receipt への root 実行に転用させない)
+    if let Some(rec) = &ownership {
+        if !args.force && receipt_path != rec.upstream_receipt {
+            return Err(format!(
+                "--receipt {} は SchneeForge の ownership record が指す {} と一致しません。\
+                 既定の receipt のみ uninstall できます (回避するには --force)",
+                receipt_path.display(),
+                rec.upstream_receipt.display()
+            ));
+        }
     }
 
     if has_nix_darwin_markers() {
@@ -373,7 +419,30 @@ pub fn run_uninstall(args: UninstallArgs) -> Result {
         local
     } else {
         eprintln!("(note) /nix/nix-installer が見つかりません。cached binary を探します。");
-        cached_binary_for_receipt(&receipt_path)?
+        let cached = cached_binary_for_receipt(&receipt_path)?;
+        // root で実行する外部 binary は毎回 trust を再確立する:
+        // ownership record が保存した installer SHA256 と再計算 hash を比較する
+        if let Some(expected) = ownership
+            .as_ref()
+            .and_then(|r| r.installer_sha256.as_deref())
+        {
+            let actual = schneeforge_core::sha256_hex(&cached)
+                .map_err(|e| format!("hash cached installer: {e}"))?;
+            if actual != expected {
+                return Err(format!(
+                    "cached installer {} の SHA256 が ownership record と一致しません。\n\
+                     cache が改変されている可能性があります。再 download または手動確認が必要です。",
+                    cached.display()
+                ));
+            }
+            eprintln!("  cached installer SHA256 verified (ownership record 一致)");
+        } else {
+            eprintln!(
+                "⚠ ownership record に installer SHA256 が無いため、cached binary の\
+                 再検証を省略します (旧 version で install された可能性)"
+            );
+        }
+        cached
     };
 
     eprintln!("invoking upstream uninstall...");
@@ -503,9 +572,17 @@ mod tests {
     fn install_args_default() {
         let a = InstallArgs::default();
         assert!(!a.dry_run);
-        assert!(!a.allow_non_root);
+        assert!(!a.yes);
         assert!(a.plan.is_none());
         assert!(a.extra_conf.is_empty());
+    }
+
+    #[test]
+    fn install_rejects_allow_non_root_flag() {
+        // spec: root でなければ sudo 再実行を案内して停止。
+        // --allow-non-root は削除済みで、使われたら error になる
+        let res = Probe::try_parse_from(["probe", "install", "--allow-non-root"]);
+        assert!(res.is_err());
     }
 
     #[test]
