@@ -60,11 +60,66 @@ impl BootstrapManifest {
         self.managed_nix.sha256_by_arch.get(arch_name)
     }
 
-    /// TOML 文字列から parse
+    /// manifest 値の妥当性を検証する。
+    /// user-controlled な malformed manifest がそのまま privileged downloader へ
+    /// 入力される境界を作らないため (design review)。
+    ///   - version: `X.Y.Z` 形式 (semver の major.minor.patch 部分と同等)
+    ///   - sha256: ちょうど 64 文字の hex
+    pub fn validate(&self) -> Result<(), ManagedNixError> {
+        let version = &self.managed_nix.version;
+        let parts: Vec<&str> = version.split('.').collect();
+        let valid_version = parts.len() == 3
+            && parts
+                .iter()
+                .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+            && parts.iter().all(|p| p.parse::<u32>().is_ok());
+        if !valid_version {
+            return Err(ManagedNixError::ManifestParse {
+                source: format!(
+                    "version {:?} is not X.Y.Z numeric form (got {parts:?})",
+                    self.managed_nix.version
+                ),
+            });
+        }
+        for (arch, sha) in [
+            (
+                "x86_64-linux",
+                &self.managed_nix.sha256_by_arch.x86_64_linux,
+            ),
+            (
+                "aarch64-linux",
+                &self.managed_nix.sha256_by_arch.aarch64_linux,
+            ),
+            (
+                "aarch64-darwin",
+                &self.managed_nix.sha256_by_arch.aarch64_darwin,
+            ),
+        ] {
+            if let Some(sha) = sha {
+                let valid_len = sha.len() == 64;
+                let valid_hex = sha.chars().all(|c| c.is_ascii_hexdigit());
+                if !valid_len || !valid_hex {
+                    return Err(ManagedNixError::ManifestParse {
+                        source: format!(
+                            "sha256 for {arch} must be 64 hex chars, got {:?} (len {})",
+                            sha,
+                            sha.len()
+                        ),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// TOML 文字列から parse して validate
     pub fn parse(toml_str: &str) -> Result<Self, ManagedNixError> {
-        toml::from_str(toml_str).map_err(|e| ManagedNixError::ManifestParse {
-            source: e.to_string(),
-        })
+        let m: BootstrapManifest =
+            toml::from_str(toml_str).map_err(|e| ManagedNixError::ManifestParse {
+                source: e.to_string(),
+            })?;
+        m.validate()?;
+        Ok(m)
     }
 
     /// TOML 文字列へ serialize (CI の bump workflow 用)
@@ -84,9 +139,9 @@ mod tests {
 version = "2.35.1"
 
 [managed_nix.sha256_by_arch]
-x86_64-linux = "3b49a0b9deadbeef"
-aarch64-linux = "cafebabe"
-aarch64-darwin = "feedface"
+x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111"
+aarch64-linux = "2222222222222222222222222222222222222222222222222222222222222222"
+aarch64-darwin = "3333333333333333333333333333333333333333333333333333333333333333"
 "#;
 
     #[test]
@@ -95,9 +150,12 @@ aarch64-darwin = "feedface"
         assert_eq!(m.managed_nix.version, "2.35.1");
         assert_eq!(
             m.expected_sha256("x86_64-linux").unwrap(),
-            "3b49a0b9deadbeef"
+            "1111111111111111111111111111111111111111111111111111111111111111"
         );
-        assert_eq!(m.expected_sha256("aarch64-darwin").unwrap(), "feedface");
+        assert_eq!(
+            m.expected_sha256("aarch64-darwin").unwrap(),
+            "3333333333333333333333333333333333333333333333333333333333333333"
+        );
     }
 
     #[test]
@@ -112,12 +170,59 @@ aarch64-darwin = "feedface"
         let toml_str = m.to_toml().unwrap();
         let m2 = BootstrapManifest::parse(&toml_str).unwrap();
         assert_eq!(m2.managed_nix.version, "2.35.1");
-        assert_eq!(m2.expected_sha256("aarch64-linux").unwrap(), "cafebabe");
+        assert_eq!(
+            m2.expected_sha256("aarch64-linux").unwrap(),
+            "2222222222222222222222222222222222222222222222222222222222222222"
+        );
     }
 
     #[test]
     fn unknown_arch_returns_none() {
         let m = BootstrapManifest::parse(SAMPLE).unwrap();
         assert!(m.expected_sha256("x86_64-darwin").is_none());
+    }
+
+    #[test]
+    fn validate_rejects_short_sha256() {
+        let bad = r#"
+[managed_nix]
+version = "2.35.1"
+
+[managed_nix.sha256_by_arch]
+x86_64-linux = "deadbeef"
+aarch64-linux = "2222222222222222222222222222222222222222222222222222222222222222"
+aarch64-darwin = "3333333333333333333333333333333333333333333333333333333333333333"
+"#;
+        let res = BootstrapManifest::parse(bad);
+        assert!(matches!(res, Err(ManagedNixError::ManifestParse { .. })));
+    }
+
+    #[test]
+    fn validate_rejects_non_semver_version() {
+        let bad = r#"
+[managed_nix]
+version = "v2.35"
+
+[managed_nix.sha256_by_arch]
+x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111"
+aarch64-linux = "2222222222222222222222222222222222222222222222222222222222222222"
+aarch64-darwin = "3333333333333333333333333333333333333333333333333333333333333333"
+"#;
+        let res = BootstrapManifest::parse(bad);
+        assert!(matches!(res, Err(ManagedNixError::ManifestParse { .. })));
+    }
+
+    #[test]
+    fn validate_accepts_partial_arch_entries() {
+        // 全 arch 分の entry が無くても、存在するものが正しければ OK
+        // (unsupported arch は expected_sha256 が None → UnsupportedArch で弾かれる)
+        let partial = r#"
+[managed_nix]
+version = "2.35.1"
+
+[managed_nix.sha256_by_arch]
+x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111"
+"#;
+        assert!(BootstrapManifest::parse(partial).is_ok());
     }
 }

@@ -17,22 +17,37 @@ fn http_client() -> Result<reqwest::blocking::Client, ManagedNixError> {
         })
 }
 
-/// `XDG_DATA_HOME/schneeforge/managed-nix/{version}/nix-installer` のキャッシュパスを返す。
-/// `XDG_DATA_HOME` 未設定時は `~/.local/share` へ fall back する。
+/// installer binary のキャッシュパスを返す。
+///
+/// - root 実行時: `/var/lib/schneeforge/managed-nix/cache/{version}/nix-installer`
+///   (sudo で user の HOME/XDG が持ち込まれても user-writable path を
+///   root 実行 binary の cache に使わない)
+/// - 非 root: `$XDG_DATA_HOME/schneeforge/managed-nix/{version}/nix-installer`
 pub fn cache_path(version: &str) -> Result<PathBuf, ManagedNixError> {
-    let base = dirs::data_dir().ok_or_else(|| ManagedNixError::Io {
-        context: "resolve XDG data dir".to_string(),
-        source: std::io::Error::new(std::io::ErrorKind::NotFound, "XDG data dir unavailable")
-            .to_string(),
-    })?;
-    Ok(base
-        .join("schneeforge")
-        .join("managed-nix")
-        .join(version)
-        .join("nix-installer"))
+    let dir = if crate::managed_nix::is_root() {
+        PathBuf::from(crate::managed_nix::ROOT_STATE_DIR)
+            .join("managed-nix")
+            .join("cache")
+    } else {
+        dirs::data_dir()
+            .ok_or_else(|| ManagedNixError::Io {
+                context: "resolve XDG data dir".to_string(),
+                source: std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "XDG data dir unavailable",
+                )
+                .to_string(),
+            })?
+            .join("schneeforge")
+            .join("managed-nix")
+    };
+    Ok(dir.join(version).join("nix-installer"))
 }
 
 /// 指定 URL から `dest` へ download。online でない場合は `ManagedNixError::NetworkRequired`。
+///
+/// temp file は random suffix + `O_CREAT|O_EXCL` で作成する (既存 file や symlink を
+/// 絶対に open しない)。download → verify は caller 責務。
 pub fn download(url: &str, dest: &Path) -> Result<(), ManagedNixError> {
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent).map_err(|e| ManagedNixError::Io {
@@ -41,23 +56,43 @@ pub fn download(url: &str, dest: &Path) -> Result<(), ManagedNixError> {
         })?;
     }
 
-    let tmp = dest.with_extension("part");
-    let mut resp = http_client()?
+    // predictable な `<dest>.part` は事前に symlink を置かれる危険があるため、
+    // random suffix を使い create_new (O_EXCL) で排他作成する
+    let rnd = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    let tmp = dest.with_extension(format!("part-{rnd:08x}-{}", std::process::id()));
+    let resp = http_client()?
         .get(url)
         .send()
-        .map_err(|e| classify_reqwest_error(&NetworkClassifier::from(&e), dest.exists()))?;
+        .map_err(|e| classify_reqwest_error(&NetworkClassifier::from(&e), dest.exists()));
+
+    // error 時にも temp file を残さない
+    let mut resp = match resp {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = fs::remove_file(&tmp);
+            return Err(e);
+        }
+    };
 
     if !resp.status().is_success() {
+        let _ = fs::remove_file(&tmp);
         return Err(ManagedNixError::Download {
             source: format!("HTTP {} for {url}", resp.status()),
         });
     }
 
-    {
-        let mut file = fs::File::create(&tmp).map_err(|e| ManagedNixError::Io {
-            context: format!("create {}", tmp.display()),
-            source: e.to_string(),
-        })?;
+    let write_result = (|| -> Result<(), ManagedNixError> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+            .map_err(|e| ManagedNixError::Io {
+                context: format!("create {}", tmp.display()),
+                source: e.to_string(),
+            })?;
         resp.copy_to(&mut file)
             .map_err(|e| ManagedNixError::Download {
                 source: format!("body read: {e}"),
@@ -66,6 +101,12 @@ pub fn download(url: &str, dest: &Path) -> Result<(), ManagedNixError> {
             context: format!("flush {}", tmp.display()),
             source: e.to_string(),
         })?;
+        Ok(())
+    })();
+
+    if let Err(e) = write_result {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
     }
 
     fs::rename(&tmp, dest).map_err(|e| ManagedNixError::Io {
