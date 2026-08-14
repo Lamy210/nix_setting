@@ -92,20 +92,20 @@ ensure_nix_state_dir() {
 fetch_schneeforge_binary() {
   local os arch asset_base url_base version tmp_dir expect actual
   case "$(uname -s)" in
-    Linux) os="linux" ;;
-    Darwin) os="darwin" ;;
-    *)
-      echo "[error] unsupported OS: $(uname -s)" >&2
-      return 1
-      ;;
+  Linux) os="linux" ;;
+  Darwin) os="darwin" ;;
+  *)
+    echo "[error] unsupported OS: $(uname -s)" >&2
+    return 1
+    ;;
   esac
   case "$(uname -m)" in
-    x86_64 | amd64) arch="x86_64" ;;
-    aarch64 | arm64) arch="aarch64" ;;
-    *)
-      echo "[error] unsupported arch: $(uname -m)" >&2
-      return 1
-      ;;
+  x86_64 | amd64) arch="x86_64" ;;
+  aarch64 | arm64) arch="aarch64" ;;
+  *)
+    echo "[error] unsupported arch: $(uname -m)" >&2
+    return 1
+    ;;
   esac
   if [ "$os" = "darwin" ]; then
     # darwin release binary は aarch64 のみ

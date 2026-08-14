@@ -121,11 +121,13 @@ jobs:
           fi
           # shell 側: install.sh / bootstrap.sh で直接 nix/git/brew を呼んでいないか
           # [$] を使うことで shellcheck SC2016 を回避しつつ $NIX_BIN リテラルを grep
+          # `schneeforge ... nix install` は CLI subcommand 引数 (tool spawn ではない) のため除外
           shell_hits=$(grep -nE '(^| )nix |(^| )git |(^| )brew ' install.sh bootstrap.sh 2>/dev/null \
             | grep -v '^#' \
             | grep -v '[$]NIX_BIN' \
             | grep -v '[$]GIT_BIN' \
             | grep -v '[$]BREW_BIN' \
+            | grep -v 'nix install' \
             || true)
           if [ -n "$shell_hits" ]; then
             echo "ERROR: raw tool invocations in shell. Use [$]NIX_BIN / [$]GIT_BIN / [$]BREW_BIN (resolve-tools.sh)." >&2
