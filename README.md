@@ -26,37 +26,43 @@ nix_setting/
 
 ## 導入手順
 
-### ワンライナー (推奨)
+### Managed Nix (推奨)
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/main/install.sh | bash
-```
-
-### 手動
+Nix 未導入の machine では SchneeForge CLI 経由で Nix を install する
+(version pinning・SHA256 検証・uninstall 時の ownership check 有効)。
 
 ```bash
 # 1. クローン (OS/arch を自動検出)
 git clone https://github.com/Lamy210/nix_setting.git "$HOME/nix_setting"
 cd "$HOME/nix_setting"
 
-# 2. schneeforge CLI を取得 (cargo build または GitHub Release の binary)
+# 2. schneeforge CLI を取得 (GitHub Release の binary または cargo build)
+#    Release binary の場合 (Nix / Rust 環境不要):
+#      v0.1.0 以降から schneeforge-<os>-<arch> を download して実行権限を付与
+#    cargo build の場合 (Rust 環境が必要):
 cargo build --release -p schneeforge
-#    (Release を使う場合: schneeforge-<os>-<arch> を download して PATH へ)
 
 # 3. Managed Nix install (NixOS/nix-installer を SchneeForge が subprocess 実行)
-sudo schneeforge nix install
-schneeforge nix doctor     # /nix/receipt.json + nix store ping + flakes 確認
+#    (cargo build した場合は ./target/release/schneeforge を指定)
+sudo ./target/release/schneeforge nix install
+./target/release/schneeforge nix doctor   # /nix/receipt.json + nix store ping + flakes 確認
 
 # 4. dotfiles 適用
 ./bootstrap.sh
 ```
 
-> **注意 (現在の推奨経路について)**: 上のワンライナー (`install.sh`) は Nix
-> 未導入時に `curl -L https://nixos.org/nix/install | sh` を直接実行する
-> ため、SchneeForge の ownership 管理 (`/nix/schneeforge-managed.json`) は
-> 作成されません。Managed Nix 経由 (`schneeforge nix install`) を使うと
-> version pinning・SHA256 検証・uninstall 時の ownership check が有効に
-> なります。`install.sh` の Managed Nix 統合は次フェーズで予定。
+### ワンライナー (Legacy / compatibility)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/main/install.sh | bash
+```
+
+> **注意**: このワンライナー (`install.sh`) は Nix 未導入時に
+> `curl -L https://nixos.org/nix/install | sh` を直接実行するため、
+> SchneeForge の ownership 管理 (`/nix/schneeforge-managed.json`) は
+> 作成されません。`schneeforge nix uninstall` での安全な取り外しを
+> 使う場合は Managed Nix 経路から install してください。
+> `install.sh` の Managed Nix 統合は次フェーズで予定。
 
 Managed Nix は `bootstrap-manifest.toml` で version + SHA256 を pin し、
 online で download + verify する。offline 配布・DMG bundle は Phase 2。
