@@ -64,15 +64,15 @@ SchneeForge SHALL は upstream release を取り込む CI で SLSA provenance (`
 - **THEN** `gh` や `cosign` が未導入でも manifest の SHA256 比較で検証を完結する
 
 ### Requirement: subprocess 実行と logger stderr parse
-SchneeForge SHALL は nix-installer を subprocess 実行し、`--plan` で pre-built plan.json を渡し、`--logger json` の stderr を JSON Lines として best-effort parse する。SchneeForge 側で phase (Download / Verify / Privilege / Plan / Install / PostInstall) を管理し、installer 内部のメッセージに直接依存しない。`--plan` と planner-subcommand は排他。
+SchneeForge SHALL は nix-installer を subprocess 実行し、plan.json を positional argument (`install <plan.json>`) で渡し、`--logger json` の stderr を JSON Lines として best-effort parse する。SchneeForge 側で phase (Download / Verify / Privilege / Plan / Install / PostInstall) を管理し、installer 内部のメッセージに直接依存しない。plan と planner-subcommand は排他 (2.35.1 に `--plan` long flag は無い)。
 
 #### Scenario: subprocess で install を実行
 - **WHEN** `schneeforge nix install` を実行する
-- **THEN** `nix-installer install --plan <plan.json> --logger json --enable-flakes --no-confirm` を subprocess で起動する
+- **THEN** `nix-installer install <plan.json> --logger json --no-confirm` を subprocess で起動する (plan は positional、flakes は plan 生成時に焼き込み済み)
 - **AND** stderr の JSON Lines を SchneeForge 側 phase へ map して progress 表示する
 
-#### Scenario: --plan と planner-subcommand の同時指定は不可
-- **WHEN** 何らかの理由で `--plan` と planner-subcommand を同時に指定した場合
+#### Scenario: plan と planner-subcommand の同時指定は不可
+- **WHEN** 何らかの理由で plan と planner-subcommand を同時に指定した場合
 - **THEN** nix-installer 側で error となり、SchneeForge は `ManagedNixError::PlannerConflict` として報告する
 
 #### Scenario: installer 内部メッセージの schema 変更に耐性がある

@@ -74,13 +74,13 @@ Arch map:
 
 ### D4: Execution は subprocess。logger は stderr を JSON Lines parse
 
-CLI 引数は以下の構文を取る (実測: `src/cli/subcommand/install/mod.rs`):
+CLI 引数は以下の構文を取る (実測: `src/cli/subcommand/install/mod.rs` @ 2.35.1):
 - `nix-installer install [PLANNER-SUBCOMMAND] [FLAGS]` — planner 指定で新規 plan を作って install
-- `nix-installer install --plan <plan.json> [FLAGS]` — pre-built plan.json を読み込んで install
-- `--plan` と planner-subcommand は排他 (両方指定で error)
-- flags (`--no-confirm`, `--enable-flakes` 等) は `--plan` 利用時にも有効
+- `nix-installer install <plan.json> [FLAGS]` — pre-built plan.json を **positional argument** として読み込んで install (2.35.1 に `--plan` long flag は無い。env `NIX_INSTALLER_PLAN` のみ)
+- plan と planner-subcommand は排他 (両方指定で error)
+- flags (`--no-confirm` 等) は plan 利用時にも有効。`--enable-flakes` は plan 生成時に plan へ焼き込まれるため replay 時には不要
 
-SchneeForge は 2 段階 Plan UX (D7) のため `plan --out-file` → ユーザー確認 → `install --plan` を基本とする。
+SchneeForge は 2 段階 Plan UX (D8) のため `plan --out-file` → ユーザー確認 → `install <plan.json>` を基本とする。
 
 ```
 schneeforge nix install
@@ -103,8 +103,12 @@ schneeforge nix install
   - nix-installer plan linux|steam-deck|ostree --out-file plan.json --enable-flakes
   - planner は SchneeForge が OS から選択 (linux/macos)
   ↓
+[Phase: Detailed plan 表示 + 最終確認]
+  - plan.json の actions 概要を表示
+  - TTY では y/N で最終確認 (--yes で skip、非 TTY は error)
+  ↓
 [Phase: Install]
-  - nix-installer install --plan plan.json --logger json --no-confirm
+  - nix-installer install plan.json --logger json --no-confirm
   - stderr を JSON Lines で best-effort parse
   - SchneeForge 側で大きな phase を進行表示
   ↓
@@ -186,8 +190,8 @@ nix-installer plan linux|macos --out-file plan.json --enable-flakes
 ↓
 Detailed Plan (actions 列を人間可読で表示)
 ↓
-[Install]
-  → nix-installer install --plan plan.json --logger json --no-confirm --enable-flakes
+[y/N 最終確認 (CLI: --yes で skip / 非 TTY は error)]
+  → nix-installer install plan.json --logger json --no-confirm
 ```
 
 ### D9: License の扱い
@@ -240,12 +244,11 @@ pub enum ManagedNixError {
 
 ### Phase 2 (別 change)
 - Tauri GUI (First Run Wizard) への IPC 接続
-- **[Phase 2 blocker] Core へ installation policy を集約**: Phase 1 では existing-Nix /
-  supported-platform / root policy の強制が CLI 側 (`nix_cmd.rs`) にあり、Core の
-  `install_with_progress()` は guard を持たない。Phase 2 で Tauri から直接
-  `ManagedNix::install()` を呼ぶ際は guard 迂回を防ぐため、policy 判定を Core の
-  public API 境界へ移動すること (CLI / GUI 両方が同一 API を通る形)。
-  この集約を完了するまで Tauri 側から `install_with_progress()` を直接呼んではならない。
+- **[resolved in PR #13] Core へ installation policy を集約**: existing-Nix /
+  supported-platform policy は Core の `ManagedNix::prepare_plan()` / `execute_plan()`
+  が強制する (CLI / GUI 両方が同一 API を通る)。guard の無い旧
+  `install_with_progress()` は削除済み。root privilege と D8 最終確認の UX は
+  caller (CLI / GUI) の責務として残る。
 - privileged-gui-operations と統合 (macOS 管理者認証)
 - DMG bundle 配布の法務設計 (別 ADR)
 

@@ -67,15 +67,15 @@ SchneeForge SHALL は upstream release を取り込む CI で SLSA provenance (`
 - **THEN** `gh` や `cosign` が未導入でも manifest の SHA256 比較で検証を完結する
 
 ### Requirement: subprocess 実行と logger stderr parse
-SchneeForge SHALL は nix-installer を subprocess 実行し、`--plan` で pre-built plan.json を渡し、`--logger json` の stderr を JSON Lines として best-effort parse する。SchneeForge 側で phase (Download / Verify / Privilege / Plan / Install / PostInstall) を管理し、installer 内部のメッセージに直接依存しない。`--plan` と planner-subcommand は排他。
+SchneeForge SHALL は nix-installer を subprocess 実行し、plan.json を **positional argument** として渡し (`install <plan.json>`)、`--logger json` の stderr を JSON Lines として best-effort parse する。SchneeForge 側で phase (Download / Verify / Privilege / Plan / Install / PostInstall) を管理し、installer 内部のメッセージに直接依存しない。plan と planner-subcommand は排他 (両方渡すと upstream が error)。flakes は plan 生成時 (`plan <planner> --enable-flakes`) に plan へ焼き込み、install replay 時には再度指定しない。
 
 #### Scenario: subprocess で install を実行
 - **WHEN** `schneeforge nix install` を実行する
-- **THEN** `nix-installer install --plan <plan.json> --logger json --enable-flakes --no-confirm` を subprocess で起動する
+- **THEN** `nix-installer install <plan.json> --logger json --no-confirm` を subprocess で起動する (plan は positional)
 - **AND** stderr の JSON Lines を SchneeForge 側 phase へ map して progress 表示する
 
-#### Scenario: --plan と planner-subcommand の同時指定は不可
-- **WHEN** 何らかの理由で `--plan` と planner-subcommand を同時に指定した場合
+#### Scenario: plan と planner-subcommand の同時指定は不可
+- **WHEN** 何らかの理由で plan と planner-subcommand を同時に指定した場合
 - **THEN** nix-installer 側で error となり、SchneeForge は `ManagedNixError::PlannerConflict` として報告する
 
 #### Scenario: installer 内部メッセージの schema 変更に耐性がある
@@ -83,17 +83,23 @@ SchneeForge SHALL は nix-installer を subprocess 実行し、`--plan` で pre-
 - **THEN** SchneeForge 側の phase 表示は壊れない (best-effort parse のみ依存)
 
 ### Requirement: 2 段階 Plan UX
-SchneeForge SHALL は root 不要の preflight と、管理者認証後の detailed plan に分けて UX を提供する。
+SchneeForge SHALL は root 不要の preflight と、root 実行後の detailed plan 表示・最終確認に分けて UX を提供する。upstream を `--no-confirm` で呼ぶため、install 前の確認責任は SchneeForge 側にある。
 
 #### Scenario: preflight は root 不要で概要を表示
 - **WHEN** ユーザーが `schneeforge nix install` を起動する
 - **THEN** `/nix`, daemon/launchd, build users, shell profiles, flakes を変更する旨を root 権限無しで表示する
-- **AND** ユーザーが Continue を選ぶまで install を開始しない
+- **AND** root 未実行の場合は `sudo schneeforge nix install` での再実行を促して終了する
 
-#### Scenario: 管理者認証後に detailed plan を取得
-- **WHEN** ユーザーが Continue を選ぶ
-- **THEN** 管理者認証を要求した上で `nix-installer plan --out-file plan.json` を実行し、detailed plan を表示する
-- **AND** Install の最終確認を再度ユーザーに求める
+#### Scenario: detailed plan 表示と最終確認
+- **WHEN** root で `schneeforge nix install` を実行する
+- **THEN** `nix-installer plan <planner> --out-file plan.json --enable-flakes` で detailed plan を生成し、actions の概要を表示する
+- **AND** TTY では `y/N` の最終確認を求め、`y`/`yes` 以外なら install せずに終了する
+- **AND** 非 TTY (CI 等) では確認を取れないため error で終了する
+- **AND** `--yes` 指定時は最終確認を skip する (automation 用)
+
+#### Scenario: install 失敗時
+- **WHEN** detailed plan 表示後にユーザーが install を中止する
+- **THEN** upstream installer は実行せず、`/nix` は変更しない
 
 ### Requirement: receipt は `/nix/receipt.json` を source of truth とする
 SchneeForge SHALL は `/nix/receipt.json` を source of truth とし、独自の receipt を複製しない。

@@ -36,7 +36,7 @@ SchneeForge の Managed-Nix の default provider として **NixOS/nix-installer
 - installer 内部のメッセージ (`Step: CreateUsers` 等) の schema は unstable である前提で、SchneeForge 側の業務 phase に落とし込んで progress UI を駆動する。installer 内部メッセージへの直接依存はしない。
 
 ### Flakes
-- `--enable-flakes` を default 有効 (SchneeForge は flake 前提)。
+- `plan` 実行時に `--enable-flakes` を指定し、plan へ焼き込む (SchneeForge は flake 前提)。install replay 時には再指定しない (2.35.1 の plan は positional argument で、planner 経由の設定は使われない)。
 
 ### Receipt
 - upstream の `/nix/receipt.json` を source of truth とする。SchneeForge 側で receipt を再実装・複製しない。

@@ -12,7 +12,7 @@ ADR-0001 (provisionally accepted) で NixOS/nix-installer を default provider �
   - `bootstrap-manifest.toml` による version + SHA256 pinning
   - `BootstrapDownloader` (reqwest, `tauri-plugin-http` 不使用) による online download とアプリデータ配下のキャッシュ
   - SLSA provenance + SHA256SUMS 検証 (release bump CI のみ, runtime は local SHA256 比較)
-  - nix-installer subprocess 実行 (`--enable-flakes --logger json --no-confirm`)
+  - nix-installer subprocess 実行 (`plan <planner> --enable-flakes` で plan 生成後、`install <plan.json> --logger json --no-confirm` で replay)
   - stderr JSON Lines の best-effort parse (SchneeForge phase 優先, installer 内部メッセージ非依存)
   - `/nix/receipt.json` の読み取り専用 view
   - 2 段階 Plan UX (root 不要 preflight → 管理者認証 → detailed plan)

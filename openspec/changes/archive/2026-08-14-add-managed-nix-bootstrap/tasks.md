@@ -12,7 +12,7 @@
 - [x] 2.2 `manifest.rs`: `bootstrap-manifest.toml` の parse/serialize。schema は `[managed_nix] version, sha256_by_arch.{arch}`
 - [x] 2.3 `download.rs`: reqwest で asset を download。`XDG_DATA_HOME/schneeforge/managed-nix/{version}/nix-installer` へキャッシュ (存在時は skip)
 - [x] 2.4 `verify.rs`: SHA256 計算と manifest 比較。不一致は `ManagedNixError::ChecksumMismatch`
-- [x] 2.5 `installer.rs`: subprocess 実行。CLI 引数は `install --plan <plan.json> --logger json --no-confirm --enable-flakes` を基本 (`--plan` と planner-subcommand は排他)。`--logger json` の **stderr** を JSON Lines で best-effort parse し、`InstallPhase` enum (`Download / Verify / Privilege / Plan / Install / PostInstall`) に map
+- [x] 2.5 `installer.rs`: subprocess 実行。CLI 引数は `install <plan.json> --logger json --no-confirm` を基本 (plan は **positional**、2.35.1 に `--plan` long flag は無い)。`--enable-flakes` は plan 生成時のみ。`--logger json` の **stderr** を JSON Lines で best-effort parse し、`InstallPhase` enum (`Download / Verify / Privilege / Plan / Install / PostInstall`) に map
 - [x] 2.6 `receipt.rs`: `/nix/receipt.json` の読み取り専用 view (`Receipt { version, actions, planner }`)
 - [x] 2.7 `mod.rs`: `ManagedNix::install() / doctor() / uninstall()` の公開 API。`Toolchain` は既存を再利用
 - [x] 2.8 `error.rs` (または `mod.rs` 内): `ManagedNixError` enum 定義 (design.md D10 参照)。`crates/core/src/error.rs` の SchneeForgeError へ `From` 実装
@@ -43,6 +43,7 @@
 - [ ] 7.4 regression: `/nix/receipt.json` 存在時の冪等性 (2 回目 install は skip or up-to-date)
 - [ ] 7.5 regression: nix-darwin 残留時の uninstall 警告 + abort メッセージ
 - [x] 7.6 regression: root 未実行時に `sudo schneeforge nix install ...` の再実行を案内するメッセージ (CLI test 有)
+- [x] 7.7 D8 最終確認: detailed plan 表示 + TTY での y/N 確認 (--yes で skip、非 TTY は error)。upstream `--no-confirm` の確認責任を SchneeForge 側で担保
 
 ## 8. Docs
 - [ ] 8.1 ADR-0001 Status を smoke 後に `Accepted` へ昇格 (macOS aarch64 smoke が条件、Phase 1 範囲外)
@@ -51,5 +52,5 @@
 
 ## 9. Archive (PR 前)
 - [x] 9.1 `openspec validate add-managed-nix-bootstrap --strict` 通過
-- [ ] 9.2 `openspec archive add-managed-nix-bootstrap` (specs へ反映後)
-- [ ] 9.3 PR 作成 (`feat/managed-nix-bootstrap` → `develop`)
+- [x] 9.2 `openspec archive add-managed-nix-bootstrap` (specs へ反映後、2026-08-14)
+- [x] 9.3 PR 作成 (`feat/managed-nix-bootstrap` → `develop`、PR #13)

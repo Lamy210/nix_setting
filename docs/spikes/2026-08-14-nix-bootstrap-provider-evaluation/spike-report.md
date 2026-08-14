@@ -38,7 +38,7 @@
 nix-installer [OPTIONS] <COMMAND>
 Commands:
   install        install [OPTIONS] [PLANNER-SUBCOMMAND] — planner は subcommand (linux/steam-deck/ostree)
-                 ※ pre-built plan.json を流す場合は --plan <path> (--plan と planner-subcommand は排他)
+                 ※ pre-built plan.json を流す場合は positional で <path> (plan と planner-subcommand は排他) 〔2026-08-14 修正: 当 spike の初出時は --plan long flag と記載したが、2.35.1 の src/cli/subcommand/install/mod.rs では `#[clap(env = "NIX_INSTALLER_PLAN")] pub plan: Option<PathBuf>` のみで long 指定が無く positional であることを実 binary で確認した〕
   repair         repair {hooks|sequoia} — shell profile 修復 / macOS Sequoia _nixbld 回復
   uninstall      uninstall [RECEIPT]  default: /nix/receipt.json
   self-test      Nix が動くか自己診断
@@ -73,7 +73,7 @@ pub struct InstallPlan {
 - `planner` は linux/macos/steam-deck/ostree のいずれかで、再現に必要な設定を保持。
 - 同バイナリのコピーも `/nix/nix-installer` へ保存 (uninstall 時に PATH 不要で呼べる)。
 
-**Plan JSON**: `plan` サブコマンドで事前取得可能 (編集して `install --plan <path>` へ流す)。`--plan` と planner subcommand は排他で、flags (`--no-confirm`, `--enable-flakes` 等) は `--plan` 利用時にも有効。ただし**root 権限が必要** — planner が `/etc` 等を事前スキャンするため。実測:
+**Plan JSON**: `plan` サブコマンドで事前取得可能 (編集して `install <path>` へ流す。plan は positional)。plan と planner subcommand は排他で、flags (`--no-confirm` 等) は plan 利用時にも有効 (`--enable-flakes` は plan 生成時に plan へ焼き込まれるため replay 時は不要)。〔2026-08-14 修正: 初出時の `--plan` 記載は誤り。実 binary 検証で positional であることを確認〕ただし**root 権限が必要** — planner が `/etc` 等を事前スキャンするため。実測:
 
 ```
 $ ./nix-installer plan linux --no-modify-profile
