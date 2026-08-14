@@ -1,25 +1,27 @@
 # Tasks: add-managed-nix-bootstrap
 
 ## 1. OpenSpec / ADR
-- [x] 1.1 Spike Report (`spike-nix-bootstrap-provider-evaluation/spike-report.md`) の 3 点修正 (license, stderr, macOS coverage)
+- [x] 1.1 Spike Report (`docs/spikes/2026-08-14-nix-bootstrap-provider-evaluation/spike-report.md`) の 3 点修正 (license, stderr, macOS coverage)
 - [x] 1.2 ADR-0001 作成 (Status: provisionally accepted)
 - [x] 1.3 本 change (proposal/design/tasks/spec deltas) 作成
-- [ ] 1.4 `openspec validate add-managed-nix-bootstrap --strict` 通過
+- [x] 1.4 `openspec validate add-managed-nix-bootstrap --strict` 通過 (2026-08-14)
+- [x] 1.5 レビュー指摘 (#1 plan.json 構文実測・#2 doctor体系・#5 ManagedNixError・#6 SLSA alert 具体化・#7 CLI privilege 方針・#8 ADR Alternatives A・#9 bump PR と release cycle・#10 nix-darwin 取り外し) を design.md / ADR-0001 / Spike Report へ反映
 
 ## 2. Core: `managed_nix` module (crates/core/src/managed_nix/)
-- [ ] 2.1 `provider.rs`: NixOS/nix-installer の URL/asset 名を arch 毎に返す。`{ x86_64-linux, aarch64-linux, aarch64-darwin }` のみ (x86_64-darwin は未サポートで Err)
+- [ ] 2.1 `provider.rs`: NixOS/nix-installer の URL/asset 名を arch 毎に返す。`{ x86_64-linux, aarch64-linux, aarch64-darwin }` のみ (x86_64-darwin は未サポートで `UnsupportedArch`)
 - [ ] 2.2 `manifest.rs`: `bootstrap-manifest.toml` の parse/serialize。schema は `[managed_nix] version, sha256_by_arch.{arch}`
 - [ ] 2.3 `download.rs`: reqwest で asset を download。`XDG_DATA_HOME/schneeforge/managed-nix/{version}/nix-installer` へキャッシュ (存在時は skip)
-- [ ] 2.4 `verify.rs`: SHA256 計算と manifest 比較。不一致は structured error (`ManagedNixError::ChecksumMismatch`)
-- [ ] 2.5 `installer.rs`: subprocess 実行。`--logger json` の **stderr** を JSON Lines で best-effort parse し、`InstallPhase` enum (`Download / Verify / Privilege / Plan / Install / PostInstall`) に map
+- [ ] 2.4 `verify.rs`: SHA256 計算と manifest 比較。不一致は `ManagedNixError::ChecksumMismatch`
+- [ ] 2.5 `installer.rs`: subprocess 実行。CLI 引数は `install --plan <plan.json> --logger json --no-confirm --enable-flakes` を基本 (`--plan` と planner-subcommand は排他)。`--logger json` の **stderr** を JSON Lines で best-effort parse し、`InstallPhase` enum (`Download / Verify / Privilege / Plan / Install / PostInstall`) に map
 - [ ] 2.6 `receipt.rs`: `/nix/receipt.json` の読み取り専用 view (`Receipt { version, actions, planner }`)
 - [ ] 2.7 `mod.rs`: `ManagedNix::install() / doctor() / uninstall()` の公開 API。`Toolchain` は既存を再利用
+- [ ] 2.8 `error.rs` (または `mod.rs` 内): `ManagedNixError` enum 定義 (design.md D10 参照)。`crates/core/src/error.rs` の SchneeForgeError へ `From` 実装
 
 ## 3. CLI: `schneeforge nix` subcommand (crates/cli/src/nix.rs)
-- [ ] 3.1 `schneeforge nix install` — preflight → download → verify → privilege → plan → install → post-install
+- [ ] 3.1 `schneeforge nix install` — preflight → download → verify → privilege (root 未実行時は `sudo schneeforge nix install ...` で再実行を促す、D4) → plan → install → post-install
 - [ ] 3.2 `schneeforge nix doctor` — receipt + `nix store ping` + `nix config show experimental-features`
-- [ ] 3.3 `schneeforge nix uninstall` — nix-darwin 検出 → 順序保証 → upstream uninstall を subprocess
-- [ ] 3.4 既存 `schneeforge doctor` から `schneeforge nix doctor` の結果を統合 (重複回避)
+- [ ] 3.3 `schneeforge nix uninstall` — nix-darwin 検出 → 残留時は警告で abort (D6) → upstream uninstall を subprocess
+- [ ] 3.4 既存 `schneeforge doctor` が `schneeforge nix doctor` を呼び出して nix 関連 section を埋める (D7)
 
 ## 4. bootstrap-manifest.toml (repo root)
 - [ ] 4.1 初期 manifest 作成 (version `2.35.1`, arch 毎の sha256 は Spike Report の `3b49a0b9…` 等を記載)
@@ -28,17 +30,19 @@
 ## 5. CI: upstream release tracking
 - [ ] 5.1 `.github/workflows/upstream-nix-installer.yml` 新設 (weekly + 手動 dispatch)
 - [ ] 5.2 `gh attestation verify` で SLSA provenance 検証
-- [ ] 5.3 SHA256SUMS を取得し、`bootstrap-manifest.toml` を bump する PR を自動作成
+- [ ] 5.3 SHA256SUMS を取得し、`bootstrap-manifest.toml` を bump する PR を自動作成 (即時 merge ではなく SchneeForge release cycle で評価、breaking 時は棄却)
+- [ ] 5.4 SLSA provenance 検証失敗時は CI fail + `gh issue create` で tracked-issue 自動起票
 
 ## 6. Spec 修正
-- [ ] 6.1 `bootstrap-flow` の「Nix 未検出時のメッセージ」要件を MODIFIED: curl|sh → Managed Nix アクション (`schneeforge nix install` を起動)
+- [x] 6.1 `bootstrap-flow` の「Nix 未検出時のメッセージ」要件を MODIFIED: curl|sh → Managed Nix アクション (`schneeforge nix install` を起動)
 
 ## 7. Test
-- [ ] 7.1 unit: manifest parse, sha256 verify, JSON Lines parse (mock stderr)
+- [ ] 7.1 unit: manifest parse, sha256 verify, JSON Lines parse (mock stderr), `ManagedNixError` variant 毎の変換
 - [ ] 7.2 integration: Docker container 上の fresh host (Linux x86_64) で `schneeforge nix install` → `doctor` → `uninstall`
 - [ ] 7.3 **integration: macOS aarch64 disposable env で install / self-test / flakes / receipt / uninstall / cleanup** (ADR-0001 Final acceptance)
 - [ ] 7.4 regression: `/nix/receipt.json` 存在時の冪等性 (2 回目 install は skip or up-to-date)
-- [ ] 7.5 regression: nix-darwin 残留時の uninstall 拒否メッセージ
+- [ ] 7.5 regression: nix-darwin 残留時の uninstall 警告 + abort メッセージ
+- [ ] 7.6 regression: root 未実行時に `sudo schneeforge nix install ...` の再実行を案内するメッセージ
 
 ## 8. Docs
 - [ ] 8.1 ADR-0001 Status を smoke 後に `Accepted` へ昇格

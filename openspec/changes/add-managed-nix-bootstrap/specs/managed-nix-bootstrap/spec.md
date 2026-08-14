@@ -43,7 +43,7 @@ SchneeForge SHALL は download した nix-installer binary を `XDG_DATA_HOME/sc
 - **AND** キャッシュの SHA256 を manifest と再検証する
 
 ### Requirement: SLSA provenance と SHA256SUMS の CI 検証
-SchneeForge SHALL は upstream release を取り込む CI で SLSA provenance (`gh attestation verify`) と SHA256SUMS を検証し、`bootstrap-manifest.toml` へ bump する PR を作成する。runtime は manifest の SHA256 のみを検証する。
+SchneeForge SHALL は upstream release を取り込む CI で SLSA provenance (`gh attestation verify`) と SHA256SUMS を検証し、`bootstrap-manifest.toml` へ bump する PR を作成する。runtime は manifest の SHA256 のみを検証する。bump PR は SchneeForge の release cycle で評価し、breaking change がある場合は棄却する。
 
 #### Scenario: CI が release を verify して manifest を更新
 - **WHEN** upstream が新 release を公開する
@@ -52,19 +52,28 @@ SchneeForge SHALL は upstream release を取り込む CI で SLSA provenance (`
 
 #### Scenario: SLSA provenance 検証失敗
 - **WHEN** CI が upstream release の attestation 検証に失敗する
-- **THEN** manifest bump を行わず、alert を出す
+- **THEN** CI job を fail させ、`gh issue create` で tracked-issue を自動起票して手動対応を促す
+- **AND** manifest bump は行われない
+
+#### Scenario: bump PR に breaking change が含まれる場合は棄却
+- **WHEN** bump PR の nix-installer が CLI flag 廃止・receipt schema 変更等の breaking change を含む
+- **THEN** SchneeForge の release cycle 評価で PR を棄却し、SchneeForge 側で対応を整えてから取り込む
 
 #### Scenario: runtime は gh / cosign を要求しない
 - **WHEN** 利用者 PC で `schneeforge nix install` を実行する
 - **THEN** `gh` や `cosign` が未導入でも manifest の SHA256 比較で検証を完結する
 
 ### Requirement: subprocess 実行と logger stderr parse
-SchneeForge SHALL は nix-installer を `--logger json` 付きで subprocess 実行し、stderr を JSON Lines として best-effort parse する。SchneeForge 側で phase (Download / Verify / Privilege / Plan / Install / PostInstall) を管理し、installer 内部のメッセージに直接依存しない。
+SchneeForge SHALL は nix-installer を subprocess 実行し、`--plan` で pre-built plan.json を渡し、`--logger json` の stderr を JSON Lines として best-effort parse する。SchneeForge 側で phase (Download / Verify / Privilege / Plan / Install / PostInstall) を管理し、installer 内部のメッセージに直接依存しない。`--plan` と planner-subcommand は排他。
 
 #### Scenario: subprocess で install を実行
 - **WHEN** `schneeforge nix install` を実行する
-- **THEN** `nix-installer install --logger json --enable-flakes --no-confirm` を subprocess で起動する
+- **THEN** `nix-installer install --plan <plan.json> --logger json --enable-flakes --no-confirm` を subprocess で起動する
 - **AND** stderr の JSON Lines を SchneeForge 側 phase へ map して progress 表示する
+
+#### Scenario: --plan と planner-subcommand の同時指定は不可
+- **WHEN** 何らかの理由で `--plan` と planner-subcommand を同時に指定した場合
+- **THEN** nix-installer 側で error となり、SchneeForge は `ManagedNixError::PlannerConflict` として報告する
 
 #### Scenario: installer 内部メッセージの schema 変更に耐性がある
 - **WHEN** upstream が installer 内部の `Step: *` メッセージを変更する
@@ -96,12 +105,17 @@ SchneeForge SHALL は `/nix/receipt.json` を source of truth とし、独自の
 - **THEN** `ReceiptNotFound` エラーで停止し、手動対応を案内する
 
 ### Requirement: uninstall の順序保証
-SchneeForge SHALL は uninstall 時に nix-darwin を先に外してから nix-installer の uninstall を実行し、SSL cert 破損を防止する。
+SchneeForge SHALL は uninstall 時に nix-darwin の残留を検出し、残留時は nix-installer の uninstall を呼ぶ前に SSL cert 破損リスクを警告する。Phase 1 では nix-darwin の自動取り外しは行わず、ユーザーへ手動対応を促す (nix-darwin の安全な取り外し手順は ADR-0001 Open Question 4。別 change で設計後に自動化へ昇格)。
 
-#### Scenario: nix-darwin 残留時は先に外す
+#### Scenario: nix-darwin 残留時は警告して abort
 - **WHEN** nix-darwin が検出される状態で `schneeforge nix uninstall` を実行する
-- **THEN** nix-darwin を先に外す手順を表示/実行し、その後に nix-installer の uninstall を呼ぶ
-- **AND** SchneeForge は SSL cert 破損リスクを事前に警告する
+- **THEN** SSL cert 破損リスクを警告し、先に nix-darwin を手動で外すよう案内して abort する
+- **AND** SchneeForge は自動的な nix-darwin 削除を実行しない (Phase 1)
+
+#### Scenario: nix-darwin 非残留時はそのまま uninstall
+- **WHEN** nix-darwin が検出されない状態で `schneeforge nix uninstall` を実行する
+- **THEN** `/nix/nix-installer uninstall --no-confirm` を subprocess 呼び出しする
+- **AND** cleanup 確認 (build users・/nix の削除) を表示する
 
 #### Scenario: SchneeForge は revert logic を再実装しない
 - **WHEN** uninstall を実行する
@@ -131,12 +145,16 @@ SchneeForge SHALL は offline 環境でキャッシュが無い場合、install 
 - **AND** ユーザーへ online になることを案内する
 
 ### Requirement: privilege escalation の明示
-SchneeForge SHALL は install / uninstall 時の privilege escalation を明示的に行い、GUI 起動時も TTY 非依存で認証を要求する。
+SchneeForge SHALL は install / uninstall 時の privilege escalation を明示的に扱う。Phase 1 (CLI) では SchneeForge 側で自前 `sudo` 呼び出しを行わず、root 未実行時は `sudo schneeforge nix install ...` での再実行を促す。Phase 2 (GUI) では TTY 非依存の osascript (macOS) / pkexec (Linux) を別 change で統合する。
 
-#### Scenario: GUI 起動でも認証を要求
+#### Scenario: Phase 1 CLI で root 未実行時は再実行を促す
+- **WHEN** root 権限を持たずに `schneeforge nix install` を実行した場合
+- **THEN** SchneeForge は「sudo で再実行してください」のメッセージを出して停止する (自前で sudo 呼び出しはしない)
+
+#### Scenario: Phase 1 CLI で root 実行時はそのまま続行
+- **WHEN** root 権限で `schneeforge nix install` を実行した場合
+- **THEN** そのまま plan → install の phase を実行する
+
+#### Scenario: Phase 2 GUI では TTY 非依存の認証を要求
 - **WHEN** Tauri GUI から install を実行する (Phase 2 以降)
 - **THEN** TTY に依存せず、osascript (macOS) / pkexec (Linux) 等で認証を要求する
-
-#### Scenario: CLI 実行時の root 昇格
-- **WHEN** CLI から install を実行する
-- **THEN** 必要に応じて sudo 経由で自身を再実行する旨をユーザーに明示する

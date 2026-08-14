@@ -62,6 +62,8 @@ Arch map:
 2. `gh attestation verify` (SLSA provenance) で release を verify
 3. release の `SHA256SUMS` を取得し、対象 arch の expected sha256 を抽出
 4. `bootstrap-manifest.toml` を更新する PR を自動作成
+5. **bump PR は即時 merge ではなく、SchneeForge の release cycle で評価して merge する** (latest 追従ではない)。breaking change (CLI flag 廃止・receipt schema 変更等) がある場合は bump PR を棄却し、SchneeForge 側で対応を整えてから取り込む。
+6. SLSA provenance 検証が失敗した場合は CI job を fail させ、`gh issue create` で tracked-issue を自動起票して手動対応を促す (Slack 通知等は Phase 2 以降)。
 
 **Runtime verify** (利用者 PC):
 1. `bootstrap-manifest.toml` の `version` と `sha256` を読む
@@ -71,6 +73,14 @@ Arch map:
 利用者 PC で `gh` / `cosign` は不要。
 
 ### D4: Execution は subprocess。logger は stderr を JSON Lines parse
+
+CLI 引数は以下の構文を取る (実測: `src/cli/subcommand/install/mod.rs`):
+- `nix-installer install [PLANNER-SUBCOMMAND] [FLAGS]` — planner 指定で新規 plan を作って install
+- `nix-installer install --plan <plan.json> [FLAGS]` — pre-built plan.json を読み込んで install
+- `--plan` と planner-subcommand は排他 (両方指定で error)
+- flags (`--no-confirm`, `--enable-flakes` 等) は `--plan` 利用時にも有効
+
+SchneeForge は 2 段階 Plan UX (D7) のため `plan --out-file` → ユーザー確認 → `install --plan` を基本とする。
 
 ```
 schneeforge nix install
@@ -84,14 +94,17 @@ schneeforge nix install
   - SHA256 を verify
   ↓
 [Phase: Privilege escalation]
-  - macOS: osascript / authorization
-  - Linux: pkexec or sudo (TTY を持たない GUI 起動を考慮)
+  - Phase 1 (CLI): 自前での sudo 呼び出しは行わず、root 未実行の場合は
+    "sudo schneeforge nix install ..." で再実行を促して終了 (TTY 問題を避ける)
+  - Phase 2 (GUI): privileged-gui-operations で osascript (macOS) /
+    pkexec (Linux) を統合 (別 change で設計)
   ↓
 [Phase: Plan]
-  - nix-installer plan --out-file plan.json --enable-flakes
+  - nix-installer plan linux|steam-deck|ostree --out-file plan.json --enable-flakes
+  - planner は SchneeForge が OS から選択 (linux/macos)
   ↓
 [Phase: Install]
-  - nix-installer install plan.json --logger json --no-confirm
+  - nix-installer install --plan plan.json --logger json --no-confirm
   - stderr を JSON Lines で best-effort parse
   - SchneeForge 側で大きな phase を進行表示
   ↓
@@ -104,7 +117,7 @@ SchneeForge 側で管理する phase (Download / Verify / Privilege / Plan / Ins
 
 ### D5: Receipt は `/nix/receipt.json` を source of truth
 
-SchneeForge 側で receipt を複製しない。読み取り専用 view (`Receipt { version, actions, planner }`) を Core が持ち、`doctor` と `uninstall` の入力にする。
+SchneeForge 側で receipt を複製しない。読み取り専用 view (`Receipt { version, actions, planner }`) を Core が持ち、`schneeforge nix doctor` と `schneeforge nix uninstall` の入力にする。
 
 ### D6: Uninstall の順序保証
 
@@ -116,8 +129,11 @@ ownership / safety check
   - nix-darwin 検出
   ↓
 nix-darwin が存在?
-├─ YES → nix-darwin を先に外す (SSL cert 破損防止)
-│         - darwin-rebuild uninstall 或いは flake 側の rollback
+├─ YES → 警告を表示して abort (Phase 1 暫定)
+│         「先に nix-darwin を外してください。SchneeForge は現在
+│           nix-darwin の自動取り外しをサポートしません」
+│         (nix-darwin の安全な取り外し手順は ADR-0001 Open Question 4。
+│          別 change で設計後に自動化へ昇格)
 └─ NO
   ↓
 /nix/nix-installer uninstall --no-confirm
@@ -127,7 +143,28 @@ cleanup 確認
   - /nix の削除、build users の削除を確認
 ```
 
-### D7: 2 段階 Plan UX
+### D7: doctor コマンド体系 (重複回避)
+
+`schneeforge doctor` (既存) と `schneeforge nix doctor` (新設) は**役割を分離**し、`schneeforge doctor` から `schneeforge nix doctor` を呼び出す構造にする。
+
+```
+schneeforge doctor (既存: SchneeForge 全体診断)
+  ├─ repository state (clone / dirty / ahead)
+  ├─ manifest validation
+  ├─ toolchain (nix / git / brew の解決状態)
+  ├─ managed nix (↓ schneeforge nix doctor へ委譲)
+  └─ apply state (current / desired / applied)
+
+schneeforge nix doctor (新設: Managed Nix 専用)
+  ├─ /nix/receipt.json の有無・整合性
+  ├─ nix store ping
+  ├─ nix config show experimental-features (flakes 有無)
+  └─ receipt 内の actions 一覧
+```
+
+利用者は `schneeforge doctor` を使えば全体が見え、`schneeforge nix doctor` で Managed Nix 由来に絞れる。`schneeforge doctor` の nix 関連 section は `schneeforge nix doctor` の結果を埋め込む形で重複を避ける。
+
+### D8: 2 段階 Plan UX
 
 `nix-installer plan` は root を要求する (`ensure_root()` → sudo で再 exec) ため、GUI で「Plan を見る → いきなり sudo 認証」になるのを避ける。
 
@@ -143,20 +180,40 @@ SchneeForge preflight (root 不要)
 ↓
 [Continue]
 ↓
-管理者認証
+管理者認証 (Phase 1 CLI は root 再実行を促す、D4 参照)
 ↓
-nix-installer plan --out-file plan.json --enable-flakes
+nix-installer plan linux|macos --out-file plan.json --enable-flakes
 ↓
 Detailed Plan (actions 列を人間可読で表示)
 ↓
 [Install]
+  → nix-installer install --plan plan.json --logger json --no-confirm --enable-flakes
 ```
 
-### D8: License の扱い
+### D9: License の扱い
 
 - SchneeForge と nix-installer は別プロセス (subprocess + pipes)。GPL/LGPL FAQ における "separate program" に該当し、SchneeForge 側コードにはライセンス伝染なし。
 - LGPL-2.1 の dynamic-link exception の話ではない (link していないため)。
 - binary を DMG 等へ bundle する再配布は Phase 1 では行わない。bundle 配布は別 ADR / 法務設計で扱う。
+
+### D10: `ManagedNixError` enum
+
+```rust
+pub enum ManagedNixError {
+    UnsupportedArch { arch: String },
+    ChecksumMismatch { expected: String, actual: String },
+    NetworkRequired,
+    ReceiptNotFound { path: PathBuf },
+    Download { source: reqwest::Error },
+    Subprocess { exit_status: ExitStatus, stderr_tail: String },
+    ManifestParse { source: toml::de::Error },
+    PlanFileNotFound { path: PathBuf },
+    PlannerConflict,
+    ExistingNixDetected { path: PathBuf },
+}
+```
+
+各 variant は SchneeForge の structured error (`crates/core/src/error.rs`) へ変換され、CLI は人間可読メッセージ + exit code を出す。spec.md の scenario 中に現れるエラー名 (`UnsupportedArch`, `ChecksumMismatch`, `NetworkRequired`, `ReceiptNotFound`) は全てこの enum の variant に対応する。
 
 ## Risks / Trade-offs
 
@@ -194,5 +251,5 @@ Detailed Plan (actions 列を人間可読で表示)
 1. macOS aarch64 smoke 結果 (ADR-0001 Final acceptance の条件)
 2. README "Stable (see note)" の note 行方 → 本家 issue で確認
 3. nix-installer ↔ nix-darwin の install 順序 (Nix 先か nix-darwin 先か)
-4. privilege escalation の macOS 認証方式 (osascript vs STAuthorizationTool)
-5. CLI から `schneeforge nix install` を実行したとき、sudo を自前で呼ぶか、ユーザーに root で再実行を促すか
+4. nix-darwin の安全な取り外し手順 (ADR-0001 Open Question 4 と重複)。Phase 1 は D6 の通り警告のみ。
+5. Phase 2 の macOS GUI 認証方式 (osascript / STAuthorizationTool / pkexec) は privileged-gui-operations で別途決定

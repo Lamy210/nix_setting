@@ -64,7 +64,7 @@ SchneeForge の Managed-Nix の default provider として **NixOS/nix-installer
 
 ### A. DeterminateSystems/nix-installer (fork 元)
 - ◎ 活発 (stars 3671, 頻繁な push)。機能差はほぼ無い。
-- ✗ Determinate 社の商用プロダクトとの距離が近く、upstream の方向性に左右されるリスク。SchneeForge はコミュニティ主導の NixOS org 配下を選ぶ方がライセンス・ガバナンスの面で穏当。
+- ✗ Determinate Nix (商用) 周辺の flake registry や commit 形式の独自拡張と親和性が高く、SchneeForge が暗黙にそれらへ引き寄せられるリスク。NixOS org 配下の方がコミュニティ中立性が高く、SchneeForge の対象が (Determinate ユーザーだけでなく) 一般 Nix ユーザー全体である点に合致する。
 
 ### B. lix-installer (Lix)
 - ◎ fork 元同一のコードベース。nix-darwin 統合の PR が活発。
@@ -101,8 +101,9 @@ SchneeForge の Managed-Nix の default provider として **NixOS/nix-installer
    - install → self-test → flakes 動作 → receipt 確認 → uninstall → cleanup 確認
 2. **README "Stable (see note)" の note 行方**: 本家 issue で確認し、SchneeForge 側の doctor メッセージに必要なら反映する。
 3. **nix-installer ↔ nix-darwin 順序**: Nix 先か nix-darwin 先か。SchneeForge の First Run Wizard で規定する。
-4. **DMG bundle 配布**: 別 ADR で LGPL-2.1 再配布条件を満たす方法を決める。
-5. **downgrade**: installer が古い版から新しい版への移行はサポートするが、逆方向 (downgrade) の取扱を SchneeForge 側で保証するか。
+4. **nix-darwin の安全な取り外し手順**: nix-darwin には `darwin-rebuild uninstall` の類の公式サブコマンドが存在しない。SchneeForge 側で「nix-darwin を外す」ことを (a) `/etc/static` 等の手動削除スクリプトで定義するか、(b) 警告のみ出してユーザーへ丸投げするか、(c) 別 change で設計するかを決める。Phase 1 は (b) で暫定対応。
+5. **DMG bundle 配布**: 別 ADR で LGPL-2.1 再配布条件を満たす方法を決める。
+6. **downgrade**: installer が古い版から新しい版への移行はサポートするが、逆方向 (downgrade) の取扱を SchneeForge 側で保証するか。
 
 ## Implementation Note
 
