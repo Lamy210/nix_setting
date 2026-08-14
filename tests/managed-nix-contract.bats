@@ -77,17 +77,12 @@ download_installer() {
   # もし受理されるようになったら (upstream 仕様変更) SchneeForge 側 install_args の
   # 見直しが必要なので、この test が契約変更を検知する。
   run "$tmp_bin" install --plan /nonexistent/plan.json --logger json --no-confirm
-  case "$output" in
-    *"unexpected argument \'--plan\'"*|*"unexpected argument \"--plan\""*)
-      # 期待: reject される
-      ;;
-    *)
-      echo "--plan flag was ACCEPTED (upstream contract change?):"
-      echo "$output"
-      rm -f "$tmp_bin"
-      false
-      ;;
-  esac
+  if ! echo "$output" | grep -qF "unexpected argument '--plan'"; then
+    echo "--plan flag was ACCEPTED (upstream contract change?):"
+    echo "$output"
+    rm -f "$tmp_bin"
+    false
+  fi
 
   rm -f "$tmp_bin"
 }
