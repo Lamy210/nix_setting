@@ -198,21 +198,44 @@ jobs:
   # schneeforge CLI の install → doctor → uninstall full flow を検証する。
   # host 側 bats が docker CLI を叩く (DinD 不要)。
   #
-  # binary は host の rustc (dtolnay/rust-toolchain) で build する。
-  # `nix develop` 内で build すると ELF interpreter が /nix/store/... 向けに
-  # なり、Nix-less container 内で exec できない (exit 126 で全 test が即時失敗)。
+  # binary は release.yml と同じ musl static build を使う。「CI で build できる」
+  # と「release binary が Nix-less machine で動く」は別物だったため (v0.2.0-rc.1
+  # の Linux asset が /nix/store interpreter 向きで exit 127)、E2E が検証する
+  # binary を release artifact と同一構成に固定する。
   managed-nix-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
+      - name: install musl toolchain
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: musl
 
-      - name: build schneeforge (release, host glibc)
-        run: cargo build --release -p schneeforge
+      - name: build schneeforge (release, musl static)
+        run: cargo build --release -p schneeforge --target x86_64-unknown-linux-musl
+
+      # musl static であることの gate: INTERP (dynamic interpreter) を持たないこと
+      - name: verify static binary
+        run: |
+          file target/x86_64-unknown-linux-musl/release/schneeforge
+          if readelf -l target/x86_64-unknown-linux-musl/release/schneeforge | grep -q INTERP; then
+            echo "ERROR: binary is dynamically linked" >&2
+            exit 1
+          fi
+          echo "OK: fully static binary"
+
+      - name: stage binary at target/release
+        run: |
+          mkdir -p target/release
+          cp target/x86_64-unknown-linux-musl/release/schneeforge target/release/schneeforge
 
       - name: bats test (managed-nix E2E, Docker)
         run: |

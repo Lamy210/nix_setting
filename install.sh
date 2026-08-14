@@ -8,6 +8,10 @@ set -euo pipefail
 
 REPO_URL="${SCHNEEFORGE_REPO_URL:-https://github.com/Lamy210/nix_setting.git}"
 REPO_DIR="${NIX_SETTING_DIR:-$HOME/nix_setting}"
+# bootstrap が download する schneeforge CLI の version。
+# latest release 任せにすると rc (壊れた asset を含み得る) が拾われるため
+# release 毎に固定する。release 時は RELEASE.md の手順でこの値を bump する。
+SCHNEEFORGE_BOOTSTRAP_VERSION="${SCHNEEFORGE_VERSION:-v0.2.0-rc.2}"
 
 # --- inline minimal tool resolver (clone 前に動くよう install.sh 単独で解決可能) ---
 # 探索順は scripts/resolve-tools.sh と一致 (Rust tool.rs とも同期)
@@ -74,6 +78,19 @@ resolve_tool() {
 resolve_nix() { resolve_tool "nix"; }
 resolve_git() { resolve_tool "git"; }
 
+# file の SHA256 hex を出力する。Linux (sha256sum) / macOS (shasum) 両対応。
+# curl|bash を想定しており coreutils の導入は前提にできない。
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    echo "[error] sha256sum / shasum のいずれも見つかりません" >&2
+    return 1
+  fi
+}
+
 # Nix installer が作らないことがある state dir を保証
 ensure_nix_state_dir() {
   local state_dir
@@ -108,21 +125,18 @@ fetch_schneeforge_binary() {
     ;;
   esac
   if [ "$os" = "darwin" ]; then
-    # darwin release binary は aarch64 のみ
+    # darwin release binary は aarch64 のみ。Intel Mac では Rosetta があっても
+    # native 動作を保証できないため、download 前に明示 reject する
+    if [ "$arch" != "aarch64" ]; then
+      echo "[error] macOS x86_64 (Intel Mac) は未提供です。aarch64 (Apple Silicon) のみ対応しています。" >&2
+      return 1
+    fi
     asset_base="schneeforge-aarch64-darwin"
   else
     asset_base="schneeforge-${arch}-${os}"
   fi
 
-  version="${SCHNEEFORGE_VERSION:-}"
-  if [ -z "$version" ]; then
-    version="$(curl -fsSL "https://api.github.com/repos/Lamy210/nix_setting/releases/latest" |
-      sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)"
-  fi
-  if [ -z "$version" ]; then
-    echo "[error] latest release を取得できません。" >&2
-    return 1
-  fi
+  version="${SCHNEEFORGE_BOOTSTRAP_VERSION:-}"
   url_base="https://github.com/Lamy210/nix_setting/releases/download/${version}"
 
   tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/schneeforge-install.XXXXXX")"
@@ -141,7 +155,7 @@ fetch_schneeforge_binary() {
     echo "[error] ${asset_base} の download に失敗: $version" >&2
     return 1
   }
-  actual="$(sha256sum "$tmp_dir/$asset_base" | awk '{print $1}')"
+  actual="$(sha256_file "$tmp_dir/$asset_base")"
   if [ "$actual" != "$expect" ]; then
     echo "[error] sha256 mismatch (${asset_base}):" >&2
     echo "  expect: $expect" >&2
@@ -152,24 +166,76 @@ fetch_schneeforge_binary() {
   echo "$tmp_dir/$asset_base"
 }
 
+# root 権限で file の SHA256 hex を出力する (sha256_file の root 版)。
+# shell 関数は sudo を通せないため、root の PATH 上で同様に解決する。
+sudo_sha256_file() {
+  if sudo sh -c 'command -v sha256sum >/dev/null 2>&1'; then
+    sudo sha256sum "$1" | awk '{print $1}'
+  elif sudo sh -c 'command -v shasum >/dev/null 2>&1'; then
+    sudo sh -c "shasum -a 256 '$1'" | awk '{print $1}'
+  else
+    echo "[error] root 権限で sha256sum / shasum が見つかりません" >&2
+    return 1
+  fi
+}
+
 # Managed Nix (schneeforge nix install) を実行する。
 # root 権限が必要なため sudo で再実行する。CLI の D8 最終確認は stdin が
 # TTY でないと fail-closed されるため、curl|bash で stdin を奪われている
 # 場合は /dev/tty を繋いで確認可能にする。
+#
+# binary は user 権限で download + SHA256 検証した後、root-owned の
+# staging dir (Core の privileged_state_dir と同じ配置) へ copy し、
+# root 側で hash を再検証してから実行する。sudo password 入力待ちの間に
+# user-writable な binary を差し替えられる TOCTOU を潰すため。
 install_managed_nix() {
-  local repo_dir="$1" sf_bin
+  local repo_dir="$1" sf_bin sf_hash stage_dir sf_staged staged_hash
   sf_bin="$(fetch_schneeforge_binary)" || return 1
+  sf_hash="$(sha256_file "$sf_bin")" || {
+    rm -f "$sf_bin"
+    return 1
+  }
+
+  # root-owned staging dir (Core の privileged_state_dir と同一配置。
+  # macOS は /var → /private/var symlink 問題があるため実 path を使う)
+  case "$(uname -s)" in
+  Darwin) stage_dir="/private/var/db/schneeforge/bootstrap" ;;
+  *) stage_dir="/var/lib/schneeforge/bootstrap" ;;
+  esac
+  sf_staged="${stage_dir}/schneeforge"
+
   echo "[nix] Managed Nix install を開始します (NixOS/nix-installer, version pinned)..."
-  # sudo 環境でも repo 位置が分かるように NIX_SETTING_DIR を渡す
-  if [ -t 0 ]; then
-    sudo env NIX_SETTING_DIR="$repo_dir" "$sf_bin" nix install
-  else
-    # shellcheck disable=SC2024  # redirect 自体が目的 (curl|bash の stdin を外す)
-    sudo env NIX_SETTING_DIR="$repo_dir" "$sf_bin" nix install </dev/tty
+  if ! sudo install -m 0755 "$sf_bin" "$sf_staged"; then
+    echo "[error] staging dir (${stage_dir}) への copy に失敗" >&2
+    rm -f "$sf_bin"
+    return 1
   fi
-  local rc=$?
   rm -f "$sf_bin"
   rmdir "$(dirname "$sf_bin")" 2>/dev/null || true
+
+  # user 権限で検証した hash と一致するか root 側で再検証する
+  # (sudo password 待ち・copy 中の差し替えを検出)
+  staged_hash="$(sudo_sha256_file "$sf_staged")" || {
+    sudo rm -f "$sf_staged"
+    return 1
+  }
+  if [ "$staged_hash" != "$sf_hash" ]; then
+    echo "[error] staged binary の sha256 が検証値と一致しません (TOCTOU 疑い):" >&2
+    echo "  expect: $sf_hash" >&2
+    echo "  actual: $staged_hash" >&2
+    sudo rm -f "$sf_staged"
+    return 1
+  fi
+
+  # sudo 環境でも repo 位置が分かるように NIX_SETTING_DIR を渡す
+  if [ -t 0 ]; then
+    sudo env NIX_SETTING_DIR="$repo_dir" "$sf_staged" nix install
+  else
+    # shellcheck disable=SC2024  # redirect 自体が目的 (curl|bash の stdin を外す)
+    sudo env NIX_SETTING_DIR="$repo_dir" "$sf_staged" nix install </dev/tty
+  fi
+  local rc=$?
+  sudo rm -f "$sf_staged"
   if [ $rc -ne 0 ]; then
     echo "[error] Managed Nix install に失敗 (exit $rc)" >&2
     return 1

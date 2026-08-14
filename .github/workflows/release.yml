@@ -136,3 +136,6 @@ jobs:
             sbom.cdx.json
             CHECKSUMS.txt
           generate_release_notes: true
+          # -rc / -beta tag は prerelease 扱いにし releases/latest API が
+          # rc を返さないようにする (install.sh が rc を拾わないようにするため)
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
