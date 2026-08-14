@@ -68,6 +68,21 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
     }
     eprintln!();
 
+    // dry-run は preview なので、blocking condition があっても info 表示して終了する (D8)
+    if args.dry_run {
+        if !preflight.supported {
+            eprintln!(
+                "[dry-run] unsupported platform/arch ({}) のため install は中止されます。",
+                preflight.platform
+            );
+        } else if preflight.existing_nix {
+            eprintln!("[dry-run] 既存の Nix が検出されているため install は中止されます。");
+        } else {
+            eprintln!("[dry-run] preflight のみ完了。download / plan / install は skipping。");
+        }
+        return Ok(());
+    }
+
     if !preflight.supported {
         return Err(format!(
             "unsupported platform/arch: {} {}",
@@ -79,11 +94,6 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
             "existing Nix detected; SchneeForge does not overwrite (ExistingNixDetected)"
                 .to_string(),
         );
-    }
-
-    if args.dry_run {
-        eprintln!("[dry-run] preflight のみ完了。download / plan / install は skipping。");
-        return Ok(());
     }
 
     if !preflight.is_root && !args.allow_non_root {
