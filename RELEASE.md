@@ -39,16 +39,51 @@ git push
 # 6. release ブランチを削除
 git branch -d release/vX.Y.Z
 git push origin --delete release/vX.Y.Z
+
+# 7. Homebrew tap を更新（下記「Homebrew tap 更新」参照）
 ```
 
 ## リリース前チェックリスト
 
+リリース PR (`release/*`) を出す前にリリース担当者が全項目を確認する。CI 整合性を含む。
+
+### 仕様・機能
+
 - [ ] 差分確認: `git diff main..develop` でリリース対象を把握
-- [ ] 機能漏れ: OpenSpec の tasks.md 未完了項目を確認（`openspec status --change <name>`）
-- [ ] デグレ確認: CI 全ジョブ green（`cargo test` / `clippy` / `flake check`）
-- [ ] 手動 smoke: 実機で apply / verify / rollback を確認
+- [ ] OpenSpec: `openspec validate --all` が全 spec valid
+- [ ] 機能漏れ: 対象 change の `tasks.md` 未完了項目（`openspec archive` 前なら `openspec status --change <name>`）が意図済みか確認
+- [ ] 既知のデグレ: `docs/STATUS.md` の「既知のデグレ・機能漏れ」が最新。release blocker が無いこと
+
+### CI / 品質ゲート（全ジョブ green 必須）
+
+- [ ] `openspec-check`: `openspec validate --all --no-interactive`
+- [ ] `flake-check`: `nix flake check --allow-import-from-derivation`
+- [ ] `flake-check`: `homeConfigurations.linux.activationPackage` が build できる
+- [ ] `flake-check`: `homeConfigurations.linux-arm.activationPackage` が eval できる
+- [ ] `macos-check`: `nix flake check` / `homeConfigurations.macbook-air` / `darwinConfigurations.macbook-air`
+- [ ] `docker-check`: Docker image build / flake check / dev shell 起動
+- [ ] `lint`: `actionlint` / `shellcheck` / `statix` / `deadnix`
+- [ ] `lint`: **forbid raw tool spawns** — `tool.rs` / `cli/tests/` 以外で `Command::new("nix"|"git"|"brew"|"nh")` 等の文字列リテラル spawn が無いこと。shell 側も `$NIX_BIN` / `$GIT_BIN` / `$BREW_BIN` 経由であること
+- [ ] `rust-check`: `cargo test` / `cargo fmt --check` / `cargo clippy -- -D warnings`
+- [ ] `rust-check`: CLI artifact smoke (`schneeforge --version` / `schneeforge doctor`)
+- [ ] `rust-check`: desktop build smoke (`apps/desktop/src-tauri`)
+- [ ] `bootstrap-test`: `bats tests/bootstrap.bats` / `bats tests/resolve-tools.bats` / `nix-unit`
+- [ ] `secret-scan`: `trufflehog filesystem . --only-verified` / image file scan
+- [ ] `devshell-smoke`: `nix develop` (default / go / python / node / rust)
+- [ ] `template-check`: 全 template (devenv/node/python/rust/flutter) の `nix flake metadata` / `nix develop`
+
+### 手動 smoke
+
+- [ ] 実機で `schneeforge setup` / `plan` / `apply` / `verify` / `rollback` を実行
+- [ ] `schneeforge doctor` / `schneeforge status` が正常終了
+- [ ] desktop (Tauri) で Diagnostics → Apply → Verify のフロー
+- [ ] fresh 環境で `install.sh` が成功
+
+### アセット・ノート
+
 - [ ] リリースノート: 変更・既知の制限・未完了機能を記載
-- [ ] Release asset: binary / DMG / SBOM / checksums が生成される
+- [ ] Release asset: `schneeforge-{aarch64-darwin,x86_64-linux}` / DMG / SBOM / CHECKSUMS.txt が生成される
+- [ ] `vX.Y.Z` の version 表記が `Cargo.toml` / `tauri.conf.json` / flake packages で揃っている
 
 ## リリースノートの必須記載
 
@@ -61,30 +96,33 @@ git push origin --delete release/vX.Y.Z
 
 SchneeForge の Homebrew formula は本体リポジトリ（この repo）ではなく `Lamy210/homebrew-tap` に置く。
 
-- インストール: `brew tap Lamy210/homebrew-tap && brew install schneeforge`
-- formula テンプレート（リリース時に URL/sha256 を差し替えて tap へ push）:
+### インストール
 
-```ruby
-class Schneeforge < Formula
-  desc "Declarative Developer Workstation Manager (Nix + Home Manager + nix-darwin)"
-  homepage "https://github.com/Lamy210/nix_setting"
-  url "https://github.com/Lamy210/nix_setting/releases/download/v0.2.0-rc.1/schneeforge-aarch64-darwin"
-  version "0.2.0-rc.1"
-  sha256 "<release 時に sha256sum を記入>"
-  license "MIT"
+```bash
+# Stable
+brew tap Lamy210/homebrew-tap
+brew install schneeforge
 
-  def install
-    bin.install "schneeforge-aarch64-darwin" => "schneeforge"
-  end
-
-  test do
-    assert_match "Declarative Developer Workstation Manager", shell_output("#{bin}/schneeforge --help")
-  end
-end
+# Edge (main HEAD を local build)
+brew install schneeforge-edge
 ```
+
+### Homebrew tap 更新
+
+リリース (`vX.Y.Z`) の tag push 後、GitHub Releases にアセットが揃ったら `Lamy210/homebrew-tap` を更新する。
+
+1. **`Formula/schneeforge.rb` を開く**
+2. **`version` / `url` / `sha256` を差し替え**（`on_arm` / `on_intel` セレクタ配下）
+   - `sha256` はリリースアセット毎に `sha256sum schneeforge-<target>` で計算
+3. **`brew audit --strict Formula/schneeforge.rb` を local で通す**
+4. **PR を作って review → merge**
+
+> Intel macOS (x86_64-darwin) アセットは未提供。`on_intel` ブロックの `od_unsupported` を外す前に `release.yml` の matrix 拡張が必要。
+
+`Formula/schneeforge-edge.rb` は `head` 機能で `main` HEAD をローカルビルドするため、リリース時の更新は不要。
 
 ## 現在のリリース状態
 
-- 最新 release: `v0.1.0`（CLI/Nix 中心、GUI は未成熟）
-- 次: `v0.2.0-rc.1`（GUI 正常化。`openspec/changes/gui-normalization/` 完了後に切る）
-- `develop` 未リリース差分: `gui-normalization`（core 環境モデル / 操作の repo-aware 化 / State 永続化 / nh 非依存 bootstrap / 診断 API / desktop First Run Wizard）
+- 最新 release: `v0.2.0-rc.1`（GUI 正常化・Homebrew tap 公開・Flakes/Health 診断強化）
+- 次候補: `v0.2.0-rc.2` 以降（`runtime-tool-resolution-hardening` 取り込み後、特権ヘルパー/#5 partial 対応を検討）
+- `develop` 未リリース差分: `runtime-tool-resolution-hardening`（Toolchain 統一 / NixHealth / fix-path-env / shell installer 統一）
