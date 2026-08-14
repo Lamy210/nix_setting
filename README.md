@@ -51,18 +51,17 @@ sudo ./target/release/schneeforge nix install
 ./bootstrap.sh
 ```
 
-### ワンライナー (Legacy / compatibility)
+### ワンライナー
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/main/install.sh | bash
 ```
 
-> **注意**: このワンライナー (`install.sh`) は Nix 未導入時に
-> `curl -L https://nixos.org/nix/install | sh` を直接実行するため、
-> SchneeForge の ownership 管理 (`/nix/schneeforge-managed.json`) は
-> 作成されません。`schneeforge nix uninstall` での安全な取り外しを
-> 使う場合は Managed Nix 経路から install してください。
-> `install.sh` の Managed Nix 統合は次フェーズで予定。
+Nix 未導入環境では、この script が GitHub Release から schneeforge CLI binary を
+download し (CHECKSUMS.txt の SHA256 で検証)、**Managed Nix 経路**で Nix を
+install します (version pinning・ownership record 付き。ADR-0001 参照)。
+既に Nix が導入済みの場合は何も install せず、flakes 有効化と
+dotfiles 適用のみを行います。
 
 Managed Nix は `bootstrap-manifest.toml` で version + SHA256 を pin し、
 online で download + verify する。offline 配布・DMG bundle は Phase 2。

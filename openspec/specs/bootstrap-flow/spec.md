@@ -106,3 +106,24 @@ bootstrap の config.toml 生成 SHALL は、既に現在ユーザーで個人�
 - **WHEN** `bootstrap.sh` が `nix run` / `nix build` を実行する
 - **THEN** 文字列 `nix` ではなく `$NIX_BIN`（resolve_nix の結果）を使う
 
+### Requirement: install.sh の Nix 導入は Managed Nix 経路
+`install.sh` SHALL は Nix 未検出時に `curl | sh` で nixos.org installer を直接実行せず、SchneeForge Managed Nix (`schneeforge nix install`) を使う。
+
+#### Scenario: Nix 未検出時に Managed Nix で install する
+- **WHEN** `resolve_nix` が失敗する環境で `install.sh` を実行する
+- **THEN** repository を clone した上で GitHub Release から schneeforge CLI binary を download する
+- **AND** binary の SHA256 を Release の CHECKSUMS.txt と突合してから `sudo schneeforge nix install` を実行する
+- **AND** `/nix/schneeforge-managed.json` (ownership record) が作成される
+
+#### Scenario: CHECKSUMS 不一致では実行しない
+- **WHEN** download した schneeforge binary の SHA256 が CHECKSUMS.txt の値と一致しない
+- **THEN** `install.sh` は error で停止し、binary を実行しない
+
+#### Scenario: 既存 Nix は再 install しない
+- **WHEN** Nix が既に導入済みの環境で `install.sh` を実行する
+- **THEN** Managed Nix install を行わず、flakes 有効化と dotfiles 適用のみを行う
+
+#### Scenario: curl|bash でも D8 確認が取れる
+- **WHEN** `curl | bash` で `install.sh` が実行され stdin が pipe である
+- **THEN** `schneeforge nix install` は stdin に `/dev/tty` を繋いで実行され、CLI 側の D8 最終確認 (TTY 必須) が機能する
+

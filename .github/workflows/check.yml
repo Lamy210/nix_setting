@@ -87,7 +87,7 @@ jobs:
         run: nix run nixpkgs#actionlint
 
       - name: shellcheck
-        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh tests/managed-nix-e2e.bats
+        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh tests/managed-nix-e2e.bats tests/install-sh.bats
 
       - name: statix check
         run: nix run nixpkgs#statix -- check .
@@ -177,6 +177,9 @@ jobs:
 
       - name: bats test (bootstrap)
         run: nix run nixpkgs#bats -- tests/bootstrap.bats
+
+      - name: bats test (install.sh Managed Nix 経路)
+        run: nix run nixpkgs#bats -- tests/install-sh.bats
 
       - name: bats test (resolve-tools)
         run: nix run nixpkgs#bats -- tests/resolve-tools.bats
