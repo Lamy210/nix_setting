@@ -125,63 +125,149 @@ pub(crate) fn current_uid() -> u32 {
     u32::MAX
 }
 
+/// root 実行時の SchneeForge privileged state の base。
+/// sudo で user の HOME / XDG 変数が持ち込まれることを想定せず、
+/// root-managed の固定 path を使う。
+pub const ROOT_STATE_DIR: &str = "/var/lib/schneeforge";
+
 /// plan ファイルを保存する directory。
 ///
 /// `/tmp` は world-writable で symlink attack の危険があるため、
-/// `$XDG_STATE_HOME/schneeforge/managed-nix/plans/` を使う。
+/// root 実行時は `/var/lib/schneeforge/managed-nix/plans/`、
+/// 非 root 時は `$XDG_STATE_HOME/schneeforge/managed-nix/plans/` を使う。
 /// 以下を明示的に保証する:
-///   - directory 自体が symlink なら拒否 (metadata ではなく symlink_metadata で判定)
-///   - owner が現在の uid と一致しなければ拒否
-///   - permission を 0700 (owner のみ access) に設定
+///   - 作成した path の全 component が symlink でない (作成後、各 component を検査)
+///   - 最終 directory の owner が現在の uid と一致
+///   - permission 0700 (owner のみ access)
 pub fn secure_plan_dir() -> Result<PathBuf, ManagedNixError> {
-    let base = dirs::state_dir()
-        .or_else(dirs::data_dir)
-        .ok_or_else(|| ManagedNixError::Io {
-            context: "resolve XDG state/data dir".to_string(),
-            source: "XDG state/data dir unavailable".to_string(),
-        })?;
-    let dir = base.join("schneeforge").join("managed-nix").join("plans");
-    std::fs::create_dir_all(&dir).map_err(|e| ManagedNixError::Io {
-        context: format!("create plan dir {}", dir.display()),
+    let dir = if is_root() {
+        PathBuf::from(ROOT_STATE_DIR)
+    } else {
+        dirs::state_dir()
+            .or_else(dirs::data_dir)
+            .ok_or_else(|| ManagedNixError::Io {
+                context: "resolve XDG state/data dir".to_string(),
+                source: "XDG state/data dir unavailable".to_string(),
+            })?
+            .join("schneeforge")
+    }
+    .join("managed-nix")
+    .join("plans");
+
+    create_secure_dir(&dir)?;
+    verify_no_symlink_components(&dir)?;
+    Ok(dir)
+}
+
+/// world-writable な parent 配下を避けた 0700 directory を作る。
+fn create_secure_dir(dir: &Path) -> Result<(), ManagedNixError> {
+    std::fs::create_dir_all(dir).map_err(|e| ManagedNixError::Io {
+        context: format!("create dir {}", dir.display()),
         source: e.to_string(),
     })?;
-
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-
-        // symlink_metadata は symlink 自体の情報を返す (follow しない)
-        let meta = std::fs::symlink_metadata(&dir).map_err(|e| ManagedNixError::Io {
-            context: format!("stat plan dir {}", dir.display()),
-            source: e.to_string(),
-        })?;
-        if meta.file_type().is_symlink() {
-            return Err(ManagedNixError::Io {
-                context: format!("plan dir {} is a symlink; refusing to write", dir.display()),
-                source: String::new(),
-            });
-        }
-        let uid = current_uid();
-        if meta.uid() != uid {
-            return Err(ManagedNixError::Io {
-                context: format!(
-                    "plan dir {} is owned by uid {} (expected {uid}); refusing to write",
-                    dir.display(),
-                    meta.uid()
-                ),
-                source: String::new(),
-            });
-        }
-        // 0700 を強制 (作成時の umask に依存しない)
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).map_err(|e| {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).map_err(|e| {
             ManagedNixError::Io {
                 context: format!("chmod 0700 {}", dir.display()),
                 source: e.to_string(),
             }
         })?;
     }
+    Ok(())
+}
 
-    Ok(dir)
+/// `root` から `dir` までの既存 component に symlink が無いこと、
+/// および最終 directory の owner が現在の uid であることを検証する。
+/// (component 間で symlink を差し替える TOCTOU を完全に防ぐことはできないが、
+/// 「user 制御可能な中間 path を root が信頼する」事故を防ぐ)
+fn verify_no_symlink_components(dir: &Path) -> Result<(), ManagedNixError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+
+        let mut current = PathBuf::from("/");
+        for comp in dir.components().skip(1) {
+            current.push(comp);
+            let meta = std::fs::symlink_metadata(&current).map_err(|e| ManagedNixError::Io {
+                context: format!("stat {}", current.display()),
+                source: e.to_string(),
+            })?;
+            if meta.file_type().is_symlink() {
+                return Err(ManagedNixError::Io {
+                    context: format!(
+                        "path component {} is a symlink; refusing",
+                        current.display()
+                    ),
+                    source: String::new(),
+                });
+            }
+        }
+        // 最終 directory は所有者も検証
+        if dir.symlink_metadata().map(|m| m.uid()).unwrap_or(u32::MAX) != current_uid() {
+            return Err(ManagedNixError::Io {
+                context: format!(
+                    "dir {} is not owned by the current uid; refusing",
+                    dir.display()
+                ),
+                source: String::new(),
+            });
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        // symlink_metadata で最終 component のみ検証 (best effort)
+        if let Ok(meta) = dir.symlink_metadata() {
+            if meta.file_type().is_symlink() {
+                return Err(ManagedNixError::Io {
+                    context: format!("dir {} is a symlink; refusing", dir.display()),
+                    source: String::new(),
+                });
+            }
+        }
+    }
+    let _ = dir;
+    Ok(())
+}
+
+/// plan JSON から人間可読な summary 行を返す (D8: Detailed Plan 表示用)。
+/// upstream `InstallPlan` の内部構造に依存しない best-effort な抽出。
+pub fn summarize_plan(plan_file: &Path) -> Result<Vec<String>, ManagedNixError> {
+    let body = std::fs::read_to_string(plan_file).map_err(|e| ManagedNixError::Io {
+        context: format!("read plan {}", plan_file.display()),
+        source: e.to_string(),
+    })?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| ManagedNixError::ReceiptParse {
+            source: format!("plan json {}: {e}", plan_file.display()),
+        })?;
+
+    let mut lines = Vec::new();
+    match parsed.get("actions").and_then(|a| a.as_array()) {
+        Some(actions) => {
+            lines.push(format!("actions ({}):", actions.len()));
+            for a in actions.iter().take(50) {
+                let name = a
+                    .get("action")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("(unknown)");
+                lines.push(format!("  - {name}"));
+            }
+            if actions.len() > 50 {
+                lines.push(format!("  ... and {} more", actions.len() - 50));
+            }
+        }
+        None => lines.push("(actions を読めませんでした)".to_string()),
+    }
+    if let Some(planner) = parsed
+        .get("planner")
+        .and_then(|p| p.get("planner"))
+        .and_then(|v| v.as_str())
+    {
+        lines.push(format!("planner: {planner}"));
+    }
+    Ok(lines)
 }
 
 /// bootstrap-manifest.toml の内容と環境から install の準備を行う
@@ -295,9 +381,11 @@ impl ManagedNix {
         run_with_json_logs(binary, &args, |line| progress.on_log(line))
     }
 
-    /// download → verify → plan → install の全 phase を progress へ通知しながら実行する。
-    /// Phase 2 (GUI) はこの 1 メソッドを呼ぶだけで全 phase の進捗を受け取れる。
-    pub fn install_with_progress(
+    /// download → verify → plan 生成までを実行し、plan file path を返す。
+    /// design.md D8 の 2 段階 Plan UX: caller はこの結果を表示して
+    /// ユーザーの最終確認を取った上で `execute_plan` を呼ぶ。
+    /// policy (supported / existing Nix) もここで強制する (Phase 2 GUI も同一 API を通る)。
+    pub fn prepare_plan(
         &self,
         platform: Platform,
         arch: Architecture,
@@ -305,25 +393,27 @@ impl ManagedNix {
         extra_conf: &[String],
         progress: &mut dyn ProgressSink,
     ) -> Result<PathBuf, ManagedNixError> {
+        if !is_supported(platform, arch) {
+            return Err(ManagedNixError::UnsupportedArch {
+                arch: format!("{platform}-{arch}"),
+            });
+        }
+        if has_nix() {
+            return Err(ManagedNixError::ExistingNixDetected {
+                path: PathBuf::from("/nix"),
+            });
+        }
+
         progress.on_phase(InstallPhase::Download);
         let binary = self.fetch_binary(platform, arch)?;
         progress.on_phase(InstallPhase::Verify);
 
         let planner = planner_name(platform, arch)?;
-        std::fs::create_dir_all(plan_dir).map_err(|e| ManagedNixError::Io {
-            context: format!("create plan dir {}", plan_dir.display()),
-            source: e.to_string(),
-        })?;
-        // predictable name なので、既存 file が symlink 等で置き換えられていないか
-        // 確認してから上書きする (0700 dir 内だが defense in depth)
+        create_secure_dir(plan_dir)?;
+        verify_no_symlink_components(plan_dir)?;
         let plan_file = plan_dir.join(format!("plan-{}.json", self.version()));
-        if plan_file.symlink_metadata().is_ok() {
-            let meta = plan_file
-                .symlink_metadata()
-                .map_err(|e| ManagedNixError::Io {
-                    context: format!("stat plan file {}", plan_file.display()),
-                    source: e.to_string(),
-                })?;
+        // predictable name なので、symlink に差し替えられていないか確認してから上書き
+        if let Ok(meta) = plan_file.symlink_metadata() {
             if meta.file_type().is_symlink() {
                 return Err(ManagedNixError::Io {
                     context: format!(
@@ -336,12 +426,42 @@ impl ManagedNix {
         }
 
         self.generate_plan(&binary, planner, &plan_file, extra_conf, Some(progress))?;
-        self.run_install(&binary, &plan_file, progress)?;
-        progress.on_phase(InstallPhase::PostInstall);
         Ok(plan_file)
     }
 
-    /// `/nix/nix-installer uninstall --no-confirm` を呼ぶ。receipt は default。
+    /// ユーザー確認済みの plan file で install を実行する (D8 の [Install] step)。
+    /// upstream は `--no-confirm` で呼ぶため、確認責任は caller 側にある。
+    pub fn execute_plan(
+        &self,
+        platform: Platform,
+        arch: Architecture,
+        plan_file: &Path,
+        progress: &mut dyn ProgressSink,
+    ) -> Result<(), ManagedNixError> {
+        if !is_supported(platform, arch) {
+            return Err(ManagedNixError::UnsupportedArch {
+                arch: format!("{platform}-{arch}"),
+            });
+        }
+        if has_nix() {
+            return Err(ManagedNixError::ExistingNixDetected {
+                path: PathBuf::from("/nix"),
+            });
+        }
+        if !plan_file.exists() {
+            return Err(ManagedNixError::PlanFileNotFound {
+                path: plan_file.to_path_buf(),
+            });
+        }
+
+        progress.on_phase(InstallPhase::Install);
+        let binary = self.fetch_binary(platform, arch)?;
+        let result = self.run_install(&binary, plan_file, progress);
+        if result.is_ok() {
+            progress.on_phase(InstallPhase::PostInstall);
+        }
+        result
+    }
     pub fn run_uninstall(
         &self,
         binary: &Path,

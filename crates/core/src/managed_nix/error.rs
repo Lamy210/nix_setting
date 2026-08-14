@@ -19,6 +19,9 @@ pub enum ManagedNixError {
     OwnershipNotFound {
         path: PathBuf,
     },
+    OwnershipInvalid {
+        reason: String,
+    },
     Download {
         source: String,
     },
@@ -68,6 +71,9 @@ impl std::fmt::Display for ManagedNixError {
                 "SchneeForge ownership record not found: {} (not installed by SchneeForge)",
                 path.display()
             ),
+            ManagedNixError::OwnershipInvalid { reason } => {
+                write!(f, "SchneeForge ownership record is invalid: {reason}")
+            }
             ManagedNixError::Download { source } => write!(f, "download failed: {source}"),
             ManagedNixError::Subprocess {
                 exit_status,

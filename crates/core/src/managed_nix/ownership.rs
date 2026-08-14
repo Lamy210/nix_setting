@@ -56,9 +56,49 @@ impl OwnershipRecord {
             context: format!("read ownership record {}", path.display()),
             source: e.to_string(),
         })?;
-        serde_json::from_str(&body).map_err(|e| ManagedNixError::ReceiptParse {
-            source: format!("ownership record json: {e}"),
-        })
+        let rec: OwnershipRecord =
+            serde_json::from_str(&body).map_err(|e| ManagedNixError::ReceiptParse {
+                source: format!("ownership record json: {e}"),
+            })?;
+        rec.validate()?;
+        Ok(rec)
+    }
+
+    /// ownership の根拠として成立しているか検証する。
+    /// JSON parse だけでは「誰かが置いた file」を ownership と認めてしまう。
+    pub fn validate(&self) -> Result<(), ManagedNixError> {
+        if self.schema != OWNERSHIP_SCHEMA {
+            return Err(ManagedNixError::OwnershipInvalid {
+                reason: format!(
+                    "unsupported schema {} (expected {OWNERSHIP_SCHEMA})",
+                    self.schema
+                ),
+            });
+        }
+        if self.installed_by != "schneeforge" {
+            return Err(ManagedNixError::OwnershipInvalid {
+                reason: format!("installed_by is {:?}, not schneeforge", self.installed_by),
+            });
+        }
+        if self.provider != "nixos-nix-installer" {
+            return Err(ManagedNixError::OwnershipInvalid {
+                reason: format!("unexpected provider {:?}", self.provider),
+            });
+        }
+        if self.installer_version.is_empty() {
+            return Err(ManagedNixError::OwnershipInvalid {
+                reason: "installer_version is empty".to_string(),
+            });
+        }
+        if self.upstream_receipt != crate::managed_nix::receipt::default_receipt_path() {
+            return Err(ManagedNixError::OwnershipInvalid {
+                reason: format!(
+                    "unexpected upstream_receipt {}",
+                    self.upstream_receipt.display()
+                ),
+            });
+        }
+        Ok(())
     }
 
     /// install 成功後に呼ぶ。root 所有の 0644 で書く。
@@ -148,6 +188,60 @@ mod tests {
     #[test]
     fn remove_missing_is_ok() {
         assert!(OwnershipRecord::remove(Path::new("/__no_such_ownership__.json")).is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_wrong_installed_by() {
+        let mut rec = OwnershipRecord::new("2.35.1", None);
+        rec.installed_by = "someone-else".to_string();
+        assert!(matches!(
+            rec.validate(),
+            Err(ManagedNixError::OwnershipInvalid { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_rejects_wrong_schema() {
+        let mut rec = OwnershipRecord::new("2.35.1", None);
+        rec.schema = 99;
+        assert!(matches!(
+            rec.validate(),
+            Err(ManagedNixError::OwnershipInvalid { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_rejects_wrong_provider() {
+        let mut rec = OwnershipRecord::new("2.35.1", None);
+        rec.provider = "other-installer".to_string();
+        assert!(matches!(
+            rec.validate(),
+            Err(ManagedNixError::OwnershipInvalid { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_rejects_empty_version() {
+        let mut rec = OwnershipRecord::new("", None);
+        rec.installer_version = String::new();
+        assert!(matches!(
+            rec.validate(),
+            Err(ManagedNixError::OwnershipInvalid { .. })
+        ));
+    }
+
+    #[test]
+    fn load_rejects_spoofed_record() {
+        let p = tmp_path("spoof");
+        // JSON としては有効だが installed_by が偽の record
+        fs::write(
+            &p,
+            r#"{"schema":1,"provider":"nixos-nix-installer","installer_version":"2.35.1","upstream_receipt":"/nix/receipt.json","installed_by":"attacker"}"#,
+        )
+        .unwrap();
+        let res = OwnershipRecord::load(&p);
+        assert!(matches!(res, Err(ManagedNixError::OwnershipInvalid { .. })));
+        let _ = fs::remove_file(&p);
     }
 
     #[test]
