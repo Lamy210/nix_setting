@@ -64,57 +64,64 @@ impl ResolvedTool {
     }
 }
 
-/// 一連の操作で使うツール群。1回解決したら以降全操作でこれを使う
-#[derive(Debug, Clone)]
-pub struct Toolchain {
-    pub nix: ResolvedTool,
-    pub git: ResolvedTool,
+/// 現在の PC で発見されたツールのスナップショット。1回 discover したら以降全操作でこれを使う。
+///
+/// 全フィールドが `Option` であり、**Nix / Git が未検出でも構築できる**
+/// (Fresh install 環境での診断を可能にするため)。実行時に必須の操作は
+/// [`ToolInventory::require_nix`] / [`ToolInventory::require_git`] で明示的に昇格する。
+#[derive(Debug, Clone, Default)]
+pub struct ToolInventory {
+    pub nix: Option<ResolvedTool>,
+    pub git: Option<ResolvedTool>,
     pub homebrew: Option<ResolvedTool>,
     pub nh: Option<ResolvedTool>,
 }
 
-impl Toolchain {
-    /// 現在の環境から Toolchain を解決する。nix / git が見つからない場合は Err
-    pub fn resolve() -> Result<Self, ToolchainError> {
+impl ToolInventory {
+    /// 現在の環境からツールを discover する。各ツールは見つからなければ `None`。
+    /// version も1回だけ取得する (subprocess 4 回: nix/git/brew/nh)。
+    pub fn discover() -> Self {
         let resolver = ToolResolver::new();
-        let nix = resolver
-            .resolve_tool("nix")
-            .ok_or(ToolchainError::NixNotFound)?;
-        let git = resolver
-            .resolve_tool("git")
-            .ok_or(ToolchainError::GitNotFound)?;
-        let homebrew = resolver.resolve_tool("brew");
-        let nh = resolver.resolve_tool("nh");
-        Ok(Self {
-            nix,
-            git,
-            homebrew,
-            nh,
-        })
+        Self {
+            nix: resolver.resolve_tool_with_version("nix"),
+            git: resolver.resolve_tool_with_version("git"),
+            homebrew: resolver.resolve_tool_with_version("brew"),
+            nh: resolver.resolve_tool_with_version("nh"),
+        }
+    }
+
+    /// Nix を要求する。未発見の場合は `Err(NixNotFound)`。
+    pub fn require_nix(&self) -> Result<&ResolvedTool, ToolRequirementError> {
+        self.nix.as_ref().ok_or(ToolRequirementError::NixNotFound)
+    }
+
+    /// Git を要求する。未発見の場合は `Err(GitNotFound)`。
+    pub fn require_git(&self) -> Result<&ResolvedTool, ToolRequirementError> {
+        self.git.as_ref().ok_or(ToolRequirementError::GitNotFound)
     }
 }
 
-/// Toolchain 解決失敗
+/// 必須ツールの欠落。operations 側で `require_*` を呼んだ際に返される。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ToolchainError {
+pub enum ToolRequirementError {
     NixNotFound,
     GitNotFound,
 }
 
-impl fmt::Display for ToolchainError {
+impl fmt::Display for ToolRequirementError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ToolchainError::NixNotFound => f.write_str(
+            ToolRequirementError::NixNotFound => f.write_str(
                 "nix not found in PATH or known locations (install: curl -L https://nixos.org/nix/install | sh)",
             ),
-            ToolchainError::GitNotFound => f.write_str(
+            ToolRequirementError::GitNotFound => f.write_str(
                 "git not found in PATH or known locations (install via your OS package manager)",
             ),
         }
     }
 }
 
-impl std::error::Error for ToolchainError {}
+impl std::error::Error for ToolRequirementError {}
 
 // ============================================================================
 // 後方互換のための ToolStatus（GUI serialize 維持）
@@ -122,7 +129,7 @@ impl std::error::Error for ToolchainError {}
 
 /// ツール解決結果（後方互換・GUI serialize 用）
 ///
-/// 新規コードでは [`ResolvedTool`] / [`Toolchain`] を使うこと。
+/// 新規コードでは [`ResolvedTool`] / [`ToolInventory`] を使うこと。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ToolStatus {
     pub available: bool,
@@ -478,7 +485,7 @@ mod tests {
         assert!(status.path.is_none());
     }
 
-    // --- ResolvedTool / Toolchain のテスト ---
+    // --- ResolvedTool / ToolInventory のテスト ---
 
     #[test]
     fn resolve_tool_via_env_override() {
@@ -650,9 +657,15 @@ mod tests {
     }
 
     #[test]
-    fn toolchain_error_messages_are_user_friendly() {
-        assert!(ToolchainError::NixNotFound.to_string().contains("nix"));
-        assert!(ToolchainError::NixNotFound.to_string().contains("install"));
-        assert!(ToolchainError::GitNotFound.to_string().contains("git"));
+    fn tool_requirement_error_messages_are_user_friendly() {
+        assert!(ToolRequirementError::NixNotFound
+            .to_string()
+            .contains("nix"));
+        assert!(ToolRequirementError::NixNotFound
+            .to_string()
+            .contains("install"));
+        assert!(ToolRequirementError::GitNotFound
+            .to_string()
+            .contains("git"));
     }
 }

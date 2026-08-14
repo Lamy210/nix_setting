@@ -5,7 +5,7 @@ use crate::error::{Error, Result};
 
 /// コマンドが存在し実行可能かを確認する (出力は破棄)
 ///
-/// `cmd` は解決済みの絶対パス（`Toolchain` 経由）を渡すこと。
+/// `cmd` は解決済みの絶対パス（`ToolInventory` 経由）を渡すこと。
 pub fn command_succeeds(cmd: &Path, args: &[String]) -> bool {
     Command::new(cmd)
         .args(args)
@@ -18,7 +18,7 @@ pub fn command_succeeds(cmd: &Path, args: &[String]) -> bool {
 
 /// コマンドを stdio 継承で実行する (リアルタイム出力)
 ///
-/// `cmd` は解決済みの絶対パス（`Toolchain` 経由）を渡すこと。
+/// `cmd` は解決済みの絶対パス（`ToolInventory` 経由）を渡すこと。
 pub fn run_stream(cmd: &Path, args: &[String]) -> Result<()> {
     println!("running: {} {}", cmd.display(), args.join(" "));
     let status = Command::new(cmd)
@@ -40,7 +40,7 @@ pub fn run_stream(cmd: &Path, args: &[String]) -> Result<()> {
 
 /// コマンドを実行し、stdout/stderr をキャプチャして返す
 ///
-/// `cmd` は解決済みの絶対パス（`Toolchain` 経由）を渡すこと。
+/// `cmd` は解決済みの絶対パス（`ToolInventory` 経由）を渡すこと。
 pub fn run_capture(cmd: &Path, args: &[String]) -> Result<String> {
     match Command::new(cmd).args(args).output() {
         Ok(out) => {

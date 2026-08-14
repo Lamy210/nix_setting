@@ -34,10 +34,7 @@ fn version_prints_semver() {
 
 #[test]
 fn doctor_runs() {
-    if !nix_available() {
-        eprintln!("skipping: nix not installed");
-        return;
-    }
+    // doctor は Fresh install 環境でも動く (Nix 無しで nix_installed=no を表示)
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("doctor")
         .assert()
@@ -45,7 +42,7 @@ fn doctor_runs() {
         .stdout(predicate::str::contains("[system]").and(predicate::str::contains("host")));
 }
 
-/// status は Toolchain 解決を必要としないので nix 無しでも動く
+/// status は ToolInventory 解決を必要としないので nix 無しでも動く
 #[test]
 fn status_runs_without_nix() {
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
@@ -93,7 +90,7 @@ fn plan_shows_target_with_repo() {
         .stdout(predicate::str::contains("target:"));
 }
 
-/// uninstall は info 系なので Toolchain 無しで動く
+/// uninstall は info 系なので ToolInventory 無しで動く
 #[test]
 fn uninstall_runs_without_nix() {
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
@@ -103,15 +100,17 @@ fn uninstall_runs_without_nix() {
         .stdout(predicate::str::contains("=== uninstall ==="));
 }
 
-/// doctor を nix 無し環境で実行すると、toolchain 解決エラーで非ゼロ終了する
+/// doctor は Fresh install 環境 (Nix 未解決) でも成功し、未インストール状態を表示する。
+/// ToolInventory が partial 化されたので、Nix 無し = exit 0 で診断結果を出す。
 #[test]
-fn doctor_fails_gracefully_without_nix() {
+fn doctor_succeeds_and_reports_missing_nix_without_nix() {
     if nix_available() {
         eprintln!("skipping: nix is installed (test is for no-nix env)");
         return;
     }
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
-    cmd.arg("doctor").assert().failure().stderr(
-        predicate::str::contains("nix not found").or(predicate::str::contains("not found")),
-    );
+    cmd.arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[nix]").and(predicate::str::contains("installed: no")));
 }

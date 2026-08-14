@@ -173,8 +173,8 @@ pub fn detect_arch_for(arch: &str) -> Architecture {
 
 /// PATH から実行可能ファイルを探す (ToolResolver と同じ実行ビット判定に委譲)
 ///
-/// 注: 新しいコードは `Toolchain` を使うこと。この関数は `verify` の zsh 等の
-/// toolchain 外ツール探索のために残されている。
+/// 注: 新しいコードは `ToolInventory` を使うこと。この関数は `verify` の zsh 等の
+/// inventory 外ツール探索のために残されている。
 pub fn which(cmd: &str) -> Option<String> {
     let path_dirs: Vec<String> = std::env::var("PATH")
         .map(|p| p.split(':').map(String::from).collect())

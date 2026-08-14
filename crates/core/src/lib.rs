@@ -18,7 +18,7 @@ pub use bootstrap::{
     PreflightReport,
 };
 pub use diagnostics::{
-    diagnose, nix_health, Diagnostics, NixHealth, ResolvedToolSummary, ToolchainSummary,
+    diagnose, nix_health, Diagnostics, NixHealth, ResolvedToolSummary, ToolInventorySummary,
     ToolsSummary,
 };
 pub use discovery::{
@@ -37,6 +37,6 @@ pub use repo::{current_git_revision, resolve_repo, Repo, RepoResolver};
 pub use state::{State, StateStore};
 pub use time::{days_to_ymd, format_unix_secs, now_iso8601};
 pub use tool::{
-    find_executable, version_of, ResolvedTool, ToolResolver, ToolSource, ToolStatus, Toolchain,
-    ToolchainError,
+    find_executable, version_of, ResolvedTool, ToolInventory, ToolRequirementError, ToolResolver,
+    ToolSource, ToolStatus,
 };

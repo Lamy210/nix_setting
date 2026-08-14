@@ -1,7 +1,7 @@
 use crate::discovery::ConfigurationTarget;
 use crate::error::{Error, Result};
 use crate::process::{run_capture, run_stream};
-use crate::tool::Toolchain;
+use crate::tool::{ResolvedTool, ToolInventory};
 use std::path::Path;
 
 /// macOS apply の引数 (`nix run --inputs-from <repo> nix-darwin#darwin-rebuild -- switch --flake <ref>`)
@@ -64,14 +64,15 @@ fn unsupported(target: &ConfigurationTarget) -> Error {
 }
 
 /// apply: ストリーミング実行 (stdio 継承、リアルタイム出力)
-pub(crate) fn apply(target: &ConfigurationTarget, repo: &str, tc: &Toolchain) -> Result<()> {
+pub(crate) fn apply(target: &ConfigurationTarget, repo: &str, tc: &ToolInventory) -> Result<()> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
+    let nix = tc.require_nix()?;
     if target.platform() == crate::discovery::Platform::MacOS {
-        run_stream(&tc.nix.path, &darwin_switch_args(repo, target))
+        run_stream(&nix.path, &darwin_switch_args(repo, target))
     } else {
-        apply_linux(target, repo, tc)
+        apply_linux(target, repo, nix)
     }
 }
 
@@ -79,32 +80,33 @@ pub(crate) fn apply(target: &ConfigurationTarget, repo: &str, tc: &Toolchain) ->
 pub(crate) fn apply_captured(
     target: &ConfigurationTarget,
     repo: &str,
-    tc: &Toolchain,
+    tc: &ToolInventory,
 ) -> Result<String> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
+    let nix = tc.require_nix()?;
     if target.platform() == crate::discovery::Platform::MacOS {
-        run_capture(&tc.nix.path, &darwin_switch_args(repo, target))
+        run_capture(&nix.path, &darwin_switch_args(repo, target))
     } else {
-        apply_linux_captured(target, repo, tc)
+        apply_linux_captured(target, repo, nix)
     }
 }
 
 /// Linux: activationPackage を build して activate する (nh 非依存)
-fn apply_linux(target: &ConfigurationTarget, repo: &str, tc: &Toolchain) -> Result<()> {
+fn apply_linux(target: &ConfigurationTarget, repo: &str, nix: &ResolvedTool) -> Result<()> {
     let link = ActivationLink::new();
-    run_stream(&tc.nix.path, &linux_build_args(repo, target, &link.path))?;
+    run_stream(&nix.path, &linux_build_args(repo, target, &link.path))?;
     run_stream(Path::new(&format!("{}/activate", link.path)), &[])
 }
 
 fn apply_linux_captured(
     target: &ConfigurationTarget,
     repo: &str,
-    tc: &Toolchain,
+    nix: &ResolvedTool,
 ) -> Result<String> {
     let link = ActivationLink::new();
-    let mut out = run_capture(&tc.nix.path, &linux_build_args(repo, target, &link.path))?;
+    let mut out = run_capture(&nix.path, &linux_build_args(repo, target, &link.path))?;
     let activate = run_capture(Path::new(&format!("{}/activate", link.path)), &[])?;
     if !activate.is_empty() {
         out.push('\n');
@@ -136,12 +138,13 @@ fn linux_rollback_args() -> Vec<String> {
 }
 
 /// rollback: ストリーミング実行
-pub(crate) fn rollback(target: &ConfigurationTarget, repo: &str, tc: &Toolchain) -> Result<()> {
+pub(crate) fn rollback(target: &ConfigurationTarget, repo: &str, tc: &ToolInventory) -> Result<()> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
     if target.platform() == crate::discovery::Platform::MacOS {
-        run_stream(&tc.nix.path, &darwin_rollback_args(repo))
+        let nix = tc.require_nix()?;
+        run_stream(&nix.path, &darwin_rollback_args(repo))
     } else {
         let nh = tc
             .nh
@@ -155,13 +158,14 @@ pub(crate) fn rollback(target: &ConfigurationTarget, repo: &str, tc: &Toolchain)
 pub(crate) fn rollback_captured(
     target: &ConfigurationTarget,
     repo: &str,
-    tc: &Toolchain,
+    tc: &ToolInventory,
 ) -> Result<String> {
     if !target.is_supported() {
         return Err(unsupported(target));
     }
     if target.platform() == crate::discovery::Platform::MacOS {
-        run_capture(&tc.nix.path, &darwin_rollback_args(repo))
+        let nix = tc.require_nix()?;
+        run_capture(&nix.path, &darwin_rollback_args(repo))
     } else {
         let nh = tc
             .nh
@@ -182,27 +186,32 @@ fn upgrade_args(repo: &str) -> Vec<String> {
 }
 
 /// upgrade: `nix flake update` (repo-aware、`--flake <repo>`)
-pub(crate) fn upgrade(repo: &str, tc: &Toolchain) -> Result<()> {
-    run_stream(&tc.nix.path, &upgrade_args(repo))
+pub(crate) fn upgrade(repo: &str, tc: &ToolInventory) -> Result<()> {
+    let nix = tc.require_nix()?;
+    run_stream(&nix.path, &upgrade_args(repo))
 }
 
 /// upgrade_captured: 出力をキャプチャ (GUI 用)
-pub(crate) fn upgrade_captured(repo: &str, tc: &Toolchain) -> Result<String> {
-    run_capture(&tc.nix.path, &upgrade_args(repo))
+pub(crate) fn upgrade_captured(repo: &str, tc: &ToolInventory) -> Result<String> {
+    let nix = tc.require_nix()?;
+    run_capture(&nix.path, &upgrade_args(repo))
 }
 
-/// scan: 環境スキャン結果を文字列で返す
-pub fn scan(target: &ConfigurationTarget, tc: &Toolchain) -> String {
+/// scan: 環境スキャン結果を文字列で返す。Nix/Git が未解決でも落ちない
+pub fn scan(target: &ConfigurationTarget, tc: &ToolInventory) -> String {
     let mut out = String::new();
     out.push_str(&format!("OS:   {}\n", std::env::consts::OS));
     out.push_str(&format!("arch: {}\n", std::env::consts::ARCH));
     out.push_str(&format!("host: {target}\n"));
-    out.push_str(&format!(
-        "nix:  {} ({}, {})\n",
-        tc.nix.path.display(),
-        tc.nix.source,
-        tc.nix.version.as_deref().unwrap_or("unknown")
-    ));
+    match tc.nix.as_ref() {
+        Some(nix) => out.push_str(&format!(
+            "nix:  {} ({}, {})\n",
+            nix.path.display(),
+            nix.source,
+            nix.version.as_deref().unwrap_or("unknown")
+        )),
+        None => out.push_str("nix:  not found\n"),
+    }
     if let Some(brew) = &tc.homebrew {
         out.push_str(&format!(
             "brew: {} ({})\n",
@@ -212,11 +221,14 @@ pub fn scan(target: &ConfigurationTarget, tc: &Toolchain) -> String {
     } else {
         out.push_str("brew: not found\n");
     }
-    out.push_str(&format!(
-        "git:  {} ({})\n",
-        tc.git.path.display(),
-        tc.git.version.as_deref().unwrap_or("unknown")
-    ));
+    match tc.git.as_ref() {
+        Some(git) => out.push_str(&format!(
+            "git:  {} ({})\n",
+            git.path.display(),
+            git.version.as_deref().unwrap_or("unknown")
+        )),
+        None => out.push_str("git:  not found\n"),
+    }
     out
 }
 
@@ -227,10 +239,16 @@ mod tests {
     use crate::tool::{ResolvedTool, ToolSource};
     use std::path::PathBuf;
 
-    fn dummy_tc() -> Toolchain {
-        Toolchain {
-            nix: ResolvedTool::new(PathBuf::from("/usr/local/bin/nix"), ToolSource::Homebrew),
-            git: ResolvedTool::new(PathBuf::from("/usr/bin/git"), ToolSource::Path),
+    fn dummy_tc() -> ToolInventory {
+        ToolInventory {
+            nix: Some(ResolvedTool::new(
+                PathBuf::from("/usr/local/bin/nix"),
+                ToolSource::Homebrew,
+            )),
+            git: Some(ResolvedTool::new(
+                PathBuf::from("/usr/bin/git"),
+                ToolSource::Path,
+            )),
             homebrew: None,
             nh: None,
         }
@@ -252,6 +270,23 @@ mod tests {
     }
 
     #[test]
+    fn scan_reports_missing_nix_and_git_for_fresh_machine() {
+        // Fresh install 環境では nix / git が未解決でも scan は落ちない
+        let target = detect_target_for("macos", "aarch64");
+        let out = scan(
+            &target,
+            &ToolInventory {
+                nix: None,
+                git: None,
+                homebrew: None,
+                nh: None,
+            },
+        );
+        assert!(out.contains("nix:  not found"));
+        assert!(out.contains("git:  not found"));
+    }
+
+    #[test]
     fn apply_unsupported_fails() {
         let target = detect_target_for("windows", "x86_64");
         let err = apply(&target, "/tmp/repo", &dummy_tc()).unwrap_err();
@@ -261,6 +296,25 @@ mod tests {
                 os: "unsupported".to_string(),
                 arch: "x86_64".to_string(),
             }
+        );
+    }
+
+    #[test]
+    fn apply_returns_nix_not_found_when_nix_missing() {
+        let target = detect_target_for("linux", "x86_64");
+        let tc = ToolInventory {
+            nix: None,
+            git: Some(ResolvedTool::new(
+                PathBuf::from("/usr/bin/git"),
+                ToolSource::Path,
+            )),
+            homebrew: None,
+            nh: None,
+        };
+        let err = apply(&target, "/tmp/repo", &tc).unwrap_err();
+        assert!(
+            err.to_string().contains("nix not found"),
+            "expected nix-not-found message, got: {err}"
         );
     }
 
@@ -275,6 +329,22 @@ mod tests {
         let target = detect_target_for("linux", "x86_64");
         let err = rollback(&target, "/tmp/repo", &dummy_tc()).unwrap_err();
         assert!(matches!(err, Error::Precondition(_)));
+    }
+
+    #[test]
+    fn rollback_macos_returns_nix_not_found_when_nix_missing() {
+        let target = detect_target_for("macos", "aarch64");
+        let tc = ToolInventory {
+            nix: None,
+            git: Some(ResolvedTool::new(
+                PathBuf::from("/usr/bin/git"),
+                ToolSource::Path,
+            )),
+            homebrew: None,
+            nh: None,
+        };
+        let err = rollback(&target, "/tmp/repo", &tc).unwrap_err();
+        assert!(err.to_string().contains("nix not found"));
     }
 
     #[test]
@@ -323,6 +393,18 @@ mod tests {
                 "/tmp/repo".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn upgrade_returns_nix_not_found_when_nix_missing() {
+        let tc = ToolInventory {
+            nix: None,
+            git: None,
+            homebrew: None,
+            nh: None,
+        };
+        let err = upgrade("/tmp/repo", &tc).unwrap_err();
+        assert!(err.to_string().contains("nix not found"));
     }
 
     #[test]

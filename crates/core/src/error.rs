@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::tool::ToolRequirementError;
+
 /// SchneeForge core の構造化エラー
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -33,6 +35,13 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+/// `ToolInventory::require_*` の失敗を `Error::Precondition` に統一
+impl From<ToolRequirementError> for Error {
+    fn from(e: ToolRequirementError) -> Self {
+        Error::Precondition(e.to_string())
+    }
+}
 
 pub type Result<T> = std::result::Result<T, Error>;
 

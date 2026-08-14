@@ -1,6 +1,6 @@
 use schneeforge_core::{
     detect_target, resolve_repo, scan, ApplyResult, Diagnostics, PreflightReport, StateStore,
-    Toolchain, VerifyReport,
+    ToolInventory, VerifyReport,
 };
 use serde::Serialize;
 use std::sync::Mutex;
@@ -37,36 +37,38 @@ fn option_output(r: schneeforge_core::Result<Option<String>>) -> CommandOutput {
     }
 }
 
-/// desktop アプリ内で Toolchain を1回解決してキャッシュする State。
+/// desktop アプリ内で ToolInventory を1回 discover してキャッシュする State。
 ///
-/// `fix_path_env::fix()` が `main()` で呼ばれた後に resolve するため、
+/// `fix_path_env::fix()` が `main()` で呼ばれた後に discover するため、
 /// macOS の .app から起動しても PATH 補正後の解決結果が使われる。
 #[derive(Default)]
-struct CachedToolchain(Mutex<Option<Toolchain>>);
+struct CachedToolInventory(Mutex<Option<ToolInventory>>);
 
-impl CachedToolchain {
-    fn get_or_resolve(&self) -> Result<Toolchain, String> {
+impl CachedToolInventory {
+    fn get_or_discover(&self) -> Result<ToolInventory, String> {
         let mut lock = self.0.lock().map_err(|e| format!("lock error: {e}"))?;
         if let Some(tc) = lock.as_ref() {
             return Ok(tc.clone());
         }
-        let tc = Toolchain::resolve().map_err(|e| e.to_string())?;
+        // discover() は infallible (未検出ツールは None になる)。Fresh install 環境でも
+        // Diagnostics が Nix 無し状態を表示できるよう、Nix が無くてもキャッシュする。
+        let tc = ToolInventory::discover();
         *lock = Some(tc.clone());
         Ok(tc)
     }
 }
 
 #[tauri::command]
-async fn get_status(state: tauri::State<'_, CachedToolchain>) -> Result<Diagnostics, String> {
-    let tc = state.get_or_resolve()?;
+async fn get_status(state: tauri::State<'_, CachedToolInventory>) -> Result<Diagnostics, String> {
+    let tc = state.get_or_discover()?;
     tauri::async_runtime::spawn_blocking(move || schneeforge_core::diagnose(&tc, None))
         .await
         .map_err(|e| format!("task error: {e}"))
 }
 
 #[tauri::command]
-fn run_scan(state: tauri::State<'_, CachedToolchain>) -> Result<CommandOutput, String> {
-    let tc = state.get_or_resolve()?;
+fn run_scan(state: tauri::State<'_, CachedToolInventory>) -> Result<CommandOutput, String> {
+    let tc = state.get_or_discover()?;
     let target = detect_target();
     let mut out = scan(&target, &tc);
     if let Some(m) = load_manifest() {
@@ -81,9 +83,9 @@ fn run_scan(state: tauri::State<'_, CachedToolchain>) -> Result<CommandOutput, S
 }
 
 #[tauri::command]
-async fn run_apply(state: tauri::State<'_, CachedToolchain>) -> Result<CommandOutput, String> {
-    let tc = state.get_or_resolve()?;
-    tauri::async_runtime::spawn_blocking(move || {
+async fn run_apply(state: tauri::State<'_, CachedToolInventory>) -> Result<CommandOutput, String> {
+    let tc = state.get_or_discover()?;
+    let out = tauri::async_runtime::spawn_blocking(move || {
         apply_output(schneeforge_core::apply(
             &detect_target(),
             &resolve_repo(None),
@@ -93,15 +95,14 @@ async fn run_apply(state: tauri::State<'_, CachedToolchain>) -> Result<CommandOu
         ))
     })
     .await
-    .map(Some)
-    .unwrap_or(None)
-    .ok_or_else(|| "task error".to_string())
+    .map_err(|e| format!("task error: {e}"))?;
+    Ok(out)
 }
 
 #[tauri::command]
-async fn run_rollback(state: tauri::State<'_, CachedToolchain>) -> Result<CommandOutput, String> {
-    let tc = state.get_or_resolve()?;
-    tauri::async_runtime::spawn_blocking(move || {
+async fn run_rollback(state: tauri::State<'_, CachedToolInventory>) -> Result<CommandOutput, String> {
+    let tc = state.get_or_discover()?;
+    let out = tauri::async_runtime::spawn_blocking(move || {
         apply_output(schneeforge_core::rollback(
             &detect_target(),
             &resolve_repo(None),
@@ -111,27 +112,25 @@ async fn run_rollback(state: tauri::State<'_, CachedToolchain>) -> Result<Comman
         ))
     })
     .await
-    .map(Some)
-    .unwrap_or(None)
-    .ok_or_else(|| "task error".to_string())
+    .map_err(|e| format!("task error: {e}"))?;
+    Ok(out)
 }
 
 #[tauri::command]
-async fn run_upgrade(state: tauri::State<'_, CachedToolchain>) -> Result<CommandOutput, String> {
-    let tc = state.get_or_resolve()?;
+async fn run_upgrade(state: tauri::State<'_, CachedToolInventory>) -> Result<CommandOutput, String> {
+    let tc = state.get_or_discover()?;
     let repo = resolve_repo(None);
-    tauri::async_runtime::spawn_blocking(move || {
+    let out = tauri::async_runtime::spawn_blocking(move || {
         option_output(schneeforge_core::upgrade(&repo, &tc, true))
     })
     .await
-    .map(Some)
-    .unwrap_or(None)
-    .ok_or_else(|| "task error".to_string())
+    .map_err(|e| format!("task error: {e}"))?;
+    Ok(out)
 }
 
 #[tauri::command]
-async fn run_preflight(state: tauri::State<'_, CachedToolchain>) -> Result<PreflightReport, String> {
-    let tc = state.get_or_resolve()?;
+async fn run_preflight(state: tauri::State<'_, CachedToolInventory>) -> Result<PreflightReport, String> {
+    let tc = state.get_or_discover()?;
     tauri::async_runtime::spawn_blocking(move || schneeforge_core::preflight(&tc))
         .await
         .map_err(|e| format!("task error: {e}"))
@@ -158,9 +157,9 @@ async fn run_generate_config(username: String) -> Result<CommandOutput, String> 
 #[tauri::command]
 async fn run_clone_repo(
     url: String,
-    state: tauri::State<'_, CachedToolchain>,
+    state: tauri::State<'_, CachedToolInventory>,
 ) -> Result<CommandOutput, String> {
-    let tc = state.get_or_resolve()?;
+    let tc = state.get_or_discover()?;
     let dest = resolve_repo(None);
     tauri::async_runtime::spawn_blocking(move || {
         match schneeforge_core::clone_repo(&url, &dest, &tc) {
@@ -179,8 +178,8 @@ async fn run_clone_repo(
 }
 
 #[tauri::command]
-async fn run_plan(state: tauri::State<'_, CachedToolchain>) -> Result<CommandOutput, String> {
-    let tc = state.get_or_resolve()?;
+async fn run_plan(state: tauri::State<'_, CachedToolInventory>) -> Result<CommandOutput, String> {
+    let tc = state.get_or_discover()?;
     let repo = resolve_repo(None);
     tauri::async_runtime::spawn_blocking(move || match schneeforge_core::plan(&repo, &tc, true) {
         Ok(r) => CommandOutput {
@@ -197,8 +196,8 @@ async fn run_plan(state: tauri::State<'_, CachedToolchain>) -> Result<CommandOut
 }
 
 #[tauri::command]
-fn run_verify(state: tauri::State<'_, CachedToolchain>) -> Result<VerifyReport, String> {
-    let tc = state.get_or_resolve()?;
+fn run_verify(state: tauri::State<'_, CachedToolInventory>) -> Result<VerifyReport, String> {
+    let tc = state.get_or_discover()?;
     Ok(schneeforge_core::verify(&resolve_repo(None), &tc))
 }
 
@@ -210,7 +209,7 @@ fn load_manifest() -> Option<schneeforge_core::Manifest> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(CachedToolchain::default())
+        .manage(CachedToolInventory::default())
         .invoke_handler(tauri::generate_handler![
             get_status,
             run_scan,

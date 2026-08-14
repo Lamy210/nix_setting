@@ -8,7 +8,7 @@ use crate::manifest::{Manifest, User};
 use crate::operations::{apply, ApplyResult};
 use crate::process::{command_succeeds, run_capture};
 use crate::state::StateStore;
-use crate::tool::Toolchain;
+use crate::tool::ToolInventory;
 
 /// システム診断情報
 #[derive(Debug, Clone)]
@@ -22,19 +22,26 @@ pub struct DoctorReport {
 }
 
 /// システム / Nix / ホスト互換性を診断する
-pub fn doctor(tc: &Toolchain) -> DoctorReport {
+///
+/// Nix/Git が未解決の場合でも成功し、各フラグは discover 時の発見可否と
+/// 現在の実行可能ファイル状態を反映する (`verify` と同じ基準)。
+/// これにより Fresh install 環境でも Doctor が診断結果を出力できる。
+pub fn doctor(tc: &ToolInventory) -> DoctorReport {
     DoctorReport {
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
-        nix: tc.nix.path.is_file(),
+        nix: tc.nix.as_ref().is_some_and(|t| t.path.is_file()),
         homebrew: tc.homebrew.is_some(),
-        git: tc.git.path.is_file(),
+        git: tc.git.as_ref().is_some_and(|t| t.path.is_file()),
         host: detect_target().name().to_string(),
     }
 }
 
 /// nix.conf に experimental-features (nix-command flakes) を追記する
-pub fn enable_flakes(tc: &Toolchain) -> Result<()> {
+///
+/// flakes 有効化は Nix を必要とする操作 (run_capture で現在の設定を確認するため)。
+pub fn enable_flakes(tc: &ToolInventory) -> Result<()> {
+    let nix = tc.require_nix()?;
     let base = std::env::var("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".config")))
@@ -49,7 +56,7 @@ pub fn enable_flakes(tc: &Toolchain) -> Result<()> {
     }
     // 念のため resolved nix 経由で現在の有効設定も確認（ファイルと実際の挙動が一致しないケース）
     let current =
-        run_capture(&tc.nix.path, &["config".to_string(), "show".to_string()]).unwrap_or_default();
+        run_capture(&nix.path, &["config".to_string(), "show".to_string()]).unwrap_or_default();
     if current.contains("flakes") {
         return Ok(());
     }
@@ -89,22 +96,36 @@ impl PreflightReport {
 /// Nix / Git / flakes が実際に動作するかを確認する。
 ///
 /// `nix` / `flakes` を別状態として返す（Nix 未検出と flakes 無効を区別するため）。
+/// Nix / Git が未解決の場合は対応フラグが false になる（Preflight 自体は infallible）。
 /// flakes 判定は `<resolved_nix> config show experimental-features` の出力を parse する。
-pub fn preflight(tc: &Toolchain) -> PreflightReport {
-    let nix_installed = command_succeeds(&tc.nix.path, &["--version".to_string()]);
-    let git_installed = command_succeeds(&tc.git.path, &["--version".to_string()]);
+pub fn preflight(tc: &ToolInventory) -> PreflightReport {
+    let nix_installed = tc
+        .nix
+        .as_ref()
+        .map(|n| command_succeeds(&n.path, &["--version".to_string()]))
+        .unwrap_or(false);
+    let git_installed = tc
+        .git
+        .as_ref()
+        .map(|g| command_succeeds(&g.path, &["--version".to_string()]))
+        .unwrap_or(false);
 
     let flakes_enabled = if nix_installed {
-        run_capture(
-            &tc.nix.path,
-            &[
-                "config".to_string(),
-                "show".to_string(),
-                "experimental-features".to_string(),
-            ],
-        )
-        .map(|out| out.contains("flakes"))
-        .unwrap_or(false)
+        tc.nix
+            .as_ref()
+            .map(|nix| {
+                run_capture(
+                    &nix.path,
+                    &[
+                        "config".to_string(),
+                        "show".to_string(),
+                        "experimental-features".to_string(),
+                    ],
+                )
+                .map(|out| out.contains("flakes"))
+                .unwrap_or(false)
+            })
+            .unwrap_or(false)
     } else {
         false
     };
@@ -117,7 +138,7 @@ pub fn preflight(tc: &Toolchain) -> PreflightReport {
 }
 
 /// 初回セットアップ: Nix 確認 → flakes 有効化 → apply
-pub fn setup(repo: &str, store: &StateStore, tc: &Toolchain) -> Result<ApplyResult> {
+pub fn setup(repo: &str, store: &StateStore, tc: &ToolInventory) -> Result<ApplyResult> {
     let pre = preflight(tc);
     if !pre.nix_installed {
         return Err(Error::Precondition(
@@ -150,12 +171,15 @@ pub fn generate_config(repo: &str, username: &str) -> Result<()> {
 }
 
 /// repository を clone する。clone 出力を返す
-pub fn clone_repo(url: &str, dest: &str, tc: &Toolchain) -> Result<String> {
+///
+/// clone は Git を必要とする操作。
+pub fn clone_repo(url: &str, dest: &str, tc: &ToolInventory) -> Result<String> {
     if url.trim().is_empty() || url.starts_with('-') || url.contains("::") {
         return Err(Error::Precondition("invalid repository URL".to_string()));
     }
+    let git = tc.require_git()?;
     run_capture(
-        &tc.git.path,
+        &git.path,
         &["clone".to_string(), url.to_string(), dest.to_string()],
     )
 }
@@ -166,10 +190,16 @@ mod tests {
     use crate::tool::{ResolvedTool, ToolSource};
     use std::path::PathBuf;
 
-    fn dummy_tc() -> Toolchain {
-        Toolchain {
-            nix: ResolvedTool::new(PathBuf::from("/usr/local/bin/nix"), ToolSource::Homebrew),
-            git: ResolvedTool::new(PathBuf::from("/usr/bin/git"), ToolSource::Path),
+    fn dummy_tc() -> ToolInventory {
+        ToolInventory {
+            nix: Some(ResolvedTool::new(
+                PathBuf::from("/usr/local/bin/nix"),
+                ToolSource::Homebrew,
+            )),
+            git: Some(ResolvedTool::new(
+                PathBuf::from("/usr/bin/git"),
+                ToolSource::Path,
+            )),
             homebrew: None,
             nh: None,
         }
@@ -245,5 +275,24 @@ mod tests {
         assert!(clone_repo("", "/tmp/dest", &tc).is_err());
         assert!(clone_repo("-malicious", "/tmp/dest", &tc).is_err());
         assert!(clone_repo("proto:://evil", "/tmp/dest", &tc).is_err());
+    }
+
+    #[test]
+    fn clone_repo_returns_git_not_found_when_git_missing() {
+        // Git 未解決の環境では clone_repo は GitNotFound (Precondition) で弾かれる
+        let tc = ToolInventory {
+            nix: Some(ResolvedTool::new(
+                PathBuf::from("/usr/local/bin/nix"),
+                ToolSource::Homebrew,
+            )),
+            git: None,
+            homebrew: None,
+            nh: None,
+        };
+        let err = clone_repo("https://example.com/repo.git", "/tmp/dest", &tc).unwrap_err();
+        assert!(
+            err.to_string().contains("git not found"),
+            "expected git-not-found message, got: {err}"
+        );
     }
 }

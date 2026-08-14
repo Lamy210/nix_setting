@@ -5,11 +5,11 @@ use crate::manifest::{Manifest, Validation};
 use crate::process::{command_succeeds, run_capture};
 use crate::repo::resolve_repo;
 use crate::state::StateStore;
-use crate::tool::{ResolvedTool, ToolResolver, ToolSource, ToolStatus, Toolchain};
+use crate::tool::{ResolvedTool, ToolInventory, ToolResolver, ToolSource, ToolStatus};
 
 /// ツール検出結果のまとめ（後方互換・GUI serialize 用）
 ///
-/// 新しいコードは [`NixHealth`] / [`Toolchain`] を直接参照すること。
+/// 新しいコードは [`NixHealth`] / [`ToolInventory`] を直接参照すること。
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolsSummary {
     pub nix: ToolStatus,
@@ -46,13 +46,18 @@ pub struct Diagnostics {
     pub tools: ToolsSummary,
     /// Nix の詳細ヘルス（store 接続・flakes 有効・出処）
     pub nix_health: NixHealth,
-    /// 解決済み toolchain（GUI が内部で使う・表示用）
-    pub toolchain: ToolchainSummary,
+    /// 解決済み tool inventory（GUI が内部で使う・表示用）
+    pub tool_inventory: ToolInventorySummary,
     pub applied_revision: Option<String>,
     pub applied_at: Option<String>,
 }
 
 /// Nix の詳細ヘルス状態
+///
+/// `error` は blocking な問題 (store 到達不能・flakes 無効・binary 無し)。
+/// `warning` は blocker ではないが対応推奨の注意 (例: XDG state ディレクトリ欠如)。
+/// 両方は同時にセットされ得る (例: store ping 失敗 + XDG state 欠如)。
+/// frontend は `error.is_some()` を最優先で表示し、`warning` はその下に info 扱いで出す。
 #[derive(Debug, Clone, Serialize)]
 pub struct NixHealth {
     pub installed: bool,
@@ -62,13 +67,18 @@ pub struct NixHealth {
     pub flakes_available: bool,
     pub source: Option<ToolSource>,
     pub error: Option<String>,
+    /// blocker ではないが対応推奨の警告（例: XDG state ディレクトリ欠如）
+    pub warning: Option<String>,
 }
 
-/// Toolchain のサマリ（GUI への表示用・serialize 可能）
+/// ToolInventory のサマリ（GUI への表示用・serialize 可能）
+///
+/// 全フィールド `Option` で統一 (Fresh install 環境で未発見ツールがある場合、
+/// `None` となる。空文字列のダミーエントリは作らない)。
 #[derive(Debug, Clone, Serialize)]
-pub struct ToolchainSummary {
-    pub nix: ResolvedToolSummary,
-    pub git: ResolvedToolSummary,
+pub struct ToolInventorySummary {
+    pub nix: Option<ResolvedToolSummary>,
+    pub git: Option<ResolvedToolSummary>,
     pub homebrew: Option<ResolvedToolSummary>,
     pub nh: Option<ResolvedToolSummary>,
 }
@@ -90,12 +100,12 @@ impl From<&ResolvedTool> for ResolvedToolSummary {
     }
 }
 
-/// 診断 Status を構築する。呼び出し元が解決済みの `Toolchain` を渡す。
+/// 診断 Status を構築する。呼び出し元が解決済みの `ToolInventory` を渡す。
 ///
-/// desktop は `CachedToolchain` から・CLI は起動時に1回解決した `Toolchain` から
+/// desktop は `CachedToolInventory` から・CLI は起動時に1回解決した `ToolInventory` から
 /// 呼び出すことで、起動直後の PATH 補正 (`fix_path_env::fix`) が反映された
 /// 同一の解決結果を Diagnostics と apply 系操作で共有できる。
-pub fn diagnose(tc: &Toolchain, cli_repo: Option<&str>) -> Diagnostics {
+pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
     let resolver = ToolResolver::new();
     let homebrew = tc
         .homebrew
@@ -108,9 +118,9 @@ pub fn diagnose(tc: &Toolchain, cli_repo: Option<&str>) -> Diagnostics {
 
     // 後方互換 ToolsSummary
     let tools = ToolsSummary {
-        nix: ToolStatus::from(Some(&tc.nix)),
+        nix: ToolStatus::from(tc.nix.as_ref()),
         nh: ToolStatus::from(nh.as_ref()),
-        git: ToolStatus::from(Some(&tc.git)),
+        git: ToolStatus::from(tc.git.as_ref()),
         homebrew: ToolStatus::from(homebrew.as_ref()),
     };
 
@@ -138,9 +148,9 @@ pub fn diagnose(tc: &Toolchain, cli_repo: Option<&str>) -> Diagnostics {
         validation,
         tools,
         nix_health,
-        toolchain: ToolchainSummary {
-            nix: ResolvedToolSummary::from(&tc.nix),
-            git: ResolvedToolSummary::from(&tc.git),
+        tool_inventory: ToolInventorySummary {
+            nix: tc.nix.as_ref().map(ResolvedToolSummary::from),
+            git: tc.git.as_ref().map(ResolvedToolSummary::from),
             homebrew: tc.homebrew.as_ref().map(ResolvedToolSummary::from),
             nh: tc.nh.as_ref().map(ResolvedToolSummary::from),
         },
@@ -151,9 +161,10 @@ pub fn diagnose(tc: &Toolchain, cli_repo: Option<&str>) -> Diagnostics {
 
 /// Nix のヘルスを検査する。store 接続（`nix store ping`）と flakes 有効性
 /// （`nix config show experimental-features`）を subprocess で確認する
-pub fn nix_health(tc: &Toolchain) -> NixHealth {
-    let nix = &tc.nix;
-    if !nix.path.is_file() {
+///
+/// Nix が未解決の場合は `installed: false` の NixHealth を返す（panic しない）。
+pub fn nix_health(tc: &ToolInventory) -> NixHealth {
+    let Some(nix) = tc.nix.as_ref() else {
         return NixHealth {
             installed: false,
             executable: None,
@@ -161,11 +172,28 @@ pub fn nix_health(tc: &Toolchain) -> NixHealth {
             store_accessible: false,
             flakes_available: false,
             source: None,
+            error: Some(
+                "nix not found in PATH or known locations. \
+                 install: curl -L https://nixos.org/nix/install | sh"
+                    .to_string(),
+            ),
+            warning: None,
+        };
+    };
+    if !nix.path.is_file() {
+        return NixHealth {
+            installed: false,
+            executable: None,
+            version: None,
+            store_accessible: false,
+            flakes_available: false,
+            source: Some(nix.source),
             error: Some(format!(
-                "nix not found in PATH or known locations (source={}). \
-                 install: curl -L https://nixos.org/nix/install | sh",
-                nix.source
+                "nix resolved to {} but the file is not executable; \
+                 reinstall Nix or fix SCHNEEFORGE_NIX_BIN",
+                nix.path.display()
             )),
+            warning: None,
         };
     }
 
@@ -182,8 +210,11 @@ pub fn nix_health(tc: &Toolchain) -> NixHealth {
     .map(|out| out.contains("flakes"))
     .unwrap_or(false);
 
-    // XDG state フォルダ欠如の検出（Nix installer が作らない有名な罠）
-    let xdg_state_ok = xdg_state_profile_dir().map(|d| d.is_dir()).unwrap_or(true);
+    // XDG state フォルダ欠如は警告扱い（error にはしない）。Nix installer が
+    // 作らない有名な罠だが、ユーザーが自前で運用している場合は正常に動くため。
+    let xdg_state_missing = xdg_state_profile_dir()
+        .map(|d| !d.is_dir())
+        .unwrap_or(false);
 
     let error = if !store_accessible {
         Some("`nix store ping` failed; nix-daemon not running or socket not accessible".to_string())
@@ -193,10 +224,14 @@ pub fn nix_health(tc: &Toolchain) -> NixHealth {
              run `schneeforge doctor` or add `experimental-features = nix-command flakes`"
                 .to_string(),
         )
-    } else if !xdg_state_ok {
+    } else {
+        None
+    };
+
+    let warning = if xdg_state_missing {
         Some(
             "~/.local/state/nix/profiles not found; \
-             run `mkdir -p ~/.local/state/nix/profiles` or reinstall Nix"
+             if Nix profile commands fail, run `mkdir -p ~/.local/state/nix/profiles`"
                 .to_string(),
         )
     } else {
@@ -211,6 +246,7 @@ pub fn nix_health(tc: &Toolchain) -> NixHealth {
         flakes_available,
         source: Some(nix.source),
         error,
+        warning,
     }
 }
 
@@ -244,13 +280,16 @@ mod tests {
     use crate::tool::{ResolvedTool, ToolSource};
     use std::path::PathBuf;
 
-    fn dummy_tc() -> Toolchain {
-        Toolchain {
-            nix: ResolvedTool::new(
+    fn dummy_tc() -> ToolInventory {
+        ToolInventory {
+            nix: Some(ResolvedTool::new(
                 PathBuf::from("/__definitely_not_a_real_nix__"),
                 ToolSource::SystemProfile,
-            ),
-            git: ResolvedTool::new(PathBuf::from("/usr/bin/git"), ToolSource::Path),
+            )),
+            git: Some(ResolvedTool::new(
+                PathBuf::from("/usr/bin/git"),
+                ToolSource::Path,
+            )),
             homebrew: None,
             nh: None,
         }
@@ -288,12 +327,12 @@ mod tests {
     }
 
     #[test]
-    fn diagnose_includes_toolchain_summary() {
+    fn diagnose_includes_tool_inventory_summary() {
         let tc = dummy_tc();
         let d = diagnose(&tc, Some("/definitely/not/a/real/repo"));
-        // toolchain フィールドが serialize 可能な形で入っている
-        let json =
-            serde_json::to_string(&d.toolchain).expect("ToolchainSummary must be serializable");
+        // tool_inventory フィールドが serialize 可能な形で入っている
+        let json = serde_json::to_string(&d.tool_inventory)
+            .expect("ToolInventorySummary must be serializable");
         assert!(json.contains("path"));
         assert!(json.contains("source"));
     }
@@ -304,7 +343,24 @@ mod tests {
         let health = nix_health(&tc);
         assert!(!health.installed);
         assert!(health.executable.is_none());
-        assert!(health.source.is_none());
+        // ダミー Nix は解決済みだが実体が無い → source は保持しつつ not-executable エラー
+        assert!(health.source.is_some());
+        assert!(health.error.is_some());
+        assert!(health.error.unwrap().contains("not executable"));
+    }
+
+    #[test]
+    fn nix_health_returns_not_installed_when_unresolved() {
+        // Fresh install 環境 (Nix 未解決) でも nix_health は panic しない
+        let tc = ToolInventory {
+            nix: None,
+            git: None,
+            homebrew: None,
+            nh: None,
+        };
+        let health = nix_health(&tc);
+        assert!(!health.installed);
+        assert!(health.executable.is_none());
         assert!(health.error.is_some());
         assert!(health.error.unwrap().contains("not found"));
     }
