@@ -12,6 +12,11 @@ REPO_DIR="${NIX_SETTING_DIR:-$HOME/nix_setting}"
 # latest release 任せにすると rc (壊れた asset を含み得る) が拾われるため
 # release 毎に固定する。release 時は RELEASE.md の手順でこの値を bump する。
 SCHNEEFORGE_BOOTSTRAP_VERSION="${SCHNEEFORGE_VERSION:-v0.2.0-rc.2}"
+# config repository (modules / bootstrap-manifest.toml) の ref。CLI binary と
+# 同一 release tag に固定することで bootstrap の対象が release unit として一致する
+# (default branch を拾うと過去の installer 実行時に「その時点の develop」が入る)。
+# release 時は VERSION と同時に bump する。
+SCHNEEFORGE_BOOTSTRAP_REF="${SCHNEEFORGE_REF:-$SCHNEEFORGE_BOOTSTRAP_VERSION}"
 
 # --- inline minimal tool resolver (clone 前に動くよう install.sh 単独で解決可能) ---
 # 探索順は scripts/resolve-tools.sh と一致 (Rust tool.rs とも同期)
@@ -223,6 +228,7 @@ install_managed_nix() {
     echo "[error] staging dir (${stage_dir}) への copy に失敗" >&2
     rm -f "$sf_bin"
     sudo rm -f "$sf_staged"
+    sudo rmdir "$stage_dir" 2>/dev/null || true
     return 1
   fi
   rm -f "$sf_bin"
@@ -281,9 +287,13 @@ if ! resolve_git; then
 fi
 if [ -d "$REPO_DIR/.git" ]; then
   echo "[1/4] Repository exists: $REPO_DIR"
+  # 既存 checkout は user の変更を壊さないようそのまま使う。release tag と
+  # 一致する保証は無い (develop 追従中の場合など) ので明示しておく
+  echo "[warning] Existing repository detected."
+  echo "         Bootstrap will use the current checkout instead of release ${SCHNEEFORGE_BOOTSTRAP_REF}."
 else
-  echo "[1/4] Cloning $REPO_URL ..."
-  "$GIT_BIN" clone "$REPO_URL" "$REPO_DIR"
+  echo "[1/4] Cloning $REPO_URL (ref: ${SCHNEEFORGE_BOOTSTRAP_REF}) ..."
+  "$GIT_BIN" clone --branch "$SCHNEEFORGE_BOOTSTRAP_REF" --depth 1 "$REPO_URL" "$REPO_DIR"
 fi
 
 # 2. Check Nix (resolve_nix で PATH + 既知パス両方を探索)。

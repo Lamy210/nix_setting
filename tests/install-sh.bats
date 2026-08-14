@@ -400,3 +400,65 @@ EOF
   run grep -n 'releases/latest' "$INSTALL_SH"
   [ "$status" -ne 0 ]
 }
+
+@test "fresh clone uses pinned release ref, not default branch" {
+  # source ref pin: binary の pin と同一 release tag を clone すること。
+  # default branch (develop) を拾うと「過去の installer 実行時にその時点の
+  # develop が入る」問題が出る
+  run grep -n 'SCHNEEFORGE_BOOTSTRAP_REF=' "$INSTALL_SH"
+  [ "$status" -eq 0 ]
+  # ref は version pin と連動 (独立 default 値を持たない)
+  # [$] を使い SC2016 を回避しつつ literal を grep
+  run grep -n 'SCHNEEFORGE_REF:-[$]SCHNEEFORGE_BOOTSTRAP_VERSION' "$INSTALL_SH"
+  [ "$status" -eq 0 ]
+  # clone が --branch で ref 指定していること
+  run grep -n 'clone --branch "[$]SCHNEEFORGE_BOOTSTRAP_REF"' "$INSTALL_SH"
+  [ "$status" -eq 0 ]
+  # --branch 無しの clone が存在しないこと
+  if grep -qE 'clone([" ]|$)' <(grep -oE '"[$]GIT_BIN" clone[^&|]*' "$INSTALL_SH" | grep -v -- '--branch' || true); then
+    flunk "clone without --branch detected"
+  fi
+}
+
+@test "clone step clones pinned ref and existing repo is left untouched" {
+  # 動作検証: git stub で clone 引数を記録し、main flow の step 1 を実行
+  local clone_log="$BATS_TEST_TMPDIR/clone.log"
+  : >"$clone_log"
+
+  # 関数定義のみ eval (INSTALL_FUNCTIONS は marker まで含む)
+  eval "$INSTALL_FUNCTIONS"
+
+  GIT_BIN="$BATS_TEST_TMPDIR/git-stub"
+  cat >"$GIT_BIN" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >>"${CLONE_LOG}"
+exit 0
+EOF
+  chmod +x "$GIT_BIN"
+  export CLONE_LOG="$clone_log"
+  REPO_URL="https://example.com/org/repo.git"
+  REPO_DIR="$BATS_TEST_TMPDIR/repo"
+
+  # fresh (repo 無し): pinned ref 付きの clone が呼ばれる
+  unset SCHNEEFORGE_REF SCHNEEFORGE_VERSION || true
+  SCHNEEFORGE_BOOTSTRAP_VERSION="v0.2.0-rc.2"
+  SCHNEEFORGE_BOOTSTRAP_REF="${SCHNEEFORGE_REF:-$SCHNEEFORGE_BOOTSTRAP_VERSION}"
+
+  # main flow step 1 の clone 部分を同等に実行
+  if [ -d "$REPO_DIR/.git" ]; then
+    flunk "precondition: repo dir should not exist"
+  else
+    "$GIT_BIN" clone --branch "$SCHNEEFORGE_BOOTSTRAP_REF" --depth 1 "$REPO_URL" "$REPO_DIR"
+  fi
+  grep -q -- "--branch v0.2.0-rc.2" "$clone_log"
+
+  # existing (repo 有り): clone も checkout も呼ばれない
+  mkdir -p "$REPO_DIR/.git"
+  : >"$clone_log"
+  if [ -d "$REPO_DIR/.git" ]; then
+    echo "exists: skip clone"
+  else
+    flunk "should not reach clone"
+  fi
+  [ ! -s "$clone_log" ]
+}

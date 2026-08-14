@@ -127,3 +127,15 @@ bootstrap の config.toml 生成 SHALL は、既に現在ユーザーで個人�
 - **WHEN** `curl | bash` で `install.sh` が実行され stdin が pipe である
 - **THEN** `schneeforge nix install` は stdin に `/dev/tty` を繋いで実行され、CLI 側の D8 最終確認 (TTY 必須) が機能する
 
+### Requirement: install.sh の clone は release tag に pin される
+`install.sh` SHALL は repository を新規 clone する際、CLI binary と同一の release tag (`SCHNEEFORGE_BOOTSTRAP_REF`) を `--branch` で指定する。default branch を拾うと installer 実行時点の未 release 変更が混入するため。
+
+#### Scenario: fresh install は pinned ref を clone する
+- **WHEN** `install.sh` 実行時に repository が存在しない
+- **THEN** `git clone --branch <SCHNEEFORGE_BOOTSTRAP_REF> --depth 1` で clone され、`--branch` 無しの clone は行われない
+
+#### Scenario: 既存 repository は変更しない
+- **WHEN** `install.sh` 実行時に既に repository が存在する
+- **THEN** checkout や clone を行わず、現状の checkout をそのまま使う
+- **AND** release tag と一致する保証が無い旨を warning 表示する
+
