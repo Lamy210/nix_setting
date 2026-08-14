@@ -17,7 +17,10 @@ pub use bootstrap::{
     clone_repo, doctor, enable_flakes, generate_config, preflight, setup, DoctorReport,
     PreflightReport,
 };
-pub use diagnostics::{diagnose, Diagnostics, ToolsSummary};
+pub use diagnostics::{
+    diagnose, nix_health, Diagnostics, NixHealth, ResolvedToolSummary, ToolInventorySummary,
+    ToolsSummary,
+};
 pub use discovery::{
     current_user, detect_arch, detect_arch_for, detect_platform, detect_platform_for,
     detect_target, detect_target_for, has_git, has_homebrew, has_nix, which, Architecture,
@@ -33,4 +36,7 @@ pub use operations::{
 pub use repo::{current_git_revision, resolve_repo, Repo, RepoResolver};
 pub use state::{State, StateStore};
 pub use time::{days_to_ymd, format_unix_secs, now_iso8601};
-pub use tool::{find_executable, version_of, ToolResolver, ToolStatus};
+pub use tool::{
+    find_executable, version_of, ResolvedTool, ToolInventory, ToolRequirementError, ToolResolver,
+    ToolSource, ToolStatus,
+};

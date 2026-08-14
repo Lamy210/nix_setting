@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use schneeforge_core::{detect_target, Manifest, StateStore};
+use schneeforge_core::{detect_target, Manifest, StateStore, ToolInventory};
 /// Declarative Developer Workstation Manager
 #[derive(Parser)]
 #[command(name = "schneeforge", version, about)]
@@ -41,17 +41,21 @@ enum Cmd {
 fn main() {
     let cli = Cli::parse();
     let repo = schneeforge_core::resolve_repo(cli.repo.as_deref());
+
+    // Nix/Git を必要とするコマンドでは起動直後に ToolInventory を1回 discover する。
+    // status / uninstall のような info 系コマンドは ToolInventory 無しで動かし、
+    // CI の素の Linux runner でもテスト可能にする。
     let result = match cli.command {
-        Cmd::Doctor => doctor(),
-        Cmd::Scan => scan(&repo),
-        Cmd::Setup => setup(&repo),
+        Cmd::Doctor => with_tool_inventory(doctor, &repo),
+        Cmd::Scan => with_tool_inventory(|tc| scan(&repo, tc), &repo),
+        Cmd::Setup => with_tool_inventory(|tc| setup(&repo, tc), &repo),
         Cmd::Status => status(&repo),
-        Cmd::Plan => plan(&repo),
-        Cmd::Apply => apply(&repo),
-        Cmd::Rollback => rollback(&repo),
-        Cmd::Upgrade => upgrade(&repo),
-        Cmd::Sync => sync(&repo),
-        Cmd::Verify => verify(&repo),
+        Cmd::Plan => with_tool_inventory(|tc| plan(&repo, tc), &repo),
+        Cmd::Apply => with_tool_inventory(|tc| apply(&repo, tc), &repo),
+        Cmd::Rollback => with_tool_inventory(|tc| rollback(&repo, tc), &repo),
+        Cmd::Upgrade => with_tool_inventory(|tc| upgrade(&repo, tc), &repo),
+        Cmd::Sync => with_tool_inventory(|tc| sync(&repo, tc), &repo),
+        Cmd::Verify => with_tool_inventory(|tc| verify(&repo, tc), &repo),
         Cmd::Uninstall => uninstall(),
     };
     if let Err(e) = result {
@@ -62,8 +66,20 @@ fn main() {
 
 type Result = std::result::Result<(), String>;
 
-fn doctor() -> Result {
-    let r = schneeforge_core::doctor();
+/// ToolInventory を必要とするコマンドのラッパ。
+///
+/// `ToolInventory::discover` は infallible (未検出ツールは None になる) なので、
+/// ここでは1回 discover した inventory を渡すだけ。Nix が無くても doctor は動く。
+fn with_tool_inventory<F>(f: F, _repo: &str) -> Result
+where
+    F: FnOnce(&ToolInventory) -> Result,
+{
+    let tc = ToolInventory::discover();
+    f(&tc)
+}
+
+fn doctor(tc: &ToolInventory) -> Result {
+    let r = schneeforge_core::doctor(tc);
     println!("=== doctor ===");
     println!();
     println!("[system]");
@@ -71,30 +87,47 @@ fn doctor() -> Result {
     println!("  arch: {}", r.arch);
     println!();
     println!("[nix]");
-    if r.nix {
-        println!("  installed: yes");
-    } else {
-        println!("  installed: no");
-        println!("  install:   curl -L https://nixos.org/nix/install | sh");
+    match tc.nix.as_ref() {
+        Some(nix) => {
+            println!("  path:   {}", nix.path.display());
+            println!("  source: {}", nix.source);
+            if let Some(v) = &nix.version {
+                println!("  version: {v}");
+            }
+            println!("  installed: yes");
+        }
+        None => {
+            println!("  installed: no");
+            println!("  install:   curl -L https://nixos.org/nix/install | sh");
+        }
     }
     println!();
     println!("[homebrew]");
     println!("  installed: {}", if r.homebrew { "yes" } else { "no" });
     println!();
     println!("[git]");
-    println!("  installed: {}", if r.git { "yes" } else { "no" });
+    match tc.git.as_ref() {
+        Some(git) => {
+            println!("  path:   {}", git.path.display());
+            println!("  source: {}", git.source);
+            println!("  installed: yes");
+        }
+        None => {
+            println!("  installed: no");
+        }
+    }
     println!();
     println!("[host detection]");
     println!("  host: {}", r.host);
     Ok(())
 }
 
-fn scan(repo: &str) -> Result {
+fn scan(repo: &str, tc: &ToolInventory) -> Result {
     let target = detect_target();
     let manifest = load_manifest(repo);
     println!("=== scan ===");
     println!();
-    print!("{}", schneeforge_core::scan(&target));
+    print!("{}", schneeforge_core::scan(&target, tc));
     println!();
     println!("[manifest]");
     match manifest {
@@ -129,23 +162,23 @@ fn status(repo: &str) -> Result {
     Ok(())
 }
 
-fn apply(repo: &str) -> Result {
+fn apply(repo: &str, tc: &ToolInventory) -> Result {
     let target = detect_target();
     println!("applying host: {target}");
-    schneeforge_core::apply(&target, repo, &StateStore::default(), false)
+    schneeforge_core::apply(&target, repo, &StateStore::default(), tc, false)
         .map_err(|e| e.to_string())?;
     println!("state saved");
     Ok(())
 }
 
-fn setup(repo: &str) -> Result {
+fn setup(repo: &str, tc: &ToolInventory) -> Result {
     println!("=== setup ===");
-    schneeforge_core::setup(repo, &StateStore::default()).map_err(|e| e.to_string())?;
+    schneeforge_core::setup(repo, &StateStore::default(), tc).map_err(|e| e.to_string())?;
     println!("state saved");
     Ok(())
 }
 
-fn plan(repo: &str) -> Result {
+fn plan(repo: &str, tc: &ToolInventory) -> Result {
     let t = schneeforge_core::plan_target(repo).map_err(|e| e.to_string())?;
     println!("=== plan ===");
     println!();
@@ -153,32 +186,32 @@ fn plan(repo: &str) -> Result {
     println!("  target: {}", t.flake_target);
     println!();
     println!("dry-run build...");
-    schneeforge_core::plan(repo, false).map_err(|e| e.to_string())?;
+    schneeforge_core::plan(repo, tc, false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn rollback(repo: &str) -> Result {
+fn rollback(repo: &str, tc: &ToolInventory) -> Result {
     let target = detect_target();
     println!("rolling back host: {target}");
-    schneeforge_core::rollback(&target, repo, &StateStore::default(), false)
+    schneeforge_core::rollback(&target, repo, &StateStore::default(), tc, false)
         .map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn upgrade(repo: &str) -> Result {
+fn upgrade(repo: &str, tc: &ToolInventory) -> Result {
     println!("updating flake.lock...");
-    schneeforge_core::upgrade(repo, false).map_err(|e| e.to_string())?;
+    schneeforge_core::upgrade(repo, tc, false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn sync(repo: &str) -> Result {
+fn sync(repo: &str, tc: &ToolInventory) -> Result {
     println!("pulling remote config...");
-    schneeforge_core::sync(repo, false).map_err(|e| e.to_string())?;
+    schneeforge_core::sync(repo, tc, false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn verify(repo: &str) -> Result {
-    let report = schneeforge_core::verify(repo);
+fn verify(repo: &str, tc: &ToolInventory) -> Result {
+    let report = schneeforge_core::verify(repo, tc);
     println!("=== verify ===");
     println!();
     println!("[checks]");

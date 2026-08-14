@@ -1,7 +1,7 @@
 # gui-operations Specification
 
 ## Purpose
-TBD - created by archiving change gui-normalization. Update Purpose after archive.
+desktop (Tauri) がユーザー操作 (apply / rollback / upgrade / sync / plan / verify) を core へ伝達する際の IPC 契約と状態遷移を定義する。全ハンドラは `CachedToolchain` (`tauri::State`) を介して単一の解決済み `Toolchain` を使い、長時間操作は非同期 command として実行され stdout/stderr がストリーム表示される。
 ## Requirements
 ### Requirement: 非同期操作
 plan/apply/verify/rollback/upgrade SHALL は UI スレッドを占有せず非同期で実行する。scan と status は軽量のため同期実行でよい。

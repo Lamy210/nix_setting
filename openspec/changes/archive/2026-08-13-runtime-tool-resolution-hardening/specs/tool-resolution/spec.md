@@ -1,32 +1,4 @@
-# tool-resolution Specification
-
-## Purpose
-SchneeForge の全レイヤー（core / CLI / desktop / shell installer）で一貫したツール解決を定義する。macOS の .app 起動や CI の最小インストールなど PATH が欠損しがちな環境でも、`Toolchain` を一回解決すれば全操作が同一の nix / git / brew を使うことを保証する。
-
-探索優先度は `SCHNEEFORGE_<NAME>_BIN` env → `PATH` → `$XDG_STATE_HOME/nix/profile/bin` or `~/.local/state/nix/profile/bin` → `$NIX_PROFILE/bin` → `~/.nix-profile/bin` → `/etc/profiles/per-user/$USER/bin` → `/nix/var/nix/profiles/default/bin` → `/opt/homebrew/bin` → `/usr/local/bin`。この順序は Rust (`crates/core/src/tool.rs`) と shell (`scripts/resolve-tools.sh`) の両方で同じものを使い、CI の "forbid raw tool spawns" lint が文字列リテラル spawn を禁止することで整合性を維持する。
-## Requirements
-### Requirement: PATH 非依存のツール解決
-ツール解決 SHALL は PATH だけでなく既知パスも探索する。macOS GUI は Terminal と異なる PATH を持つため。
-
-#### Scenario: PATH に無いが既知パスにある
-- **WHEN** ツールが PATH に無いが `/nix/var/nix/profiles/default/bin` に存在する
-- **THEN** 解決結果は available: true とその path を返す
-- **AND** `ResolvedTool.source` は `SystemProfile` になる
-
-#### Scenario: 解決順序
-- **WHEN** ツールが複数箇所に存在する
-- **THEN** `SCHNEEFORGE_<NAME>_BIN` → PATH → `$XDG_STATE_HOME/nix/profile/bin` → `$NIX_PROFILE/bin` → `~/.nix-profile/bin` → `/etc/profiles/per-user/$USER/bin` → `/nix/var/nix/profiles/default/bin` → `/opt/homebrew/bin` → `/usr/local/bin` の順で解決する
-
-### Requirement: 実行時の解決済みパス利用
-コマンド実行 SHALL は解決済みの絶対パスを使う。
-
-#### Scenario: nh が未解決でも nix-darwin 適用できる
-- **WHEN** `nh` が未インストールの fresh machine で apply する
-- **THEN** core は `nh` に依存せず `Toolchain.nix.path` で適用する
-
-#### Scenario: Diagnostics と Apply で同じ nix を使う
-- **WHEN** GUI が Diagnostics を表示した後に Apply を実行する
-- **THEN** Diagnostics の `nix.path` と Apply が spawn する nix の絶対パスが一致する
+## ADDED Requirements
 
 ### Requirement: ResolvedTool / Toolchain / ToolSource データモデル
 core SHALL はツール解決結果を `ResolvedTool`（path + source + version）として返し、全操作は `Toolchain` を経由してツールへアクセスする。
@@ -100,3 +72,27 @@ SchneeForge desktop SHALL は [tauri-apps/fix-path-env-rs](https://github.com/ta
 - **WHEN** 同一環境で GUI と `bootstrap.sh` を実行する
 - **THEN** 両者が解決する nix の絶対パスが一致する
 
+## MODIFIED Requirements
+
+### Requirement: PATH 非依存のツール解決
+ツール解決 SHALL は PATH だけでなく既知パスも探索する。macOS GUI は Terminal と異なる PATH を持つため。
+
+#### Scenario: PATH に無いが既知パスにある
+- **WHEN** ツールが PATH に無いが `/nix/var/nix/profiles/default/bin` に存在する
+- **THEN** 解決結果は available: true とその path を返す
+- **AND** `ResolvedTool.source` は `SystemProfile` になる
+
+#### Scenario: 解決順序
+- **WHEN** ツールが複数箇所に存在する
+- **THEN** `SCHNEEFORGE_<NAME>_BIN` → PATH → `$XDG_STATE_HOME/nix/profile/bin` → `$NIX_PROFILE/bin` → `~/.nix-profile/bin` → `/etc/profiles/per-user/$USER/bin` → `/nix/var/nix/profiles/default/bin` → `/opt/homebrew/bin` → `/usr/local/bin` の順で解決する
+
+### Requirement: 実行時の解決済みパス利用
+コマンド実行 SHALL は解決済みの絶対パスを使う。
+
+#### Scenario: nh が未解決でも nix-darwin 適用できる
+- **WHEN** `nh` が未インストールの fresh machine で apply する
+- **THEN** core は `nh` に依存せず `Toolchain.nix.path` で適用する
+
+#### Scenario: Diagnostics と Apply で同じ nix を使う
+- **WHEN** GUI が Diagnostics を表示した後に Apply を実行する
+- **THEN** Diagnostics の `nix.path` と Apply が spawn する nix の絶対パスが一致する
