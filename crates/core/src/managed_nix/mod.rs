@@ -26,7 +26,8 @@ pub use verify::{parse_sha256_sums, sha256_hex, verify_file, verify_sha256};
 
 use std::path::{Path, PathBuf};
 
-use crate::discovery::{detect_arch, detect_platform, has_nix, Architecture, Platform};
+use crate::discovery::{detect_arch, detect_platform, Architecture, Platform};
+use crate::tool::ToolResolver;
 
 /// Managed Nix install の進捗 callback。phase 切替と JSON line の両方を処理する
 pub trait ProgressSink {
@@ -39,6 +40,14 @@ pub struct NoProgress;
 impl ProgressSink for NoProgress {
     fn on_phase(&mut self, _phase: InstallPhase) {}
     fn on_log(&mut self, _line: &JsonLogLine) {}
+}
+
+/// 既存 Nix の検出。PATH のみでなく `/nix/var/nix/profiles/default/bin` 等の
+/// known locations も含める (sudo の minimal PATH で PATH-only 検出が
+/// false negative になる回帰 — #11 と同一の問題 — を防ぐ)。
+/// `discovery::has_nix` (which のみ) は新規コードで使わないこと。
+pub fn existing_nix_detected() -> bool {
+    ToolResolver::new().resolve_tool("nix").is_some()
 }
 
 /// preflight の結果 (root 不要、design.md D8)
@@ -62,7 +71,7 @@ impl PreflightSummary {
         Self {
             platform,
             arch,
-            existing_nix: has_nix(),
+            existing_nix: existing_nix_detected(),
             is_root: is_root(),
             supported,
         }
@@ -248,8 +257,11 @@ pub fn summarize_plan(plan_file: &Path) -> Result<Vec<String>, ManagedNixError> 
         Some(actions) => {
             lines.push(format!("actions ({}):", actions.len()));
             for a in actions.iter().take(50) {
+                // upstream の StatefulAction は { action: { action_name: ... }, state: ... }
+                // として直列化される (typetag::serde(tag = "action_name"))
                 let name = a
                     .get("action")
+                    .and_then(|v| v.get("action_name"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("(unknown)");
                 lines.push(format!("  - {name}"));
@@ -320,19 +332,20 @@ impl ManagedNix {
         Ok((asset.url, expected))
     }
 
-    /// binary を download し (キャッシュ優先)、SHA256 を検証して path を返す
+    /// binary を download し (キャッシュ優先)、SHA256 を検証して path を返す。
+    /// 戻り値の `String` は検証済みの expected SHA256 (ownership record へ保存する)。
     pub fn fetch_binary(
         &self,
         platform: Platform,
         arch: Architecture,
-    ) -> Result<PathBuf, ManagedNixError> {
+    ) -> Result<(PathBuf, String), ManagedNixError> {
         let (url, expected) = self.resolve_asset(platform, arch)?;
         let cache = cache_path(self.version())?;
 
         if cache.exists() {
             // キャッシュがあっても SHA256 を再検証する (manifest 更新で古い版が残るのを防ぐ)
             match verify_file(&cache, &expected) {
-                Ok(()) => return Ok(cache),
+                Ok(()) => return Ok((cache, expected)),
                 Err(ManagedNixError::ChecksumMismatch { .. }) => {
                     // キャッシュが壊れているので削除して再取得
                     let _ = std::fs::remove_file(&cache);
@@ -342,8 +355,12 @@ impl ManagedNix {
         }
 
         download(&url, &cache)?;
-        verify_file(&cache, &expected)?;
-        Ok(cache)
+        if let Err(e @ ManagedNixError::ChecksumMismatch { .. }) = verify_file(&cache, &expected) {
+            // 不一致 file を次回に持ち越さない (spec: download 済み file は削除)
+            let _ = std::fs::remove_file(&cache);
+            return Err(e);
+        }
+        Ok((cache, expected))
     }
 
     /// preflight を返す (design.md D8)。install 開始前に呼ぶ。
@@ -398,14 +415,14 @@ impl ManagedNix {
                 arch: format!("{platform}-{arch}"),
             });
         }
-        if has_nix() {
+        if existing_nix_detected() {
             return Err(ManagedNixError::ExistingNixDetected {
                 path: PathBuf::from("/nix"),
             });
         }
 
         progress.on_phase(InstallPhase::Download);
-        let binary = self.fetch_binary(platform, arch)?;
+        let (binary, _expected_sha) = self.fetch_binary(platform, arch)?;
         progress.on_phase(InstallPhase::Verify);
 
         let planner = planner_name(platform, arch)?;
@@ -431,11 +448,13 @@ impl ManagedNix {
 
     /// ユーザー確認済みの plan file で install を実行する (D8 の [Install] step)。
     /// upstream は `--no-confirm` で呼ぶため、確認責任は caller 側にある。
+    /// `binary` は `fetch_binary` が返した検証済み installer (再取得しない)。
     pub fn execute_plan(
         &self,
         platform: Platform,
         arch: Architecture,
         plan_file: &Path,
+        binary: &Path,
         progress: &mut dyn ProgressSink,
     ) -> Result<(), ManagedNixError> {
         if !is_supported(platform, arch) {
@@ -443,7 +462,7 @@ impl ManagedNix {
                 arch: format!("{platform}-{arch}"),
             });
         }
-        if has_nix() {
+        if existing_nix_detected() {
             return Err(ManagedNixError::ExistingNixDetected {
                 path: PathBuf::from("/nix"),
             });
@@ -455,8 +474,7 @@ impl ManagedNix {
         }
 
         progress.on_phase(InstallPhase::Install);
-        let binary = self.fetch_binary(platform, arch)?;
-        let result = self.run_install(&binary, plan_file, progress);
+        let result = self.run_install(binary, plan_file, progress);
         if result.is_ok() {
             progress.on_phase(InstallPhase::PostInstall);
         }
@@ -483,9 +501,9 @@ mod tests {
 version = "2.35.1"
 
 [managed_nix.sha256_by_arch]
-x86_64-linux = "3b49a0b9deadbeef"
-aarch64-linux = "cafebabe"
-aarch64-darwin = "feedface"
+x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111"
+aarch64-linux = "2222222222222222222222222222222222222222222222222222222222222222"
+aarch64-darwin = "3333333333333333333333333333333333333333333333333333333333333333"
 "#;
         BootstrapManifest::parse(toml_str).unwrap()
     }
@@ -497,7 +515,10 @@ aarch64-darwin = "feedface"
             .resolve_asset(Platform::Linux, Architecture::X86_64)
             .unwrap();
         assert!(url.ends_with("/2.35.1/nix-installer-x86_64-linux"));
-        assert_eq!(sha, "3b49a0b9deadbeef");
+        assert_eq!(
+            sha,
+            "1111111111111111111111111111111111111111111111111111111111111111"
+        );
     }
 
     #[test]
@@ -555,5 +576,73 @@ aarch64-darwin = "feedface"
         assert!(is_supported(Platform::MacOS, Architecture::Aarch64));
         assert!(!is_supported(Platform::MacOS, Architecture::X86_64));
         assert!(!is_supported(Platform::Unsupported, Architecture::X86_64));
+    }
+
+    /// upstream 2.35.1 の `InstallPlan` 直列化 shape (src/plan.rs + src/action/mod.rs
+    /// `#[typetag::serde(tag = "action_name")]` + src/action/stateful.rs
+    /// `StatefulAction { action, state }`) に基づく fixture。
+    /// この shape が変わったら summarize_plan が壊れるので、この test が検知する。
+    #[test]
+    fn summarize_plan_reads_upstream_shape() {
+        let plan = serde_json::json!({
+            "version": { "major": 0, "minor": 1, "patch": 1 },
+            "actions": [
+                {
+                    "action": {
+                        "action_name": "create_directory",
+                        "path": "/nix",
+                        "user": null,
+                        "group": null,
+                        "mode": 493
+                    },
+                    "state": "Uncompleted"
+                },
+                {
+                    "action": {
+                        "action_name": "create_user",
+                        "name": "nixbld1",
+                        "uid": 30001
+                    },
+                    "state": "Uncompleted"
+                }
+            ],
+            "planner": {
+                "planner": "linux",
+                "settings": { "enable_flakes": true },
+                "init": {
+                    "init": "systemd",
+                    "is_remote": false
+                }
+            }
+        });
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge_plan_summary_{}.json",
+            std::process::id()
+        ));
+        std::fs::write(&dir, plan.to_string()).unwrap();
+        let lines = summarize_plan(&dir).unwrap();
+        let _ = std::fs::remove_file(&dir);
+
+        let joined = lines.join("\n");
+        assert!(joined.contains("actions (2):"), "got: {joined}");
+        assert!(joined.contains("create_directory"), "got: {joined}");
+        assert!(joined.contains("create_user"), "got: {joined}");
+        assert!(!joined.contains("(unknown)"), "got: {joined}");
+        assert!(joined.contains("planner: linux"), "got: {joined}");
+    }
+
+    #[test]
+    fn summarize_plan_unknown_action_falls_back() {
+        let plan = serde_json::json!({
+            "actions": [{ "action": {}, "state": "Uncompleted" }],
+        });
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge_plan_summary_fallback_{}.json",
+            std::process::id()
+        ));
+        std::fs::write(&dir, plan.to_string()).unwrap();
+        let lines = summarize_plan(&dir).unwrap();
+        let _ = std::fs::remove_file(&dir);
+        assert!(lines.join("\n").contains("(unknown)"));
     }
 }
