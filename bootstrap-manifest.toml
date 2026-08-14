@@ -1,0 +1,16 @@
+# bootstrap-manifest.toml — Managed Nix provider pin (design.md D3)
+#
+# この file は SchneeForge Core が source of truth として扱う。
+# SHA256 は upstream `https://github.com/NixOS/nix-installer/releases/download/{version}/SHA256SUMS`
+# から取得され、`.github/workflows/upstream-nix-installer.yml` が release cycle 毎に bump する。
+#
+# runtime はこの manifest の sha256 と download binary の実測を比較して検証する。
+# (SLSA provenance は CI 側でのみ検証、利用者 PC は sha256 比較のみで保護)
+
+[managed_nix]
+version = "2.35.1"
+
+[managed_nix.sha256_by_arch]
+x86_64-linux   = "3b49a0b91820accb76e3d9ff7ed64fc430121b9fafb3869b0d549721fbeb4c85"
+aarch64-linux  = "7e6e2f753144d7f19b16a9fce4b354cb0f46d1d47e6908bfb9186c89e0e0e649"
+aarch64-darwin = "82723616373d0c3f0d07b892f5f5c023da825b8969a2351c7055926d0bcf5553"

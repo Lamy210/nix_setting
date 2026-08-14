@@ -1,5 +1,6 @@
 use std::fmt;
 
+use crate::managed_nix::ManagedNixError;
 use crate::tool::ToolRequirementError;
 
 /// SchneeForge core の構造化エラー
@@ -17,6 +18,8 @@ pub enum Error {
     Busy(String),
     /// 前提条件を満たしていない (Nix 未インストール等)
     Precondition(String),
+    /// Managed Nix (nix-installer 統合) のエラー
+    ManagedNix(ManagedNixError),
 }
 
 impl fmt::Display for Error {
@@ -30,6 +33,7 @@ impl fmt::Display for Error {
             Error::Io(msg) => write!(f, "io error: {msg}"),
             Error::Busy(msg) => write!(f, "busy: {msg}"),
             Error::Precondition(msg) => write!(f, "precondition not met: {msg}"),
+            Error::ManagedNix(e) => write!(f, "managed nix error: {e}"),
         }
     }
 }
@@ -43,11 +47,18 @@ impl From<ToolRequirementError> for Error {
     }
 }
 
+impl From<ManagedNixError> for Error {
+    fn from(e: ManagedNixError) -> Self {
+        Error::ManagedNix(e)
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn display_unsupported_platform() {
@@ -65,5 +76,22 @@ mod tests {
             detail: "exited with 1".to_string(),
         };
         assert_eq!(e.to_string(), "nix: exited with 1");
+    }
+
+    #[test]
+    fn from_managed_nix_error_preserves_message() {
+        let inner = ManagedNixError::ReceiptNotFound {
+            path: PathBuf::from("/nix/receipt.json"),
+        };
+        let e: Error = inner.into();
+        assert!(e.to_string().contains("receipt not found"));
+        assert!(e.to_string().contains("/nix/receipt.json"));
+    }
+
+    #[test]
+    fn from_managed_nix_network_required() {
+        let inner = ManagedNixError::NetworkRequired;
+        let e: Error = inner.into();
+        assert!(e.to_string().contains("network"));
     }
 }

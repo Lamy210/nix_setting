@@ -1,4 +1,7 @@
+mod nix_cmd;
+
 use clap::{Parser, Subcommand};
+use nix_cmd::{NixArgs, NixSub};
 use schneeforge_core::{detect_target, Manifest, StateStore, ToolInventory};
 /// Declarative Developer Workstation Manager
 #[derive(Parser)]
@@ -36,6 +39,8 @@ enum Cmd {
     Verify,
     /// アンインストール手順を表示
     Uninstall,
+    /// Managed Nix (nix-installer 統合) の install / doctor / uninstall
+    Nix(NixArgs),
 }
 
 fn main() {
@@ -57,6 +62,7 @@ fn main() {
         Cmd::Sync => with_tool_inventory(|tc| sync(&repo, tc), &repo),
         Cmd::Verify => with_tool_inventory(|tc| verify(&repo, tc), &repo),
         Cmd::Uninstall => uninstall(),
+        Cmd::Nix(nix_args) => run_nix(nix_args.command, &repo),
     };
     if let Err(e) = result {
         eprintln!("error: {e}");
@@ -119,6 +125,13 @@ fn doctor(tc: &ToolInventory) -> Result {
     println!();
     println!("[host detection]");
     println!("  host: {}", r.host);
+    println!();
+    println!("[managed nix]");
+    // D7: schneeforge doctor から schneeforge nix doctor を呼び出して nix 関連 section を埋める
+    // 失敗しても全体の doctor は継続する (nix 未 install 環境を考慮)
+    if let Err(e) = nix_cmd::run_doctor() {
+        println!("  (managed nix doctor failed: {e})");
+    }
     Ok(())
 }
 
@@ -253,4 +266,12 @@ fn uninstall() -> Result {
 
 fn load_manifest(repo: &str) -> Option<Manifest> {
     Manifest::load(repo).ok()
+}
+
+fn run_nix(sub: NixSub, repo: &str) -> Result {
+    match sub {
+        NixSub::Install(args) => nix_cmd::run_install(repo, args),
+        NixSub::Doctor => nix_cmd::run_doctor(),
+        NixSub::Uninstall(args) => nix_cmd::run_uninstall(args),
+    }
 }

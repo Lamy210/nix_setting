@@ -114,3 +114,84 @@ fn doctor_succeeds_and_reports_missing_nix_without_nix() {
         .success()
         .stdout(predicate::str::contains("[nix]").and(predicate::str::contains("installed: no")));
 }
+
+/// `schneeforge nix` サブコマンド一覧が help へ出る
+#[test]
+fn nix_subcommand_help_lists_actions() {
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("nix")
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("install")
+                .and(predicate::str::contains("doctor"))
+                .and(predicate::str::contains("uninstall")),
+        );
+}
+
+/// `schneeforge nix doctor` は Nix/receipt 無しでも動き、receipt not found を表示する (D7)
+#[test]
+fn nix_doctor_runs_without_receipt() {
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("nix").arg("doctor").assert().success().stdout(
+        predicate::str::contains("=== schneeforge nix doctor ===")
+            .and(predicate::str::contains("[environment]"))
+            .and(predicate::str::contains("[receipt]")),
+    );
+}
+
+/// `schneeforge nix install --dry-run` は preflight を表示して終了する (D8)
+#[test]
+fn nix_install_dry_run_shows_preflight() {
+    // bootstrap-manifest.toml は workspace root にある。crates/cli から見て ../../
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(repo_root.canonicalize().unwrap())
+        .arg("nix")
+        .arg("install")
+        .arg("--dry-run")
+        .assert()
+        .success()
+        .stderr(
+            predicate::str::contains("=== Managed Nix install ===")
+                .and(predicate::str::contains("[dry-run]")),
+        );
+}
+
+/// `schneeforge nix install` (root 以外) は preflight 後に root 再実行を促して終了する (D4)
+#[test]
+fn nix_install_without_root_prompts_sudo() {
+    // CI / テスト環境では通常 root ではない。root の場合はこのテストの意味が無いので skip。
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipping: running as root");
+        return;
+    }
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(repo_root.canonicalize().unwrap())
+        .arg("nix")
+        .arg("install")
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("root 権限が必要です")
+                .or(predicate::str::contains("existing Nix detected"))
+                .or(predicate::str::contains("unsupported platform/arch")),
+        );
+}
+
+/// `schneeforge nix uninstall` は receipt が無ければ ReceiptNotFound 相当の message で終了する (D6)
+#[test]
+fn nix_uninstall_without_receipt_errors() {
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("nix")
+        .arg("uninstall")
+        .arg("--receipt")
+        .arg("/tmp/__definitely_no_receipt__.json")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("receipt not found"));
+}

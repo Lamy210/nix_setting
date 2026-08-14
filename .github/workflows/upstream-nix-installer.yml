@@ -1,0 +1,212 @@
+# .github/workflows/upstream-nix-installer.yml
+#
+# design.md D3 の "Release bump CI":
+#   1. NixOS/nix-installer の最新 release tag を取得
+#   2. `gh attestation verify` で SLSA provenance を検証
+#   3. release の SHA256SUMS を取得し、対象 arch の expected sha256 を抽出
+#   4. bootstrap-manifest.toml を更新する PR を自動作成
+#
+# 重要な設計要件 (design.md D3):
+#   - **bump PR は即時 merge ではなく、SchneeForge release cycle で評価** する。
+#     breaking change (CLI flag 廃止・receipt schema 変更等) がある場合は棄却。
+#   - SLSA provenance 検証失敗時は CI fail + `gh issue create` で tracked-issue 自動起票。
+#   - 利用者 PC 側は pinned SHA256 の比較のみで保護される (gh / cosign 不要)。
+
+name: upstream-nix-installer
+
+on:
+  schedule:
+    # 毎週月曜 03:17 UTC (round-hour pill を避けるため :17)
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Specific nix-installer tag to bump to (e.g. 2.35.2). Empty = latest.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+env:
+  MANIFEST_PATH: bootstrap-manifest.toml
+  ASSET_NAMES: "nix-installer-x86_64-linux nix-installer-aarch64-linux nix-installer-aarch64-darwin"
+
+jobs:
+  track-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Resolve target version
+        id: ver
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            # pre-release は除外して latest stable を取得
+            latest=$(gh release list \
+              --repo NixOS/nix-installer \
+              --exclude-drafts \
+              --exclude-pre-releases \
+              --limit 1 \
+              --json tagName \
+              --jq '.[0].tagName')
+            # tagName は "v2.35.1" 形式と "2.35.1" 形式が混在するので "v" を取り除く
+            latest="${latest#v}"
+            echo "version=$latest" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if version is already pinned
+        id: check
+        run: |
+          current=$(awk -F'"' '/^version *= */ {print $2}' "$MANIFEST_PATH")
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          if [ "$current" = "${{ steps.ver.outputs.version }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Early exit if already pinned
+        if: steps.check.outputs.skip == 'true'
+        run: echo "Manifest already at ${{ steps.ver.outputs.version }}. Nothing to do."
+
+      - name: Fetch SHA256SUMS
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          v="${{ steps.ver.outputs.version }}"
+          curl -fsSL \
+            -o SHA256SUMS \
+            "https://github.com/NixOS/nix-installer/releases/download/${v}/SHA256SUMS"
+          echo "::group::SHA256SUMS"
+          cat SHA256SUMS
+          echo "::endgroup::"
+
+      - name: Verify SLSA provenance (gh attestation verify)
+        if: steps.check.outputs.skip != 'true'
+        id: slsa
+        run: |
+          set -euo pipefail
+          v="${{ steps.ver.outputs.version }}"
+          fail_open=0
+          for asset in $ASSET_NAMES; do
+            # 既定の digest algorithm は sha256
+            url="https://github.com/NixOS/nix-installer/releases/download/${v}/${asset}"
+            if gh attestation verify "$url" \
+                --repo NixOS/nix-installer \
+                --predicate-type https://slsa.dev/provenance/v1; then
+              echo "  ✓ $asset: SLSA provenance OK"
+            else
+              echo "  ✗ $asset: SLSA provenance verification FAILED"
+              fail_open=1
+            fi
+          done
+          if [ "$fail_open" -ne 0 ]; then
+            echo "slsa_failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "slsa_failed=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Open issue on SLSA failure
+        if: steps.slsa.outputs.slsa_failed == 'true'
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          gh issue create \
+            --title "upstream nix-installer ${v}: SLSA provenance verification failed" \
+            --body "$(cat <<EOF
+          Release [\`${v}\`](https://github.com/NixOS/nix-installer/releases/tag/${v}) の SLSA provenance 検証が失敗しました。
+
+          - workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          - 対象 asset: ${ASSET_NAMES}
+
+          手動で原因確認 (workflow run log / upstream SLSA source) を行い、
+          上流に問題がある場合は bump を棄却、上流復旧後に再実行してください。
+          EOF
+          )"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fail job on SLSA failure (do not bump)
+        if: steps.slsa.outputs.slsa_failed == 'true'
+        run: |
+          echo "SLSA provenance 検証が失敗したため bump を中断します (design.md D3)。"
+          exit 1
+
+      - name: Update bootstrap-manifest.toml
+        if: steps.slsa.outputs.slsa_failed != 'true' && steps.check.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          v="${{ steps.ver.outputs.version }}"
+
+          # x86_64-linux, aarch64-linux, aarch64-darwin の sha256 を抽出
+          declare -A arch_to_asset=(
+            [x86_64-linux]=nix-installer-x86_64-linux
+            [aarch64-linux]=nix-installer-aarch64-linux
+            [aarch64-darwin]=nix-installer-aarch64-darwin
+          )
+
+          new_block="[managed_nix]\nversion = \"${v}\"\n\n[managed_nix.sha256_by_arch]\n"
+          for arch in x86_64-linux aarch64-linux aarch64-darwin; do
+            asset="${arch_to_asset[$arch]}"
+            sha=$(awk -v a="$asset" '$2 == a {print $1}' SHA256SUMS | tr 'A-F' 'a-f')
+            if [ -z "$sha" ]; then
+              echo "::error::sha256 for $asset not found in SHA256SUMS"
+              exit 1
+            fi
+            new_block+="$(printf '%-14s = "%s"\n' "$arch" "$sha")"
+          done
+
+          printf '%b\n' "$new_block" > "$MANIFEST_PATH"
+          echo "::group::Updated manifest"
+          cat "$MANIFEST_PATH"
+          echo "::endgroup::"
+
+      - name: Create bump PR
+        if: steps.slsa.outputs.slsa_failed != 'true' && steps.check.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          v="${{ steps.ver.outputs.version }}"
+          branch="bump/nix-installer-${v}"
+          git config user.name "schneeforge-bump-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add "$MANIFEST_PATH"
+          git commit -m "bump(nix-installer): ${v}
+
+          SLSA provenance verified via \`gh attestation verify\`.
+          SHA256SUMS fetched from upstream release ${v}.
+
+          This bump was created automatically by upstream-nix-installer workflow.
+          Evaluate before merge per design.md D3 (release-cycle, not latest-tracking).
+
+          Source: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          "
+          git push origin "$branch"
+          gh pr create \
+            --base develop \
+            --head "$branch" \
+            --title "bump(nix-installer): ${v}" \
+            --body "$(cat <<EOF
+          ## Summary
+          - bootstrap-manifest.toml を nix-installer \`v${v}\` へ bump
+          - SLSA provenance 検証済み (\`gh attestation verify\`)
+          - SHA256SUMS は upstream release から取得
+
+          ## Merge criteria (design.md D3)
+          - [ ] breaking change 無し (CLI flag / receipt schema)
+          - [ ] Linux x86_64 smoke test 通過
+          - [ ] macOS aarch64 smoke test 通過 (ADR-0001 Final acceptance)
+          - [ ] SchneeForge release cycle 上で評価済み
+
+          自動生成元: [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          EOF
+          )"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

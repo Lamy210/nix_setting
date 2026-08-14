@@ -35,14 +35,21 @@ curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/main/install.sh
 ### 手動
 
 ```bash
-# 1. Nix インストール
-curl -L https://nixos.org/nix/install | sh
-
-# 2. クローン & 適用 (OS/arch を自動検出)
+# 1. クローン (OS/arch を自動検出)
 git clone https://github.com/Lamy210/nix_setting.git "$HOME/nix_setting"
 cd "$HOME/nix_setting"
+
+# 2. Managed Nix install (NixOS/nix-installer を SchneeForge が subprocess 実行)
+sudo schneeforge nix install
+schneeforge nix doctor     # /nix/receipt.json + nix store ping + flakes 確認
+
+# 3. dotfiles 適用
 ./bootstrap.sh
 ```
+
+Managed Nix は `bootstrap-manifest.toml` で version + SHA256 を pin し、
+online で download + verify する。offline 配布・DMG bundle は Phase 2。
+詳細: `docs/adr/0001-managed-nix-provider.md`
 
 ### 診断のみ
 
@@ -163,6 +170,9 @@ nh darwin switch .#darwinConfigurations.macbook-air   # Homebrew cask も自動�
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — 設計方針・責務分離
 - [docs/runtime-ownership.md](./docs/runtime-ownership.md) — runtime 管理の責務
 - [docs/terminal-spec.md](./docs/terminal-spec.md) — 全体仕様
+- [docs/schneeforge-spec.md](./docs/schneeforge-spec.md) — SchneeForge 全体仕様書
+- [docs/adr/0001-managed-nix-provider.md](./docs/adr/0001-managed-nix-provider.md) — Managed Nix provider 決定 (NixOS/nix-installer)
+- [docs/spikes/2026-08-14-nix-bootstrap-provider-evaluation/spike-report.md](./docs/spikes/2026-08-14-nix-bootstrap-provider-evaluation/spike-report.md) — Provider 評価 Spike
 
 ## カスタマイズ
 
