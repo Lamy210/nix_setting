@@ -38,7 +38,6 @@ pub enum ManagedNixError {
     PlanFileNotFound {
         path: PathBuf,
     },
-    PlannerConflict,
     ExistingNixDetected {
         path: PathBuf,
     },
@@ -93,9 +92,6 @@ impl std::fmt::Display for ManagedNixError {
             }
             ManagedNixError::PlanFileNotFound { path } => {
                 write!(f, "plan file not found: {}", path.display())
-            }
-            ManagedNixError::PlannerConflict => {
-                write!(f, "--plan and planner-subcommand are mutually exclusive")
             }
             ManagedNixError::ExistingNixDetected { path } => write!(
                 f,

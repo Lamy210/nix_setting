@@ -73,16 +73,12 @@ SchneeForge SHALL は upstream release を取り込む CI で SLSA provenance (`
 - **THEN** `gh` や `cosign` が未導入でも manifest の SHA256 比較で検証を完結する
 
 ### Requirement: subprocess 実行と logger stderr parse
-SchneeForge SHALL は nix-installer を subprocess 実行し、plan.json を **positional argument** として渡し (`install <plan.json>`)、`--logger json` の stderr を JSON Lines として best-effort parse する。SchneeForge 側で phase (Download / Verify / Privilege / Plan / Install / PostInstall) を管理し、installer 内部のメッセージに直接依存しない。plan と planner-subcommand は排他 (両方渡すと upstream が error)。flakes は plan 生成時 (`plan <planner> --enable-flakes`) に plan へ焼き込み、install replay 時には再度指定しない。
+SchneeForge SHALL は nix-installer を subprocess 実行し、plan.json を **positional argument** として渡し (`install <plan.json>`)、`--logger json` の stderr を JSON Lines として best-effort parse する。SchneeForge 側で phase (Download / Verify / Privilege / Plan / Install / PostInstall) を管理し、installer 内部のメッセージに直接依存しない。plan と planner-subcommand は upstream 側で排他 (両方渡すと upstream が error。SchneeForge は plan を secure dir 内で生成するため user がこの状態を作ることはできない)。flakes は plan 生成時 (`plan <planner> --enable-flakes`) に plan へ焼き込み、install replay 時には再度指定しない。
 
 #### Scenario: subprocess で install を実行
 - **WHEN** `schneeforge nix install` を実行する
 - **THEN** `nix-installer install <plan.json> --logger json --no-confirm` を subprocess で起動する (plan は positional)
 - **AND** stderr の JSON Lines を SchneeForge 側 phase へ map して progress 表示する
-
-#### Scenario: plan と planner-subcommand の同時指定は不可
-- **WHEN** 何らかの理由で plan と planner-subcommand を同時に指定した場合
-- **THEN** nix-installer 側で error となり、SchneeForge は `ManagedNixError::PlannerConflict` として報告する
 
 #### Scenario: installer 内部メッセージの schema 変更に耐性がある
 - **WHEN** upstream が installer 内部の `Step: *` メッセージを変更する
@@ -164,8 +160,12 @@ SchneeForge SHALL は `/nix/receipt.json` を source of truth とし、独自の
 - **THEN** `/nix/receipt.json` を読み、`version / actions / planner` を表示する
 - **AND** SchneeForge は別の場所へ receipt を複製しない
 
-#### Scenario: receipt が存在しない
-- **WHEN** `/nix/receipt.json` が存在しない状態で doctor / uninstall を実行する
+#### Scenario: doctor は receipt が無くても診断を継続する
+- **WHEN** `/nix/receipt.json` が存在しない状態で doctor を実行する
+- **THEN** 「receipt not found」を状態として報告し、Managed Nix 未 install の可能性を案内した上で他項目の診断を継続する (doctor は fresh machine でも動く診断コマンドであるため、正常終了する)
+
+#### Scenario: uninstall は receipt が無ければ停止する
+- **WHEN** `/nix/receipt.json` が存在しない状態で uninstall を実行する
 - **THEN** `ReceiptNotFound` エラーで停止し、手動対応を案内する
 
 ### Requirement: uninstall の順序保証
