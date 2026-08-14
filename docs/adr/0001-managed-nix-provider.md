@@ -101,7 +101,7 @@ SchneeForge の Managed-Nix の default provider として **NixOS/nix-installer
    - install → self-test → flakes 動作 → receipt 確認 → uninstall → cleanup 確認
 2. **README "Stable (see note)" の note 行方**: 本家 issue で確認し、SchneeForge 側の doctor メッセージに必要なら反映する。
 3. **nix-installer ↔ nix-darwin 順序**: Nix 先か nix-darwin 先か。SchneeForge の First Run Wizard で規定する。
-4. **nix-darwin の安全な取り外し手順**: nix-darwin には `darwin-rebuild uninstall` の類の公式サブコマンドが存在しない。SchneeForge 側で「nix-darwin を外す」ことを (a) `/etc/static` 等の手動削除スクリプトで定義するか、(b) 警告のみ出してユーザーへ丸投げするか、(c) 別 change で設計するかを決める。Phase 1 は (b) で暫定対応。
+4. **nix-darwin の安全な取り外し手順**: nix-darwin 公式が `nix-darwin#darwin-uninstaller` を提供している (`sudo nix --extra-experimental-features "nix-command flakes" run nix-darwin#darwin-uninstaller`、install 済みなら `sudo darwin-uninstaller`)。〔2026-08-14 修正: 旧記述「公式 uninstaller が存在しない」は誤りだった〕SchneeForge 側の案内は公式 uninstaller の実行で Phase 1 暫定対応。SchneeForge からの自動呼び出しは別 change で設計する。
 5. **DMG bundle 配布**: 別 ADR で LGPL-2.1 再配布条件を満たす方法を決める。
 6. **downgrade**: installer が古い版から新しい版への移行はサポートするが、逆方向 (downgrade) の取扱を SchneeForge 側で保証するか。
 

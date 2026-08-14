@@ -39,13 +39,24 @@ curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/main/install.sh
 git clone https://github.com/Lamy210/nix_setting.git "$HOME/nix_setting"
 cd "$HOME/nix_setting"
 
-# 2. Managed Nix install (NixOS/nix-installer を SchneeForge が subprocess 実行)
+# 2. schneeforge CLI を取得 (cargo build または GitHub Release の binary)
+cargo build --release -p schneeforge
+#    (Release を使う場合: schneeforge-<os>-<arch> を download して PATH へ)
+
+# 3. Managed Nix install (NixOS/nix-installer を SchneeForge が subprocess 実行)
 sudo schneeforge nix install
 schneeforge nix doctor     # /nix/receipt.json + nix store ping + flakes 確認
 
-# 3. dotfiles 適用
+# 4. dotfiles 適用
 ./bootstrap.sh
 ```
+
+> **注意 (現在の推奨経路について)**: 上のワンライナー (`install.sh`) は Nix
+> 未導入時に `curl -L https://nixos.org/nix/install | sh` を直接実行する
+> ため、SchneeForge の ownership 管理 (`/nix/schneeforge-managed.json`) は
+> 作成されません。Managed Nix 経由 (`schneeforge nix install`) を使うと
+> version pinning・SHA256 検証・uninstall 時の ownership check が有効に
+> なります。`install.sh` の Managed Nix 統合は次フェーズで予定。
 
 Managed Nix は `bootstrap-manifest.toml` で version + SHA256 を pin し、
 online で download + verify する。offline 配布・DMG bundle は Phase 2。

@@ -33,8 +33,14 @@ SchneeForge SHALL は `bootstrap-manifest.toml` で nix-installer の version �
 - **THEN** manifest の nix-installer version は SchneeForge release 単位で pin される
 - **AND** 利用者 PC で nix-installer の最新版が自動取得されることは無い
 
-### Requirement: アプリデータ配下へのキャッシュ
-SchneeForge SHALL は download した nix-installer binary を `XDG_DATA_HOME/schneeforge/managed-nix/{version}/nix-installer` へキャッシュし、二回目以降の install は offline で動作させる。
+### Requirement: installer binary のキャッシュ
+SchneeForge SHALL は download した nix-installer binary を実行権限ごとに分かれた cache へ保存し、二回目以降の install は offline で動作させる。
+
+- **root 実行 (Phase 1 CLI の通常経路)**: privileged state dir 配下
+  (`/var/lib/schneeforge` (Linux) / `/private/var/db/schneeforge` (macOS))
+  の `managed-nix/cache/{version}/nix-installer`。sudo で user の HOME/XDG が
+  持ち込まれても user-writable path を root 実行 binary の cache に使わない
+- **非 root (将来の prefetch 用)**: `XDG_DATA_HOME/schneeforge/managed-nix/{version}/nix-installer`
 
 #### Scenario: 初回 install は online 必須
 - **WHEN** キャッシュが無い状態で `schneeforge nix install` を実行する
@@ -132,11 +138,12 @@ SchneeForge SHALL は install 成功時に `/nix/schneeforge-managed.json` へ o
 - **THEN** 既定では error で停止する (valid な ownership を別 receipt への root 実行に転用させない)
 
 ### Requirement: root 実行時の privileged state は root 管理下に置く
-SchneeForge SHALL は root 実行時の installer cache と plan file を `/var/lib/schneeforge` 配下に置き、sudo で持ち込まれた user の HOME/XDG 変数に依存した user-writable path を root 実行 binary の保存先に使わない。
+SchneeForge SHALL は root 実行時の installer cache と plan file を privileged state dir (Linux: `/var/lib/schneeforge`、macOS: `/private/var/db/schneeforge`) 配下に置き、sudo で持ち込まれた user の HOME/XDG 変数に依存した user-writable path を root 実行 binary の保存先に使わない。macOS では `/var` が `/private/var` への symlink であるため、symlink を含まない実 path を使う。
 
 #### Scenario: root 実行時の cache path
 - **WHEN** root で `schneeforge nix install` を実行する
-- **THEN** installer binary は `/var/lib/schneeforge/managed-nix/cache/{version}/nix-installer` に保存される
+- **THEN** installer binary は privileged state dir 配下の `managed-nix/cache/{version}/nix-installer` に保存される
+- **AND** macOS では `/private/var/db/schneeforge`、Linux では `/var/lib/schneeforge` を使う
 
 #### Scenario: download の temp file は既存 file や symlink を open しない
 - **WHEN** installer binary を download する
@@ -162,11 +169,11 @@ SchneeForge SHALL は `/nix/receipt.json` を source of truth とし、独自の
 - **THEN** `ReceiptNotFound` エラーで停止し、手動対応を案内する
 
 ### Requirement: uninstall の順序保証
-SchneeForge SHALL は uninstall 時に nix-darwin の残留を検出し、残留時は nix-installer の uninstall を呼ぶ前に SSL cert 破損リスクを警告する。Phase 1 では nix-darwin の自動取り外しは行わず、ユーザーへ手動対応を促す (nix-darwin の安全な取り外し手順は ADR-0001 Open Question 4。別 change で設計後に自動化へ昇格)。
+SchneeForge SHALL は uninstall 時に nix-darwin の残留を検出し、残留時は nix-installer の uninstall を呼ぶ前に SSL cert 破損リスクを警告する。Phase 1 では nix-darwin の自動取り外しは行わず、公式 uninstaller (`nix-darwin#darwin-uninstaller`) の実行を案内する (SchneeForge からの自動呼び出しは別 change で設計後に自動化へ昇格)。
 
 #### Scenario: nix-darwin 残留時は警告して abort
 - **WHEN** nix-darwin が検出される状態で `schneeforge nix uninstall` を実行する
-- **THEN** SSL cert 破損リスクを警告し、先に nix-darwin を手動で外すよう案内して abort する
+- **THEN** SSL cert 破損リスクを警告し、公式 uninstaller (`nix-darwin#darwin-uninstaller`) の実行を案内して abort する
 - **AND** SchneeForge は自動的な nix-darwin 削除を実行しない (Phase 1)
 
 #### Scenario: nix-darwin 非残留時はそのまま uninstall
