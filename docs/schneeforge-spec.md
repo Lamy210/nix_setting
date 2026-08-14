@@ -78,6 +78,20 @@ Presentation (CLI / TUI / GUI)
 - macOS DMG (Tauri 2) / Linux CLI
 - self-update
 
+#### Managed Nix bootstrap (Phase 1 実装済、ADR-0001)
+
+SchneeForge は NixOS/nix-installer (LGPL-2.1) を外部 subprocess として呼び、
+`/nix/receipt.json` を source of truth とする。
+
+- **Provider**: `https://github.com/NixOS/nix-installer/releases/download/{tag}/nix-installer-{arch}`
+- **Arch support (Phase 1)**: `x86_64-linux`, `aarch64-linux`, `aarch64-darwin`
+- **Supply chain**: 2 層 (CI で `gh attestation verify` + SHA256SUMS → manifest bump。runtime は pinned SHA256 の比較のみ)
+- **Manifest**: `bootstrap-manifest.toml` が version + sha256_by_arch を pin
+- **CLI**: `schneeforge nix install|doctor|uninstall`
+- **Plan UX**: 2 段階 (root 不要 preflight → privilege escalation → detailed plan → install)
+- **License**: 別プロセス (pipe/socket/args) なので SchneeForge コードへライセンス伝染なし
+- 詳細: `docs/adr/0001-managed-nix-provider.md`, `openspec/changes/add-managed-nix-bootstrap/`
+
 ## ADR (実装前に決定)
 
 | # | 事項 | 推奨 |

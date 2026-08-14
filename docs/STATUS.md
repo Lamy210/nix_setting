@@ -2,7 +2,7 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-08-13
+最終更新: 2026-08-14
 
 ## 完成済み
 
@@ -37,9 +37,9 @@
 | uninstall の副作用排除（#10） | #7 |
 | archive-before-pr のドキュメント修正（プロセス改善） | #8 |
 
-### runtime-tool-resolution-hardening（実装完了・archive 待ち）
+### runtime-tool-resolution-hardening（実装完了・merge 済み #11）
 
-P0-1〜P0-5 を 1 change に統合して実装。
+P0-1〜P0-5 を 1 change に統合して実装。PR #11 (squash) で develop へ merge 済み。
 
 - **P0-1 ToolResolver 強化**: `ToolSource` / `ResolvedTool` / `Toolchain` / `ToolchainError` 追加。8 段階の探索優先度（env → PATH → XDG state → Nix profile 群 → per-user → system profile → Homebrew）。`canonicalize` で symlink 解決。
 - **P0-2 全操作の Toolchain 経由化**: `actions` / `operations` / `bootstrap` の全関数が `&Toolchain` 受け。`process` 系は `&str` → `&Path` へ型変更。
@@ -49,13 +49,18 @@ P0-1〜P0-5 を 1 change に統合して実装。
 - **前提**: `fix-path-env-rs` 追加（macOS の Finder/Spotlight 起動時の PATH 欠損を補正）。
 - **CI 再発防止**: `lint` job に "forbid raw tool spawns" step 追加。`tool.rs` / `cli/tests/` 以外での文字列リテラル spawn を禁止。
 - **GUI 側**: `CachedToolchain` (`Mutex<Option<Toolchain>>`) を `tauri::State` で保持。フロントエンド型定義の更新（`NixHealth` / `ToolchainSummary` 表示）は後続の GUI P1 変更で対応。
+- **未完了**: macOS desktop build + Finder launch 実機検証 (CI の macos-check は green だが実機 smoke は別途)。
+
+### docs/release-checklist-and-tap-sync（merge 済み #12）
+
+RELEASE.md のリリースチェックリスト再構築 + weekly workflow の権限修正。
 
 ## 進行中
 
 | 項目 | 進捗 | 場所 |
 |------|------|------|
-| runtime-tool-resolution-hardening | 実装完了・品質ゲート通過（cargo test/clippy/fmt, openspec validate） | feature branch |
-| PR #6/#7/#8/#9 | review 待ち | GitHub |
+| Managed Nix Bootstrap (NixOS/nix-installer 統合) | OpenSpec change `add-managed-nix-bootstrap` 起票・ADR-0001 provisionally accepted | `feat/managed-nix-bootstrap` branch |
+| Spike `nix-bootstrap-provider-evaluation` | 完了 (Linux x86_64 実測済み、macOS aarch64 は ADR final acceptance 条件) | `openspec/changes/spike-nix-bootstrap-provider-evaluation/` |
 
 ## 既知のデグレ・機能漏れ（要対応）
 
@@ -79,10 +84,11 @@ P0-1〜P0-5 を 1 change に統合して実装。
 
 ## 次の作業（推奨順）
 
-1. 開いている PR（#6/#7/#8/#9）のレビュー・merge
-2. merge 後に各 change を archive（`openspec archive <name>`、PR 前にやる流儀に統一）
-3. 残デグレ対応:
-   - #5 GUI 特権ヘルパー（macOS authorization）— 大きな変更、新規 change で
+1. **Managed Nix Bootstrap (Phase 1) の実装** — `add-managed-nix-bootstrap` tasks.md に従い、Core `managed_nix` module → CLI `schneeforge nix install/doctor/uninstall` → `bootstrap-manifest.toml` → release bump CI → spec 更新 → test → docs → archive → PR
+2. **ADR-0001 Final acceptance**: macOS aarch64 disposable env で smoke test (install / self-test / flakes / receipt / uninstall / cleanup) を実施し、Status を `Accepted` へ昇格
+3. **PR #11 の macOS Finder 実機 smoke** (CI は green だが未実施)
+4. 残デグレ対応:
+   - #5 GUI 特権ヘルパー（macOS authorization）— privileged-gui-operations で Managed Nix と統合
    - #12 install.sh の Stable/Edge 分離（release 方針の判断）
    - バージョン bump（release/* ブランチで）
 

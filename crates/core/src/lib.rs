@@ -4,6 +4,7 @@ pub mod diagnostics;
 pub mod discovery;
 pub mod error;
 pub mod lock;
+pub mod managed_nix;
 pub mod manifest;
 pub mod operations;
 pub(crate) mod process;
@@ -28,6 +29,14 @@ pub use discovery::{
 };
 pub use error::{Error, Result};
 pub use lock::{OperationGuard, OperationLock};
+pub use managed_nix::{
+    cache_path, default_ownership_path, default_receipt_path, download, download_text,
+    existing_nix_detected, install_args, installed_binary_path, is_root, parse_json_line,
+    parse_sha256_sums, plan_args, planner_name, run_with_json_logs, secure_plan_dir, sha256_hex,
+    summarize_plan, uninstall_args, verify_file, verify_sha256, BootstrapManifest, InstallPhase,
+    JsonLogLine, ManagedNix, ManagedNixError, ManagedNixSection, NoProgress, OwnershipRecord,
+    PreflightSummary, ProgressSink, Provider, Receipt, Sha256ByArch,
+};
 pub use manifest::{Manifest, Validation};
 pub use operations::{
     apply, plan, plan_target, rollback, sync, upgrade, verify, ApplyResult, PlanResult,

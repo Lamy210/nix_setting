@@ -181,6 +181,11 @@ jobs:
       - name: bats test (resolve-tools)
         run: nix run nixpkgs#bats -- tests/resolve-tools.bats
 
+      # pin 済み nix-installer 実 binary との invocation contract 検証
+      # (install <plan> positional / SHA256 pin / --plan long flag 不在)
+      - name: bats test (managed-nix contract)
+        run: nix run nixpkgs#bats -- tests/managed-nix-contract.bats
+
       - name: nix-unit test
         run: nix run nixpkgs#nix-unit -- tests/nix-unit.nix
 

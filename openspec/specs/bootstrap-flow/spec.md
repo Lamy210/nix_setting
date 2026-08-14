@@ -4,7 +4,7 @@
 SchneeForge の初回インストールから apply / verify までのフローを定義する。fresh machine では Nix / Git / flakes の前提を整え、既存ユーザーは再適用時に committed username を保持する。shell installer (`install.sh` / `bootstrap.sh`) は Rust 側 `ToolResolver` と同じ探索ルールでツールを解決し、重複インストールを避ける。
 ## Requirements
 ### Requirement: fresh install のセットアップフロー
-repository が存在しない場合、通常画面ではなくセットアップフローへ誘導する SHALL である。セットアップフロー SHALL は `Toolchain` を解決した上で、Nix 未検出と flakes 無効を区別して扱う。
+repository が存在しない場合、通常画面ではなくセットアップフローへ誘導する SHALL である。セットアップフロー SHALL は `Toolchain` を解決した上で、Nix 未検出と flakes 無効を区別して扱い、Nix が未検出の場合は curl|sh ではなく SchneeForge Managed Nix (`schneeforge nix install` / NixOS/nix-installer) の実行を案内する。
 
 #### Scenario: repository が無い場合
 - **WHEN** ユーザーが fresh machine で GUI を起動する
@@ -18,7 +18,8 @@ repository が存在しない場合、通常画面ではなくセットアップ
 
 #### Scenario: Nix 未検出時のメッセージ
 - **WHEN** セットアップフロー中に Nix が未検出になる
-- **THEN** 「Nix をインストールしてください（curl -L https://nixos.org/nix/install | sh）」を表示する
+- **THEN** curl|sh の案内ではなく、SchneeForge Managed Nix (`schneeforge nix install` を起動) の案内と [Install Nix] アクションを提供する
+- **AND** SchneeForge Managed Nix は NixOS/nix-installer を用いて receipt付きで導入する旨を表示する
 
 #### Scenario: Nix 検出済みで flakes 無効
 - **WHEN** セットアップフロー中に Nix は検出されたが flakes が無効
