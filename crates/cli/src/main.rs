@@ -129,7 +129,7 @@ fn doctor(tc: &ToolInventory) -> Result {
     println!("[managed nix]");
     // D7: schneeforge doctor から schneeforge nix doctor を呼び出して nix 関連 section を埋める
     // 失敗しても全体の doctor は継続する (nix 未 install 環境を考慮)
-    if let Err(e) = nix_cmd::run_doctor() {
+    if let Err(e) = nix_cmd::run_doctor(Some(tc)) {
         println!("  (managed nix doctor failed: {e})");
     }
     Ok(())
@@ -269,9 +269,10 @@ fn load_manifest(repo: &str) -> Option<Manifest> {
 }
 
 fn run_nix(sub: NixSub, repo: &str) -> Result {
+    let tc = ToolInventory::discover();
     match sub {
         NixSub::Install(args) => nix_cmd::run_install(repo, args),
-        NixSub::Doctor => nix_cmd::run_doctor(),
+        NixSub::Doctor => nix_cmd::run_doctor(Some(&tc)),
         NixSub::Uninstall(args) => nix_cmd::run_uninstall(args),
     }
 }

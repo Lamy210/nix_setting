@@ -62,24 +62,8 @@ pub fn parse_json_line(line: &str) -> Option<JsonLogLine> {
     serde_json::from_str(trimmed).ok()
 }
 
-/// planner 名を platform から決める (linux / macos / steam-deck / ostree は
-/// SchneeForge では linux と macos のみを自動選択)
-pub fn planner_for(platform: Platform) -> Result<&'static str, ManagedNixError> {
-    match platform {
-        Platform::Linux => Ok("linux"),
-        Platform::MacOS => Ok("macos"),
-        Platform::Unsupported => Err(ManagedNixError::UnsupportedArch {
-            arch: format!("{platform}"),
-        }),
-    }
-}
-
 /// `nix-installer plan <planner>` の CLI args を構築する
-pub fn plan_args(
-    planner: &str,
-    out_file: &Path,
-    extra_conf: &[String],
-) -> Vec<String> {
+pub fn plan_args(planner: &str, out_file: &Path, extra_conf: &[String]) -> Vec<String> {
     let mut args = vec![
         "plan".to_string(),
         planner.to_string(),
@@ -119,7 +103,7 @@ pub fn uninstall_args(receipt: Option<&Path>) -> Vec<String> {
 }
 
 /// subprocess を spawn し、stderr を JSON Lines で best-effort parse しながら callback へ渡す。
-/// exit code 0 以外は `Subprocess` エラー。
+/// exit code 0 以外は `Subprocess` エラー (stderr の最後の N 行を保持)。
 pub fn run_with_json_logs<F>(
     binary: &Path,
     args: &[String],
@@ -138,11 +122,19 @@ where
             source: e.to_string(),
         })?;
 
+    // 失敗時の診断用に stderr の最後の N 行を保持 (ring buffer)
+    const TAIL_LINES: usize = 20;
+    let mut tail: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+
     if let Some(stderr) = child.stderr.take() {
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
             match line {
                 Ok(s) => {
+                    tail.push_back(s.clone());
+                    if tail.len() > TAIL_LINES {
+                        tail.pop_front();
+                    }
                     if let Some(parsed) = parse_json_line(&s) {
                         on_line(&parsed);
                     } else {
@@ -170,7 +162,7 @@ where
     } else {
         Err(ManagedNixError::Subprocess {
             exit_status: status.code(),
-            stderr_tail: String::new(),
+            stderr_tail: tail.into_iter().collect::<Vec<_>>().join("\n"),
         })
     }
 }
@@ -231,11 +223,7 @@ mod tests {
 
     #[test]
     fn plan_args_basic() {
-        let args = plan_args(
-            "linux",
-            Path::new("/tmp/plan.json"),
-            &[],
-        );
+        let args = plan_args("linux", Path::new("/tmp/plan.json"), &[]);
         assert_eq!(args[0], "plan");
         assert_eq!(args[1], "linux");
         assert!(args.contains(&"--enable-flakes".to_string()));
@@ -275,10 +263,7 @@ mod tests {
     #[test]
     fn uninstall_args_with_receipt() {
         let args = uninstall_args(Some(Path::new("/nix/receipt.json")));
-        assert_eq!(
-            args,
-            vec!["uninstall", "--no-confirm", "/nix/receipt.json"]
-        );
+        assert_eq!(args, vec!["uninstall", "--no-confirm", "/nix/receipt.json"]);
     }
 
     #[test]

@@ -1,8 +1,21 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::managed_nix::error::ManagedNixError;
+
+/// download / text 取得に使う HTTP client。
+/// network hang で永久待ちしないよう timeout を設定する。
+fn http_client() -> Result<reqwest::blocking::Client, ManagedNixError> {
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .connect_timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| ManagedNixError::Download {
+            source: format!("build http client: {e}"),
+        })
+}
 
 /// `XDG_DATA_HOME/schneeforge/managed-nix/{version}/nix-installer` のキャッシュパスを返す。
 /// `XDG_DATA_HOME` 未設定時は `~/.local/share` へ fall back する。
@@ -29,7 +42,9 @@ pub fn download(url: &str, dest: &Path) -> Result<(), ManagedNixError> {
     }
 
     let tmp = dest.with_extension("part");
-    let mut resp = reqwest::blocking::get(url)
+    let mut resp = http_client()?
+        .get(url)
+        .send()
         .map_err(|e| classify_reqwest_error(&NetworkClassifier::from(&e), dest.exists()))?;
 
     if !resp.status().is_success() {
@@ -43,9 +58,10 @@ pub fn download(url: &str, dest: &Path) -> Result<(), ManagedNixError> {
             context: format!("create {}", tmp.display()),
             source: e.to_string(),
         })?;
-        resp.copy_to(&mut file).map_err(|e| ManagedNixError::Download {
-            source: format!("body read: {e}"),
-        })?;
+        resp.copy_to(&mut file)
+            .map_err(|e| ManagedNixError::Download {
+                source: format!("body read: {e}"),
+            })?;
         file.flush().map_err(|e| ManagedNixError::Io {
             context: format!("flush {}", tmp.display()),
             source: e.to_string(),
@@ -105,10 +121,7 @@ impl NetworkClassifier {
     }
 }
 
-fn classify_reqwest_error(
-    cls: &NetworkClassifier,
-    dest_exists: bool,
-) -> ManagedNixError {
+fn classify_reqwest_error(cls: &NetworkClassifier, dest_exists: bool) -> ManagedNixError {
     if cls.is_network() && !dest_exists {
         return ManagedNixError::NetworkRequired;
     }
@@ -119,7 +132,10 @@ fn classify_reqwest_error(
 
 /// URL から文字列を GET する (SHA256SUMS の取得等)
 pub fn download_text(url: &str) -> Result<String, ManagedNixError> {
-    reqwest::blocking::get(url)
+    let client = http_client()?;
+    client
+        .get(url)
+        .send()
         .and_then(|r| r.text())
         .map_err(|e| ManagedNixError::Download {
             source: format!("{url}: {e}"),

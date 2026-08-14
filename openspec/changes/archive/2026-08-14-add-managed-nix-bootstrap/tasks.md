@@ -41,7 +41,7 @@
 - [ ] 7.2 integration: Docker container 上の fresh host (Linux x86_64) で `schneeforge nix install` → `doctor` → `uninstall`
 - [ ] 7.3 **integration: macOS aarch64 disposable env で install / self-test / flakes / receipt / uninstall / cleanup** (ADR-0001 Final acceptance)
 - [ ] 7.4 regression: `/nix/receipt.json` 存在時の冪等性 (2 回目 install は skip or up-to-date)
-- [x] 7.5 regression: nix-darwin 残留時の uninstall 警告 + abort メッセージ (CLI test 有)
+- [ ] 7.5 regression: nix-darwin 残留時の uninstall 警告 + abort メッセージ
 - [x] 7.6 regression: root 未実行時に `sudo schneeforge nix install ...` の再実行を案内するメッセージ (CLI test 有)
 
 ## 8. Docs

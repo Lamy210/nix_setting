@@ -119,15 +119,11 @@ fn doctor_succeeds_and_reports_missing_nix_without_nix() {
 #[test]
 fn nix_subcommand_help_lists_actions() {
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
-    cmd.arg("nix")
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(
-            predicate::str::contains("install")
-                .and(predicate::str::contains("doctor"))
-                .and(predicate::str::contains("uninstall")),
-        );
+    cmd.arg("nix").arg("--help").assert().success().stdout(
+        predicate::str::contains("install")
+            .and(predicate::str::contains("doctor"))
+            .and(predicate::str::contains("uninstall")),
+    );
 }
 
 /// `schneeforge nix doctor` は Nix/receipt 無しでも動き、receipt not found を表示する (D7)

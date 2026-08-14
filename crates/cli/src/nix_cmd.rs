@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use clap::Args;
 
 use schneeforge_core::{
-    cache_path, default_receipt_path, detect_arch, detect_platform, has_nix, planner_name,
-    run_with_json_logs, uninstall_args as build_uninstall_args, JsonLogLine, ManagedNix,
-    ManagedNixError, NoProgress, ProgressSink, Receipt,
+    cache_path, default_receipt_path, detect_arch, detect_platform, has_nix, installed_binary_path,
+    nix_health, run_with_json_logs, secure_plan_dir, uninstall_args as build_uninstall_args,
+    JsonLogLine, ManagedNix, ManagedNixError, NoProgress, ProgressSink, Receipt, ToolInventory,
 };
 
 /// `schneeforge nix` サブコマンド
@@ -99,22 +99,10 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
         if let Some(plan) = &args.plan {
             eprintln!("    --plan {}", plan.display());
         }
-        return Err(
-            "not running as root (privilege escalation required)".to_string(),
-        );
+        return Err("not running as root (privilege escalation required)".to_string());
     }
 
-    eprintln!(
-        "[download] resolving asset for {} {}...",
-        preflight.platform, preflight.arch
-    );
-    let binary = mn
-        .fetch_binary(preflight.platform, preflight.arch)
-        .map_err(|e| format!("fetch binary: {e}"))?;
-    eprintln!("[verify]   SHA256 OK: {}", binary.display());
-
-    let planner = planner_name(preflight.platform, preflight.arch)
-        .map_err(|e| format!("resolve planner: {e}"))?;
+    let mut progress = ShellProgress::new();
 
     let plan_file = match &args.plan {
         Some(p) => {
@@ -125,24 +113,27 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
                 ));
             }
             eprintln!("[plan]     using user-supplied plan: {}", p.display());
+            // user-supplied plan でも download + verify は必須
+            let binary = mn
+                .fetch_binary(preflight.platform, preflight.arch)
+                .map_err(|e| format!("fetch binary: {e}"))?;
+            eprintln!("[verify]   SHA256 OK: {}", binary.display());
+            mn.run_install(&binary, p, &mut progress)
+                .map_err(|e| format!("install failed: {e}"))?;
             p.clone()
         }
         None => {
-            let plan_dir = std::env::temp_dir().join("schneeforge-managed-nix");
-            std::fs::create_dir_all(&plan_dir).map_err(|e| format!("create plan dir: {e}"))?;
-            let plan_file = plan_dir.join(format!("plan-{}.json", mn.version()));
-            eprintln!("[plan]     generating plan (planner={planner})...");
-            mn.generate_plan(&binary, planner, &plan_file, &args.extra_conf)
-                .map_err(|e| format!("generate plan: {e}"))?;
-            plan_file
+            let plan_dir = secure_plan_dir().map_err(|e| e.to_string())?;
+            mn.install_with_progress(
+                preflight.platform,
+                preflight.arch,
+                &plan_dir,
+                &args.extra_conf,
+                &mut progress,
+            )
+            .map_err(|e| format!("install failed: {e}"))?
         }
     };
-
-    eprintln!("[install]  invoking nix-installer (stderr → JSON Lines)...");
-    let mut progress = ShellProgress::new();
-    if let Err(e) = mn.run_install(&binary, &plan_file, &mut progress) {
-        return Err(format!("install failed: {e}"));
-    }
 
     eprintln!("[verify]   reading /nix/receipt.json...");
     match Receipt::load_default() {
@@ -152,11 +143,11 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
                 r.version.as_deref().unwrap_or("(unknown)")
             );
             eprintln!("  actions: {}", r.actions.len());
+            let _ = plan_file;
         }
         Err(ManagedNixError::ReceiptNotFound { .. }) => {
             return Err(
-                "install 完了後に /nix/receipt.json が見つかりません (ReceiptNotFound)"
-                    .to_string(),
+                "install 完了後に /nix/receipt.json が見つかりません (ReceiptNotFound)".to_string(),
             );
         }
         Err(e) => return Err(format!("read receipt: {e}")),
@@ -167,7 +158,11 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
 }
 
 /// `schneeforge nix doctor`
-pub fn run_doctor() -> Result {
+///
+/// `ToolInventory` を受け取って `schneeforge_core::nix_health` で nix 関連を診断する。
+/// (ToolInventory 経由で解決した nix binary を使うことで、tool-resolution spec の
+///  「文字列リテラル spawn 禁止」に従う)
+pub fn run_doctor(tc: Option<&ToolInventory>) -> Result {
     println!("=== schneeforge nix doctor ===");
     println!();
 
@@ -182,10 +177,7 @@ pub fn run_doctor() -> Result {
     match Receipt::load(&receipt_path) {
         Ok(r) => {
             println!("  path:    {}", receipt_path.display());
-            println!(
-                "  version: {}",
-                r.version.as_deref().unwrap_or("(missing)")
-            );
+            println!("  version: {}", r.version.as_deref().unwrap_or("(missing)"));
             println!("  actions: {}", r.actions.len());
             if let Some(planner) = &r.planner {
                 if let Some(s) = planner.get("planner").and_then(|v| v.as_str()) {
@@ -204,33 +196,28 @@ pub fn run_doctor() -> Result {
     println!();
 
     println!("[nix runtime]");
-    match std::process::Command::new("nix").args(["store", "ping"]).output() {
-        Ok(out) if out.status.success() => println!("  nix store ping: ok"),
-        Ok(out) => {
-            println!("  nix store ping: failed (exit {:?})", out.status.code());
-            if !out.stderr.is_empty() {
-                let tail = String::from_utf8_lossy(&out.stderr);
-                if let Some(last) = tail.lines().last() {
-                    println!("    stderr (last line): {last}");
-                }
+    match tc {
+        Some(inv) => {
+            let h = nix_health(inv);
+            println!("  installed:        {}", h.installed);
+            if let Some(v) = &h.version {
+                println!("  version:          {v}");
+            }
+            if let Some(exe) = &h.executable {
+                println!("  executable:       {exe}");
+            }
+            println!("  store accessible: {}", h.store_accessible);
+            println!("  flakes available: {}", h.flakes_available);
+            if let Some(err) = &h.error {
+                println!("  error:            {err}");
+            }
+            if let Some(w) = &h.warning {
+                println!("  warning:          {w}");
             }
         }
-        Err(_) => println!("  nix store ping: (nix not found on PATH)"),
-    }
-
-    match std::process::Command::new("nix")
-        .args(["config", "show", "experimental-features"])
-        .output()
-    {
-        Ok(out) if out.status.success() => {
-            let val = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            let has_flakes = val
-                .split_whitespace()
-                .any(|f| f == "flakes" || f == "nix-command");
-            println!("  experimental-features: {val}");
-            println!("  flakes enabled: {has_flakes}");
+        None => {
+            println!("  (ToolInventory 未解決のため skip)")
         }
-        _ => println!("  experimental-features: (unavailable)"),
     }
     Ok(())
 }
@@ -262,9 +249,9 @@ pub fn run_uninstall(args: UninstallArgs) -> Result {
         return Err("not running as root".to_string());
     }
 
-    let local = Path::new("/nix/nix-installer");
+    let local = installed_binary_path();
     let binary = if local.exists() {
-        local.to_path_buf()
+        local
     } else {
         eprintln!("(note) /nix/nix-installer が見つかりません。cached binary を探します。");
         cached_binary_for_receipt(&receipt_path)?
@@ -291,7 +278,16 @@ impl ShellProgress {
 
 impl ProgressSink for ShellProgress {
     fn on_phase(&mut self, phase: schneeforge_core::InstallPhase) {
-        eprintln!("[phase] {phase:?}");
+        // Debug 出力ではなく人間可読な phase 名を表示
+        let label = match phase {
+            schneeforge_core::InstallPhase::Download => "download",
+            schneeforge_core::InstallPhase::Verify => "verify",
+            schneeforge_core::InstallPhase::Privilege => "privilege",
+            schneeforge_core::InstallPhase::Plan => "plan",
+            schneeforge_core::InstallPhase::Install => "install",
+            schneeforge_core::InstallPhase::PostInstall => "post-install",
+        };
+        eprintln!("[phase] {label}");
     }
     fn on_log(&mut self, line: &JsonLogLine) {
         if let Some(level) = &line.level {
@@ -363,13 +359,8 @@ mod tests {
 
     #[test]
     fn parse_uninstall_receipt() {
-        let p = Probe::try_parse_from([
-            "probe",
-            "uninstall",
-            "--receipt",
-            "/nix/receipt.json",
-        ])
-        .unwrap();
+        let p = Probe::try_parse_from(["probe", "uninstall", "--receipt", "/nix/receipt.json"])
+            .unwrap();
         match p.cmd {
             NixSub::Uninstall(a) => {
                 assert_eq!(a.receipt.unwrap(), PathBuf::from("/nix/receipt.json"));

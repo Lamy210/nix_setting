@@ -103,8 +103,6 @@ mod tests {
     #[test]
     fn sha256_sums_url() {
         let p = Provider::new();
-        assert!(p
-            .sha256_sums_url("2.35.1")
-            .ends_with("/2.35.1/SHA256SUMS"));
+        assert!(p.sha256_sums_url("2.35.1").ends_with("/2.35.1/SHA256SUMS"));
     }
 }

@@ -5,20 +5,41 @@ use std::path::PathBuf;
 /// `PartialEq` を導出できるよう、`io::Error` / `ExitStatus` は文字列表現へ変換して保持する。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ManagedNixError {
-    UnsupportedArch { arch: String },
-    ChecksumMismatch { expected: String, actual: String },
+    UnsupportedArch {
+        arch: String,
+    },
+    ChecksumMismatch {
+        expected: String,
+        actual: String,
+    },
     NetworkRequired,
-    ReceiptNotFound { path: PathBuf },
-    Download { source: String },
+    ReceiptNotFound {
+        path: PathBuf,
+    },
+    Download {
+        source: String,
+    },
     Subprocess {
         exit_status: Option<i32>,
         stderr_tail: String,
     },
-    ManifestParse { source: String },
-    PlanFileNotFound { path: PathBuf },
+    ManifestParse {
+        source: String,
+    },
+    ReceiptParse {
+        source: String,
+    },
+    PlanFileNotFound {
+        path: PathBuf,
+    },
     PlannerConflict,
-    ExistingNixDetected { path: PathBuf },
-    Io { context: String, source: String },
+    ExistingNixDetected {
+        path: PathBuf,
+    },
+    Io {
+        context: String,
+        source: String,
+    },
 }
 
 impl std::fmt::Display for ManagedNixError {
@@ -31,7 +52,10 @@ impl std::fmt::Display for ManagedNixError {
                 write!(f, "checksum mismatch (expected {expected}, got {actual})")
             }
             ManagedNixError::NetworkRequired => {
-                write!(f, "network access required but unavailable, and no cached binary")
+                write!(
+                    f,
+                    "network access required but unavailable, and no cached binary"
+                )
             }
             ManagedNixError::ReceiptNotFound { path } => {
                 write!(f, "receipt not found: {}", path.display())
@@ -49,6 +73,9 @@ impl std::fmt::Display for ManagedNixError {
             },
             ManagedNixError::ManifestParse { source } => {
                 write!(f, "bootstrap-manifest parse error: {source}")
+            }
+            ManagedNixError::ReceiptParse { source } => {
+                write!(f, "receipt json parse error: {source}")
             }
             ManagedNixError::PlanFileNotFound { path } => {
                 write!(f, "plan file not found: {}", path.display())

@@ -112,10 +112,7 @@ aarch64-darwin = "feedface"
         let toml_str = m.to_toml().unwrap();
         let m2 = BootstrapManifest::parse(&toml_str).unwrap();
         assert_eq!(m2.managed_nix.version, "2.35.1");
-        assert_eq!(
-            m2.expected_sha256("aarch64-linux").unwrap(),
-            "cafebabe"
-        );
+        assert_eq!(m2.expected_sha256("aarch64-linux").unwrap(), "cafebabe");
     }
 
     #[test]

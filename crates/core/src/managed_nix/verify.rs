@@ -56,7 +56,9 @@ pub fn parse_sha256_sums(sums: &str, asset_basename: &str) -> Option<String> {
         // "<sha256>  <name>" 形式 (二箇所の space or asterisk)
         let mut parts = line.splitn(2, |c: char| c.is_whitespace());
         let sha = parts.next()?.trim();
-        let name = parts.next()?.trim_start_matches(|c: char| c == '*' || c.is_whitespace());
+        let name = parts
+            .next()?
+            .trim_start_matches(|c: char| c == '*' || c.is_whitespace());
         if name == asset_basename {
             return Some(sha.to_lowercase());
         }
@@ -99,11 +101,7 @@ mod tests {
 
     #[test]
     fn verify_match_case_insensitive() {
-        assert!(verify_sha256(
-            "ABCDEF0123456789",
-            "abcdef0123456789"
-        )
-        .is_ok());
+        assert!(verify_sha256("ABCDEF0123456789", "abcdef0123456789").is_ok());
     }
 
     #[test]

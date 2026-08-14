@@ -14,8 +14,8 @@ pub mod verify;
 pub use download::{cache_path, download, download_text};
 pub use error::ManagedNixError;
 pub use installer::{
-    install_args, parse_json_line, plan_args, planner_name, run_with_json_logs, uninstall_args,
-    InstallPhase, JsonLogLine,
+    install_args, installed_binary_path, parse_json_line, plan_args, planner_name,
+    run_with_json_logs, uninstall_args, InstallPhase, JsonLogLine,
 };
 pub use manifest::{BootstrapManifest, ManagedNixSection, Sha256ByArch};
 pub use provider::Provider;
@@ -69,10 +69,7 @@ impl PreflightSummary {
     /// preflight の内容を人間可読で返す (CLI / GUI 共通)
     pub fn summary_lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
-        lines.push(format!(
-            "platform: {} / arch: {}",
-            self.platform, self.arch
-        ));
+        lines.push(format!("platform: {} / arch: {}", self.platform, self.arch));
         if !self.supported {
             lines.push(format!(
                 "  (SchneeForge はこの arch で Managed Nix をサポートしていません: {} {})",
@@ -92,8 +89,7 @@ impl PreflightSummary {
         lines.push("  - flakes (experimental-features)".to_string());
         if self.existing_nix {
             lines.push(
-                "  ⚠ 既存の Nix が検出されています。Managed Nix を上書きで入れません。"
-                    .to_string(),
+                "  ⚠ 既存の Nix が検出されています。Managed Nix を上書きで入れません。".to_string(),
             );
         }
         lines
@@ -110,19 +106,63 @@ pub fn is_supported(platform: Platform, arch: Architecture) -> bool {
 }
 
 pub fn is_root() -> bool {
+    current_uid() == 0
+}
+
+#[cfg(unix)]
+pub(crate) fn current_uid() -> u32 {
+    unsafe extern "C" {
+        fn geteuid() -> u32;
+    }
+    // SAFETY: geteuid は失敗しない read-only syscall
+    unsafe { geteuid() }
+}
+
+#[cfg(not(unix))]
+pub(crate) fn current_uid() -> u32 {
+    u32::MAX
+}
+
+/// plan ファイルを保存する directory。
+///
+/// `/tmp` は world-writable で symlink attack の危険があるため、
+/// `$XDG_STATE_HOME/schneeforge/managed-nix/plans/` を使う。
+/// directory が別 uid に所有されている場合は書き込みを拒否する。
+pub fn secure_plan_dir() -> Result<PathBuf, ManagedNixError> {
+    let base = dirs::state_dir()
+        .or_else(dirs::data_dir)
+        .ok_or_else(|| ManagedNixError::Io {
+            context: "resolve XDG state/data dir".to_string(),
+            source: "XDG state/data dir unavailable".to_string(),
+        })?;
+    let dir = base.join("schneeforge").join("managed-nix").join("plans");
+    std::fs::create_dir_all(&dir).map_err(|e| ManagedNixError::Io {
+        context: format!("create plan dir {}", dir.display()),
+        source: e.to_string(),
+    })?;
+
+    // directory が symlink や別 uid 所有だと攻撃経路になるので拒否
     #[cfg(unix)]
     {
-        unsafe extern "C" {
-            fn geteuid() -> u32;
+        use std::os::unix::fs::MetadataExt;
+        let meta = std::fs::metadata(&dir).map_err(|e| ManagedNixError::Io {
+            context: format!("stat plan dir {}", dir.display()),
+            source: e.to_string(),
+        })?;
+        let uid = current_uid();
+        if meta.uid() != uid {
+            return Err(ManagedNixError::Io {
+                context: format!(
+                    "plan dir {} is owned by uid {} (expected {uid}); refusing to write",
+                    dir.display(),
+                    meta.uid()
+                ),
+                source: String::new(),
+            });
         }
-        // SAFETY: geteuid は失敗しない read-only syscall
-        let euid = unsafe { geteuid() };
-        euid == 0
     }
-    #[cfg(not(unix))]
-    {
-        false
-    }
+
+    Ok(dir)
 }
 
 /// bootstrap-manifest.toml の内容と環境から install の準備を行う
@@ -213,10 +253,15 @@ impl ManagedNix {
         planner: &str,
         out_file: &Path,
         extra_conf: &[String],
+        mut progress: Option<&mut dyn ProgressSink>,
     ) -> Result<(), ManagedNixError> {
+        if let Some(p) = progress.as_deref_mut() {
+            p.on_phase(InstallPhase::Plan);
+        }
         let args = plan_args(planner, out_file, extra_conf);
         let mut noop = NoProgress;
-        run_with_json_logs(binary, &args, |line| noop.on_log(line))
+        let sink = progress.unwrap_or(&mut noop);
+        run_with_json_logs(binary, &args, |line| sink.on_log(line))
     }
 
     /// plan ファイルを元に install を実行する
@@ -229,6 +274,33 @@ impl ManagedNix {
         progress.on_phase(InstallPhase::Install);
         let args = install_args(plan_file);
         run_with_json_logs(binary, &args, |line| progress.on_log(line))
+    }
+
+    /// download → verify → plan → install の全 phase を progress へ通知しながら実行する。
+    /// Phase 2 (GUI) はこの 1 メソッドを呼ぶだけで全 phase の進捗を受け取れる。
+    pub fn install_with_progress(
+        &self,
+        platform: Platform,
+        arch: Architecture,
+        plan_dir: &Path,
+        extra_conf: &[String],
+        progress: &mut dyn ProgressSink,
+    ) -> Result<PathBuf, ManagedNixError> {
+        progress.on_phase(InstallPhase::Download);
+        let binary = self.fetch_binary(platform, arch)?;
+        progress.on_phase(InstallPhase::Verify);
+
+        let planner = planner_name(platform, arch)?;
+        std::fs::create_dir_all(plan_dir).map_err(|e| ManagedNixError::Io {
+            context: format!("create plan dir {}", plan_dir.display()),
+            source: e.to_string(),
+        })?;
+        let plan_file = plan_dir.join(format!("plan-{}.json", self.version()));
+
+        self.generate_plan(&binary, planner, &plan_file, extra_conf, Some(progress))?;
+        self.run_install(&binary, &plan_file, progress)?;
+        progress.on_phase(InstallPhase::PostInstall);
+        Ok(plan_file)
     }
 
     /// `/nix/nix-installer uninstall --no-confirm` を呼ぶ。receipt は default。

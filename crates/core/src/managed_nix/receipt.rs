@@ -32,11 +32,10 @@ impl Receipt {
             context: format!("read receipt {}", path.display()),
             source: e.to_string(),
         })?;
-        let receipt: Receipt = serde_json::from_str(&body).map_err(|e| {
-            ManagedNixError::ManifestParse {
+        let receipt: Receipt =
+            serde_json::from_str(&body).map_err(|e| ManagedNixError::ReceiptParse {
                 source: format!("receipt json: {e}"),
-            }
-        })?;
+            })?;
         Ok(receipt)
     }
 
