@@ -6,6 +6,8 @@ Nix + Home Manager + nix-darwin によるクロスプラットフォーム開発
 
 - **対象**: Apple Silicon Mac / Linux x86_64 / Linux aarch64
 - **管理**: パッケージ・dotfiles・macOS設定・Homebrew cask を宣言的に管理
+- **one-line bootstrap (`install.sh`)**: Apple Silicon Mac / Linux x86_64 のみ
+  (Linux aarch64 の release binary は未提供。Nix/Home Manager 設定自体は aarch64 Linux に対応)
 - **検証**: CI で評価・ビルド・lint・secret scan を自動実行
 
 > 開発への参加は [CONTRIBUTING.md](./CONTRIBUTING.md) を参照（ブランチ運用・OpenSpec・PR ルール）。

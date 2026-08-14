@@ -9,8 +9,10 @@
 INSTALL_SH="$BATS_TEST_DIRNAME/../install.sh"
 
 # install.sh から resolver / fetch 関数だけを取り出す
-# (main flow の `echo "=== nix_setting installer ==="` 以降は読み込まない)
-INSTALL_FUNCTIONS="$(sed -n '1,/^# --- end inline resolver ---$/p' "$INSTALL_SH")"
+# (main flow の `echo "=== nix_setting installer ==="` 以降は読み込まない)。
+# /dev/tty redirect は test 環境 (CI container) で open できないため
+# /dev/null へ置換する (redirect 先が違うだけで分岐 logic は同じ)
+INSTALL_FUNCTIONS="$(sed -n '1,/^# --- end inline resolver ---$/p' "$INSTALL_SH" | sed 's|/dev/tty|/dev/null|g')"
 
 # stub 環境を setup して関数を eval する。
 #   $1: CHECKSUMS に置く sha256 (空なら entry 無し)
@@ -216,54 +218,178 @@ EOF
   echo "$output" | grep -q "Intel Mac"
 }
 
-@test "install_managed_nix stages binary and re-verifies hash as root" {
-  # TOCTOU hardening: sudo install で root-owned copy を作り、hash を再検証して
-  # から exec していること (関数本文の構造検証 + 動作 stub 検証)
-  run grep -n 'sudo install -m 0755' "$INSTALL_SH"
-  [ "$status" -eq 0 ]
-  # staged binary の root 側再検証が存在すること
-  run grep -n 'sudo_sha256_file' "$INSTALL_SH"
-  [ "$status" -eq 0 ]
-  # staging は Core の privileged_state_dir と同じ配置
-  run grep -n '/private/var/db/schneeforge/bootstrap' "$INSTALL_SH"
-  [ "$status" -eq 0 ]
-  run grep -n '/var/lib/schneeforge/bootstrap' "$INSTALL_SH"
-  [ "$status" -eq 0 ]
+@test "fetch_schneeforge_binary rejects linux aarch64 (asset not distributed)" {
+  uname() {
+    case "$1" in
+    -s) echo "Linux" ;;
+    -m) echo "aarch64" ;;
+    esac
+  }
+  load_stubbed "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  run fetch_schneeforge_binary
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "Linux aarch64"
 }
 
-@test "install_managed_nix re-hash mismatch aborts before exec" {
-  # staged binary の hash が検証値と一致しない場合、exec 前に abort すること
+@test "install_managed_nix creates staging dir before copy on fresh machine" {
+  # P0 regression: fresh machine には staging dir が存在しない。
+  # dir 作成 (install -d) → binary copy (install) → root 側 hash 再検証 → exec
+  # の順で実行されることを、実 filesystem を使った stub で検証する
   uname() {
     case "$1" in
     -s) echo "Linux" ;;
     -m) echo "x86_64" ;;
     esac
   }
+  load_stubbed "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+  # 実 file 操作を記録する sudo stub (root 権限相当の sandbox 下で動く)
+  local sandbox="$BATS_TEST_TMPDIR/rootfs"
+  local stage="/var/lib/schneeforge/bootstrap"
+  : >"$BATS_TEST_TMPDIR/sudo.log"
   sudo() {
+    echo "sudo $*" >>"$BATS_TEST_TMPDIR/sudo.log"
     case "$1" in
-    install) return 0 ;;
+    install)
+      if [ "$2" = "-d" ]; then
+        # install -d -m 0700 <dir>: sandbox 内に作成
+        mkdir -p "${sandbox}$5"
+        return 0
+      fi
+      # install -m 0755 <src> <dst>
+      local dst="$5"
+      case "$dst" in
+      "$stage"/*) dst="${sandbox}${dst}" ;;
+      esac
+      cp "$4" "$dst"
+      chmod 0755 "$dst"
+      ;;
+    rm)
+      local target="$3"
+      case "$target" in
+      "$stage"/*) target="${sandbox}${target}" ;;
+      esac
+      rm -f "$target"
+      ;;
+    rmdir)
+      case "$2" in
+      "$stage") rmdir "${sandbox}$2" 2>/dev/null || true ;;
+      esac
+      ;;
     sh) return 0 ;;
-    sha256sum | rm | env) return 0 ;;
-    *) echo "sudo stub: $*" >&2 ;;
+    sha256sum) sha256sum "$2" | awk '{print $1}' ;;
+    env)
+      # exec 相当: staged binary が存在することを確認してから記録
+      if [ ! -f "${sandbox}${stage}/schneeforge" ]; then
+        echo "ERROR: exec before staging" >&2
+        return 1
+      fi
+      echo "exec: $*" >>"$BATS_TEST_TMPDIR/sudo.log"
+      return 0
+      ;;
+    *) return 0 ;;
     esac
   }
-  sudo_sha256_file() { echo "tampered-hash-not-matching"; }
-  export -f sudo sudo_sha256_file 2>/dev/null || true
+  # staged path の hash 検証は sandbox 内 file を見る
+  sudo_sha256_file() { sudo sha256sum "${sandbox}/var/lib/schneeforge/bootstrap/schneeforge"; }
+  fetch_schneeforge_binary() { echo "$BATS_TEST_TMPDIR/sf-download"; }
+  echo fake-binary-content >"$BATS_TEST_TMPDIR/sf-download"
+  mkdir -p "$sandbox"
 
-  export SCHNEEFORGE_VERSION="v9.9.9"
-  # fetch 後の download hash (aaaa...) と staged hash (tampered) を不一致にする
+  # 最後の nix 再探索は install 成功後の処理のため stub する
+  resolve_nix() { return 0; }
+
+  # INSTALL_FUNCTIONS は /dev/tty → /dev/null 置換済み (CI container で
+  # open できないため)。redirect 先が違うだけで分岐 logic は同じ
+  run install_managed_nix "$BATS_TEST_TMPDIR/repo"
+  [ "$status" -eq 0 ]
+
+  # command order: dir 作成が copy より前、exec より前に hash 再検証
+  local log first_d first_cp first_exec first_rm
+  log="$(cat "$BATS_TEST_TMPDIR/sudo.log")"
+  first_d="$(echo "$log" | grep -n 'install -d' | head -1 | cut -d: -f1)"
+  first_cp="$(echo "$log" | grep -n 'install -m 0755' | head -1 | cut -d: -f1)"
+  first_exec="$(echo "$log" | grep -n '^exec:' | head -1 | cut -d: -f1)"
+  [ -n "$first_d" ]
+  [ -n "$first_cp" ]
+  [ -n "$first_exec" ]
+  [ "$first_d" -lt "$first_cp" ]
+  [ "$first_cp" -lt "$first_exec" ]
+
+  # cleanup: binary と staging dir が削除されていること
+  first_rm="$(echo "$log" | grep -n 'rm -f' | head -1 | cut -d: -f1)"
+  [ -n "$first_rm" ]
+  [ "$first_exec" -lt "$first_rm" ]
+  [ ! -e "${sandbox}${stage}/schneeforge" ]
+  [ ! -d "${sandbox}${stage}" ]
+}
+
+@test "install_managed_nix aborts before exec when staged hash mismatches" {
+  # TOCTOU: staged binary の hash が検証値と一致しない場合、exec せず abort する
+  uname() {
+    case "$1" in
+    -s) echo "Linux" ;;
+    -m) echo "x86_64" ;;
+    esac
+  }
   load_stubbed "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-  # sha256_file は stub 済み环境 (aaaa を返す) — install_managed_nix 内の
-  # sf_hash 計算は aaaa、sudo_sha256_file は tampered を返す
 
-  # install_managed_nix 全体を走らせると sudo env ... nix install まで進むため、
-  # mismatch branch のみを切り出して検証する
-  sf_bin="$BATS_TEST_TMPDIR/staged-src"
-  echo fake >"$sf_bin"
-  sf_hash="$(sha256_file "$sf_bin")"
-  sf_staged="/var/lib/schneeforge/bootstrap/schneeforge"
-  staged_hash="$(sudo_sha256_file "$sf_staged")"
-  [ "$staged_hash" != "$sf_hash" ]
+  local sandbox="$BATS_TEST_TMPDIR/rootfs"
+  local stage="/var/lib/schneeforge/bootstrap"
+  mkdir -p "$sandbox"
+  : >"$BATS_TEST_TMPDIR/sudo.log"
+  sudo() {
+    echo "sudo $*" >>"$BATS_TEST_TMPDIR/sudo.log"
+    case "$1" in
+    install)
+      if [ "$2" = "-d" ]; then
+        mkdir -p "${sandbox}$5"
+        return 0
+      fi
+      local dst="$5"
+      case "$dst" in
+      "$stage"/*) dst="${sandbox}${dst}" ;;
+      esac
+      # copy 後に tamper: hash が検証値から変わる
+      {
+        cat "$BATS_TEST_TMPDIR/sf-download"
+        echo tampered
+      } >"$dst"
+      chmod 0755 "$dst"
+      ;;
+    rm)
+      local target="$3"
+      case "$target" in
+      "$stage"/*) target="${sandbox}${target}" ;;
+      esac
+      rm -f "$target"
+      ;;
+    rmdir) rmdir "${sandbox}$2" 2>/dev/null || true ;;
+    sh) return 0 ;;
+    # load_stubbed の stub (固定値) ではなく実 sha256sum を使う:
+    # sf_hash 側は stub の固定値になるため、tamper しない限り一致しない
+    sha256sum) /usr/bin/sha256sum "$2" | awk '{print $1}' ;;
+    env)
+      echo "UNEXPECTED-EXEC: $*" >>"$BATS_TEST_TMPDIR/sudo.log"
+      return 0
+      ;;
+    *) return 0 ;;
+    esac
+  }
+  sudo_sha256_file() { sudo sha256sum "${sandbox}/var/lib/schneeforge/bootstrap/schneeforge"; }
+  fetch_schneeforge_binary() { echo "$BATS_TEST_TMPDIR/sf-download"; }
+  echo fake-binary-content >"$BATS_TEST_TMPDIR/sf-download"
+
+  run install_managed_nix "$BATS_TEST_TMPDIR/repo"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "TOCTOU"
+
+  # exec (sudo env) が呼ばれていないこと
+  if grep -q 'UNEXPECTED-EXEC' "$BATS_TEST_TMPDIR/sudo.log"; then
+    echo "exec was reached despite hash mismatch:" >&2
+    cat "$BATS_TEST_TMPDIR/sudo.log" >&2
+    return 1
+  fi
 }
 
 @test "install.sh pins bootstrap version instead of resolving latest" {

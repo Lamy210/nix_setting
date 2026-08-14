@@ -133,6 +133,13 @@ fetch_schneeforge_binary() {
     fi
     asset_base="schneeforge-aarch64-darwin"
   else
+    # Linux aarch64 の release binary は未提供 (release workflow が x86_64-musl のみ
+    # build する)。asset 無しで CHECKSUMS 検証に失敗するより手前で案内する
+    if [ "$arch" = "aarch64" ]; then
+      echo "[error] Linux aarch64 の one-line bootstrap は未提供です。" >&2
+      echo "       Nix を手動導入のうえ bootstrap.sh をお使いください (Nix/Home Manager 設定自体は aarch64 Linux 対応)。" >&2
+      return 1
+    fi
     asset_base="schneeforge-${arch}-${os}"
   fi
 
@@ -205,9 +212,17 @@ install_managed_nix() {
   sf_staged="${stage_dir}/schneeforge"
 
   echo "[nix] Managed Nix install を開始します (NixOS/nix-installer, version pinned)..."
+  # fresh machine には staging dir が存在しないため root 権限で作成する
+  # (0700: 他 user に binary 置き場を見せない)
+  if ! sudo install -d -m 0700 "$stage_dir"; then
+    echo "[error] staging dir (${stage_dir}) の作成に失敗" >&2
+    rm -f "$sf_bin"
+    return 1
+  fi
   if ! sudo install -m 0755 "$sf_bin" "$sf_staged"; then
     echo "[error] staging dir (${stage_dir}) への copy に失敗" >&2
     rm -f "$sf_bin"
+    sudo rm -f "$sf_staged"
     return 1
   fi
   rm -f "$sf_bin"
@@ -217,6 +232,7 @@ install_managed_nix() {
   # (sudo password 待ち・copy 中の差し替えを検出)
   staged_hash="$(sudo_sha256_file "$sf_staged")" || {
     sudo rm -f "$sf_staged"
+    sudo rmdir "$stage_dir" 2>/dev/null || true
     return 1
   }
   if [ "$staged_hash" != "$sf_hash" ]; then
@@ -224,6 +240,7 @@ install_managed_nix() {
     echo "  expect: $sf_hash" >&2
     echo "  actual: $staged_hash" >&2
     sudo rm -f "$sf_staged"
+    sudo rmdir "$stage_dir" 2>/dev/null || true
     return 1
   fi
 
@@ -236,6 +253,7 @@ install_managed_nix() {
   fi
   local rc=$?
   sudo rm -f "$sf_staged"
+  sudo rmdir "$stage_dir" 2>/dev/null || true
   if [ $rc -ne 0 ]; then
     echo "[error] Managed Nix install に失敗 (exit $rc)" >&2
     return 1
