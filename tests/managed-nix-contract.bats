@@ -23,7 +23,7 @@ expected_sha_for() {
 
 download_installer() {
   local version="$1" dest="$2"
-  curl -fsSL -o "$dest" \
+  curl -fsSL --retry 3 --retry-delay 5 -o "$dest" \
     "https://github.com/NixOS/nix-installer/releases/download/${version}/nix-installer-x86_64-linux"
 }
 

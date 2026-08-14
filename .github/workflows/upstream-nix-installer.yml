@@ -108,7 +108,7 @@ jobs:
           for asset in nix-installer-x86_64-linux nix-installer-aarch64-linux nix-installer-aarch64-darwin; do
             url="https://github.com/NixOS/nix-installer/releases/download/${TARGET_VERSION}/${asset}"
             echo "::group::download $asset"
-            curl -fsSL -o "assets/$asset" "$url"
+            curl -fsSL --retry 3 --retry-delay 5 -o "assets/$asset" "$url"
             echo "::endgroup::"
             # gh attestation verify は file path を要求する (URL は不可)
             if gh attestation verify "assets/$asset" \
@@ -120,8 +120,15 @@ jobs:
               fail_open=1
             fi
             # SLSA verified binary の actual SHA256 を SHA256SUMS と cross-check し、
-            # 「検証した binary」と「manifest に書く hash」が同一物であることを保証する
+            # 「検証した binary」と「manifest に書く hash」が同一物であることを保証する。
+            # match はちょうど 1 行でなければならない (0 = asset 無し、2+ = SUMS 破損)
             expected=$(awk -v a="$asset" '$2 == a {print $1}' SHA256SUMS | tr 'A-F' 'a-f')
+            match_count=$(awk -v a="$asset" '$2 == a' SHA256SUMS | wc -l)
+            if [ "$match_count" -ne 1 ] || [ -z "$expected" ]; then
+              echo "::error::$asset found $match_count entries in SHA256SUMS (expected 1)"
+              fail_open=1
+              continue
+            fi
             actual=$(sha256sum "assets/$asset" | awk '{print $1}')
             if [ "$actual" != "$expected" ]; then
               echo "::error::$asset SHA256 mismatch: asset=$actual sums=$expected"
@@ -180,8 +187,9 @@ jobs:
             for arch in x86_64-linux aarch64-linux aarch64-darwin; do
               asset="${arch_to_asset[$arch]}"
               sha=$(awk -v a="$asset" '$2 == a {print $1}' SHA256SUMS | tr 'A-F' 'a-f')
-              if [ -z "$sha" ]; then
-                echo "::error::sha256 for $asset not found in SHA256SUMS"
+              count=$(awk -v a="$asset" '$2 == a' SHA256SUMS | wc -l)
+              if [ "$count" -ne 1 ] || [ -z "$sha" ]; then
+                echo "::error::sha256 for $asset: found $count entries in SHA256SUMS (expected 1)"
                 exit 1
               fi
               printf '%s = "%s"\n' "$arch" "$sha"
