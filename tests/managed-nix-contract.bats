@@ -86,3 +86,37 @@ download_installer() {
 
   rm -f "$tmp_bin"
 }
+
+# `plan` subcommand の出力契約: plan JSON は stdout へ出力され、`--out-file`
+# 等の出力先 flag は存在しない (2.35.1 実測)。SchneeForge の plan_args は
+# stdout 受け取りを実装しているので、upstream がこの契約を変えたら検知する。
+@test "upstream plan emits JSON to stdout and has no --out-file flag" {
+  version="$(installer_version)"
+  tmp_bin="$(mktemp -t nix-installer-XXXXXX)"
+  download_installer "$version" "$tmp_bin"
+  chmod +x "$tmp_bin"
+
+  # --out-file flag: upstream は持たないので unknown flag で reject される
+  run "$tmp_bin" plan linux --out-file /tmp/should-not-exist.json
+  if ! echo "$output" | grep -qF "unexpected argument '--out-file'"; then
+    echo "--out-file flag was ACCEPTED (upstream contract change?):"
+    echo "$output"
+    rm -f "$tmp_bin"
+    false
+  fi
+
+  # plan subcommand が flag parse を通過することの確認。
+  # CI (非 root) では escalation error が出るが、それは「parse を通過して
+  # 実行に到達した」証拠。usage error で無ければ契約は維持されている。
+  run "$tmp_bin" plan linux --logger json
+  case "$output" in
+    *"unexpected argument"*|*"unknown argument"*)
+      echo "plan subcommand rejected args:"
+      echo "$output"
+      rm -f "$tmp_bin"
+      false
+      ;;
+  esac
+
+  rm -f "$tmp_bin"
+}

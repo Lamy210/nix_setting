@@ -87,7 +87,7 @@ jobs:
         run: nix run nixpkgs#actionlint
 
       - name: shellcheck
-        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh
+        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh tests/managed-nix-e2e.bats tests/install-sh.bats
 
       - name: statix check
         run: nix run nixpkgs#statix -- check .
@@ -121,11 +121,13 @@ jobs:
           fi
           # shell 側: install.sh / bootstrap.sh で直接 nix/git/brew を呼んでいないか
           # [$] を使うことで shellcheck SC2016 を回避しつつ $NIX_BIN リテラルを grep
+          # `schneeforge ... nix install` は CLI subcommand 引数 (tool spawn ではない) のため除外
           shell_hits=$(grep -nE '(^| )nix |(^| )git |(^| )brew ' install.sh bootstrap.sh 2>/dev/null \
             | grep -v '^#' \
             | grep -v '[$]NIX_BIN' \
             | grep -v '[$]GIT_BIN' \
             | grep -v '[$]BREW_BIN' \
+            | grep -v 'nix install' \
             || true)
           if [ -n "$shell_hits" ]; then
             echo "ERROR: raw tool invocations in shell. Use [$]NIX_BIN / [$]GIT_BIN / [$]BREW_BIN (resolve-tools.sh)." >&2
@@ -178,6 +180,9 @@ jobs:
       - name: bats test (bootstrap)
         run: nix run nixpkgs#bats -- tests/bootstrap.bats
 
+      - name: bats test (install.sh Managed Nix 経路)
+        run: nix run nixpkgs#bats -- tests/install-sh.bats
+
       - name: bats test (resolve-tools)
         run: nix run nixpkgs#bats -- tests/resolve-tools.bats
 
@@ -188,6 +193,54 @@ jobs:
 
       - name: nix-unit test
         run: nix run nixpkgs#nix-unit -- tests/nix-unit.nix
+
+  # issue #14: Linux x86_64 Docker E2E smoke。Nix-less Ubuntu container で
+  # schneeforge CLI の install → doctor → uninstall full flow を検証する。
+  # host 側 bats が docker CLI を叩く (DinD 不要)。
+  #
+  # binary は release.yml と同じ musl static build を使う。「CI で build できる」
+  # と「release binary が Nix-less machine で動く」は別物だったため (v0.2.0-rc.1
+  # の Linux asset が /nix/store interpreter 向きで exit 127)、E2E が検証する
+  # binary を release artifact と同一構成に固定する。
+  managed-nix-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: install musl toolchain
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: musl
+
+      - name: build schneeforge (release, musl static)
+        run: cargo build --release -p schneeforge --target x86_64-unknown-linux-musl
+
+      # musl static であることの gate: INTERP (dynamic interpreter) を持たないこと
+      - name: verify static binary
+        run: |
+          file target/x86_64-unknown-linux-musl/release/schneeforge
+          if readelf -l target/x86_64-unknown-linux-musl/release/schneeforge | grep -q INTERP; then
+            echo "ERROR: binary is dynamically linked" >&2
+            exit 1
+          fi
+          echo "OK: fully static binary"
+
+      - name: stage binary at target/release
+        run: |
+          mkdir -p target/release
+          cp target/x86_64-unknown-linux-musl/release/schneeforge target/release/schneeforge
+
+      - name: bats test (managed-nix E2E, Docker)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bats
+          bats tests/managed-nix-e2e.bats
 
   secret-scan:
     runs-on: ubuntu-latest

@@ -84,6 +84,8 @@ git push origin --delete release/vX.Y.Z
 - [ ] リリースノート: 変更・既知の制限・未完了機能を記載
 - [ ] Release asset: `schneeforge-{aarch64-darwin,x86_64-linux}` / DMG / SBOM / CHECKSUMS.txt が生成される
 - [ ] `vX.Y.Z` の version 表記が `Cargo.toml` / `tauri.conf.json` / flake packages で揃っている
+- [ ] **`install.sh` の `SCHNEEFORGE_BOOTSTRAP_VERSION` を今回の `vX.Y.Z` に bump**（release PR 内で実施。bootstrap が download する CLI version と clone する config ref (`SCHNEEFORGE_BOOTSTRAP_REF`, VERSION に連動) が release と一致する保証になる。latest 任せにすると rc が拾われる）
+- [ ] Linux asset が musl static であることを release note の CI log で確認（`verify static binary` step）
 
 ## リリースノートの必須記載
 

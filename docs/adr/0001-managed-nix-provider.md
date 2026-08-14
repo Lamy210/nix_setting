@@ -54,7 +54,7 @@ SchneeForge の Managed-Nix の default provider として **NixOS/nix-installer
 ### Plan UX
 - `nix-installer plan` は root を要求するため、2 段階 Plan とする。
   1. SchneeForge preflight (root 不要): `/nix`, `nix-daemon`, build users, shell profiles, flakes を変更することを表示
-  2. ユーザーが Continue → 管理者認証 → `nix-installer plan --out-file ...` → Detailed Plan → Install
+  2. ユーザーが Continue → 管理者認証 → `nix-installer plan <planner>` (plan JSON は stdout へ出力。SchneeForge が受け取り secure dir へ保存) → Detailed Plan → Install
 
 ### License
 - nix-installer は LGPL-2.1。SchneeForge は nix-installer を subprocess で呼ぶ**別プロセス**であり、リンクしないため、GPL/LGPL FAQ における "pipes, sockets and command-line arguments" での通信に該当する。LGPL の dynamic-link 例外の話ではなく、そもそも集合物が単一プログラムとは見なされない。したがって SchneeForge 側コードにはライセンス伝染は起きない。
