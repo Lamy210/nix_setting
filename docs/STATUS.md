@@ -59,7 +59,7 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
 
 | 項目 | 進捗 | 場所 |
 |------|------|------|
-| Managed Nix Bootstrap (NixOS/nix-installer 統合) | OpenSpec change `add-managed-nix-bootstrap` 起票・ADR-0001 provisionally accepted | `feat/managed-nix-bootstrap` branch |
+| Managed Nix Bootstrap Phase 1 + install 修正 (PR #13/#18) | **develop merge 済み** (a7d4777)。review 4 巡。CI 18/18 green | `openspec/changes/archive/2026-08-14-add-managed-nix-bootstrap/` |
 | Spike `nix-bootstrap-provider-evaluation` | 完了 (Linux x86_64 実測済み、macOS aarch64 は ADR final acceptance 条件) | `openspec/changes/spike-nix-bootstrap-provider-evaluation/` |
 
 ## 既知のデグレ・機能漏れ（要対応）
@@ -75,6 +75,7 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
 | # | 問題 | 対応 |
 |---|------|------|
 | 12 | install.sh が main 固定（Stable/Edge 分離無し） | release hardening |
+| — | Dependabot alert #2: glib 0.18.5 (GHSA-wrw7-89jp-8q8g, medium) | **dismiss 済み推奨**。tauri 2.11.5 → gtk 0.18 (archived gtk3-rs) の Linux target のみの transitive dep。macOS/Windows target に glib 無し、app code は VariantStrIter 不使用。upstream 修正は tauri v3 (GTK4 port) 待ち。tauri v3 移行時に再評価 |
 
 ### 低
 
@@ -84,13 +85,17 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
 
 ## 次の作業（推奨順）
 
-1. **Managed Nix Bootstrap (Phase 1) の実装** — `add-managed-nix-bootstrap` tasks.md に従い、Core `managed_nix` module → CLI `schneeforge nix install/doctor/uninstall` → `bootstrap-manifest.toml` → release bump CI → spec 更新 → test → docs → archive → PR
-2. **ADR-0001 Final acceptance**: macOS aarch64 disposable env で smoke test (install / self-test / flakes / receipt / uninstall / cleanup) を実施し、Status を `Accepted` へ昇格
-3. **PR #11 の macOS Finder 実機 smoke** (CI は green だが未実施)
+1. **ADR-0001 Final acceptance**: macOS aarch64 disposable env で smoke test (install / self-test / flakes / receipt / uninstall / cleanup) を実施し、Status を `Accepted` へ昇格
+2. **release/v0.2.0-rc.2**: RELEASE.md checklist に沿って release branch → main → tag。`SCHNEEFORGE_BOOTSTRAP_VERSION` bump (`v0.2.0-rc.2`) + musl asset の実機確認 (Nix-less dry-run)
+3. **Phase 2 残作業** (issue #14-17):
+   - #14 acceptance 残り: macOS aarch64 実機 smoke / receipt 冪等性 regression
+   - #15 Nix 状態分類 (Missing/Healthy/Degraded/Broken) + `schneeforge nix repair` 設計
+   - #16 GUI (Tauri) 統合: `prepare_plan()` / `execute_plan()` API + osascript/pkexec 特権昇格
+   - #17 DMG bundle + LGPL-2.1 法務 ADR
 4. 残デグレ対応:
    - #5 GUI 特権ヘルパー（macOS authorization）— privileged-gui-operations で Managed Nix と統合
    - #12 install.sh の Stable/Edge 分離（release 方針の判断）
-   - バージョン bump（release/* ブランチで）
+   - glib advisory (Dependabot #2) は tauri v3 移行時に再評価
 
 ## 開発フロー
 
