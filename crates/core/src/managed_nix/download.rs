@@ -19,13 +19,13 @@ fn http_client() -> Result<reqwest::blocking::Client, ManagedNixError> {
 
 /// installer binary のキャッシュパスを返す。
 ///
-/// - root 実行時: `/var/lib/schneeforge/managed-nix/cache/{version}/nix-installer`
+/// - root 実行時: `privileged_state_dir()/managed-nix/cache/{version}/nix-installer`
 ///   (sudo で user の HOME/XDG が持ち込まれても user-writable path を
-///   root 実行 binary の cache に使わない)
+///   root 実行 binary の cache に使わない。macOS は `/private/var/db/schneeforge`)
 /// - 非 root: `$XDG_DATA_HOME/schneeforge/managed-nix/{version}/nix-installer`
 pub fn cache_path(version: &str) -> Result<PathBuf, ManagedNixError> {
     let dir = if crate::managed_nix::is_root() {
-        PathBuf::from(crate::managed_nix::ROOT_STATE_DIR)
+        crate::managed_nix::privileged_state_dir()
             .join("managed-nix")
             .join("cache")
     } else {

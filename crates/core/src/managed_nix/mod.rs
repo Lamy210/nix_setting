@@ -45,9 +45,18 @@ impl ProgressSink for NoProgress {
 /// 既存 Nix の検出。PATH のみでなく `/nix/var/nix/profiles/default/bin` 等の
 /// known locations も含める (sudo の minimal PATH で PATH-only 検出が
 /// false negative になる回帰 — #11 と同一の問題 — を防ぐ)。
+/// さらに `sudo` 実行時に root 環境からは元 user の profile が見えない
+/// ケースに備え、installation marker (`/nix/store`, `/nix/var/nix`,
+/// `/nix/receipt.json`) の存在でも検出する (fail-closed)。
 /// `discovery::has_nix` (which のみ) は新規コードで使わないこと。
 pub fn existing_nix_detected() -> bool {
-    ToolResolver::new().resolve_tool("nix").is_some()
+    if ToolResolver::new().resolve_tool("nix").is_some() {
+        return true;
+    }
+    // /nix 直下の marker。部分削除された degraded install も「存在する」と扱う
+    Path::new("/nix/store").exists()
+        || Path::new("/nix/var/nix").exists()
+        || Path::new("/nix/receipt.json").exists()
 }
 
 /// preflight の結果 (root 不要、design.md D8)
@@ -134,23 +143,32 @@ pub(crate) fn current_uid() -> u32 {
     u32::MAX
 }
 
-/// root 実行時の SchneeForge privileged state の base。
+/// root 実行時の SchneeForge privileged state の base (platform 別)。
 /// sudo で user の HOME / XDG 変数が持ち込まれることを想定せず、
 /// root-managed の固定 path を使う。
-pub const ROOT_STATE_DIR: &str = "/var/lib/schneeforge";
+///
+/// macOS は `/var` が `/private/var` への symlink であるため `/var/...` を
+/// 使うと component 毎 symlink 検査に引っかかる。実 path を指定する。
+pub fn privileged_state_dir() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        PathBuf::from("/private/var/db/schneeforge")
+    } else {
+        PathBuf::from("/var/lib/schneeforge")
+    }
+}
 
 /// plan ファイルを保存する directory。
 ///
 /// `/tmp` は world-writable で symlink attack の危険があるため、
-/// root 実行時は `/var/lib/schneeforge/managed-nix/plans/`、
-/// 非 root 時は `$XDG_STATE_HOME/schneeforge/managed-nix/plans/` を使う。
+/// root 実行時は privileged_state_dir 配下、非 root 時は
+/// `$XDG_STATE_HOME/schneeforge/managed-nix/plans/` を使う。
 /// 以下を明示的に保証する:
 ///   - 作成した path の全 component が symlink でない (作成後、各 component を検査)
 ///   - 最終 directory の owner が現在の uid と一致
 ///   - permission 0700 (owner のみ access)
 pub fn secure_plan_dir() -> Result<PathBuf, ManagedNixError> {
     let dir = if is_root() {
-        PathBuf::from(ROOT_STATE_DIR)
+        privileged_state_dir()
     } else {
         dirs::state_dir()
             .or_else(dirs::data_dir)
@@ -567,6 +585,33 @@ aarch64-darwin = "33333333333333333333333333333333333333333333333333333333333333
         };
         let joined = s.summary_lines().join("\n");
         assert!(joined.contains("既存の Nix"));
+    }
+
+    /// macOS は `/var` が `/private/var` への symlink のため、privileged state dir
+    /// に `/var/...` を使うと component 毎 symlink 検査で self-abort する。
+    /// platform 別の実 path であることを検証する。
+    #[test]
+    fn privileged_state_dir_uses_real_path_per_platform() {
+        let dir = privileged_state_dir();
+        let s = dir.to_string_lossy();
+        if cfg!(target_os = "macos") {
+            assert!(s.starts_with("/private/var/"), "got: {s}");
+        } else {
+            assert!(s.starts_with("/var/lib/"), "got: {s}");
+        }
+        // 実在する全 component が symlink でないこと
+        // (macOS で /var 問題が再発しない保証。未作成の末端は skip)
+        let mut current = PathBuf::from("/");
+        for comp in dir.components().skip(1) {
+            current.push(comp);
+            if let Ok(meta) = std::fs::symlink_metadata(&current) {
+                assert!(
+                    !meta.file_type().is_symlink(),
+                    "{} is a symlink",
+                    current.display()
+                );
+            }
+        }
     }
 
     #[test]
