@@ -10,11 +10,11 @@
 ## 2. Core: `managed_nix` module (crates/core/src/managed_nix/)
 - [x] 2.1 `provider.rs`: NixOS/nix-installer の URL/asset 名を arch 毎に返す。`{ x86_64-linux, aarch64-linux, aarch64-darwin }` のみ (x86_64-darwin は未サポートで `UnsupportedArch`)
 - [x] 2.2 `manifest.rs`: `bootstrap-manifest.toml` の parse/serialize。schema は `[managed_nix] version, sha256_by_arch.{arch}`
-- [x] 2.3 `download.rs`: reqwest で asset を download。`XDG_DATA_HOME/schneeforge/managed-nix/{version}/nix-installer` へキャッシュ (存在時は skip)
+- [x] 2.3 `download.rs`: reqwest で asset を download。cache は root 実行時 `/var/lib/schneeforge/managed-nix/cache/{version}/`、非 root 時 `XDG_DATA_HOME/schneeforge/managed-nix/{version}/` (round-3 review)。temp file は random suffix + `O_EXCL` 排他作成
 - [x] 2.4 `verify.rs`: SHA256 計算と manifest 比較。不一致は `ManagedNixError::ChecksumMismatch`
 - [x] 2.5 `installer.rs`: subprocess 実行。CLI 引数は `install <plan.json> --logger json --no-confirm` を基本 (plan は **positional**、2.35.1 に `--plan` long flag は無い)。`--enable-flakes` は plan 生成時のみ。`--logger json` の **stderr** を JSON Lines で best-effort parse し、`InstallPhase` enum (`Download / Verify / Privilege / Plan / Install / PostInstall`) に map
 - [x] 2.6 `receipt.rs`: `/nix/receipt.json` の読み取り専用 view (`Receipt { version, actions, planner }`)
-- [x] 2.7 `mod.rs`: `ManagedNix::install() / doctor() / uninstall()` の公開 API。`Toolchain` は既存を再利用
+- [x] 2.7 `mod.rs`: `ManagedNix::prepare_plan() / execute_plan() / run_uninstall()` の公開 API + `existing_nix_detected()` (ToolResolver 経由、round-3 review)。`ToolInventory` は既存を再利用
 - [x] 2.8 `error.rs` (または `mod.rs` 内): `ManagedNixError` enum 定義 (design.md D10 参照)。`crates/core/src/error.rs` の SchneeForgeError へ `From` 実装
 
 ## 3. CLI: `schneeforge nix` subcommand (crates/cli/src/nix_cmd.rs)

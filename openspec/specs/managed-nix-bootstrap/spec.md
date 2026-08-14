@@ -1,7 +1,7 @@
 # managed-nix-bootstrap Specification
 
 ## Purpose
-TBD - created by archiving change add-managed-nix-bootstrap. Update Purpose after archive.
+SchneeForge 経由で Nix (NixOS/nix-installer) を install / doctor / uninstall する Managed Nix bootstrap の要件。version + SHA256 pinning、既存 Nix の上書き拒否、ownership record による uninstall safety、2 段階 Plan UX (確認責任は SchneeForge 側) を規定する。
 ## Requirements
 ### Requirement: Managed Nix provider の選択
 SchneeForge SHALL は NixOS/nix-installer を Managed-Nix の default provider として利用する。SchneeForge Core は nix-installer を外部プロセスとして実行し、コードをリンクしない。
@@ -100,6 +100,54 @@ SchneeForge SHALL は root 不要の preflight と、root 実行後の detailed 
 #### Scenario: install 失敗時
 - **WHEN** detailed plan 表示後にユーザーが install を中止する
 - **THEN** upstream installer は実行せず、`/nix` は変更しない
+
+### Requirement: 既存 Nix 検出は PATH 以外の known locations も含める
+SchneeForge SHALL は既存 Nix の検出に PATH のみでなく `/nix/var/nix/profiles/default/bin` 等 の known locations を含める (sudo 実行時の minimal PATH で PATH-only 検出が false negative にならないようにする)。検出は tool-resolution と同一の resolver を使う。
+
+#### Scenario: PATH に無い既存 Nix を検出する
+- **WHEN** Nix が `/nix/var/nix/profiles/default/bin/nix` に存在するが PATH に無い状態 (sudo の minimal PATH 等) で `schneeforge nix install` を実行する
+- **THEN** 既存 Nix として検出し、`ExistingNixDetected` で install を中止する
+
+### Requirement: post-install verification
+SchneeForge SHALL は install 完了後に nix binary の解決・`nix store ping`・flakes 有効化を確認してから成功を宣言する。upstream installer の self-test 失敗は warning に留まるため、SchneeForge 側で最終 gate を持つ。検証失敗時も install 済み Nix の自動 rollback は行わない。
+
+#### Scenario: 検証成功時のみ成功表示
+- **WHEN** install 完了後の検証で nix binary / store / flakes が全て OK
+- **THEN** `Managed Nix install 完了` を表示して正常終了する
+
+#### Scenario: 検証失敗時は non-zero で終了
+- **WHEN** install 完了後の検証で `nix store ping` 等に失敗する
+- **THEN** 失敗項目を表示し、non-zero exit で終了する
+- **AND** SchneeForge は install 済み Nix の自動 rollback を行わず、`schneeforge nix doctor` を案内する
+
+### Requirement: ownership record による uninstall safety
+SchneeForge SHALL は install 成功時に `/nix/schneeforge-managed.json` へ ownership record (provider・installer version・**installer SHA256**・upstream receipt path) を書き込み、uninstall 時の信頼根拠とする。
+
+#### Scenario: uninstall 時の cached installer 再検証
+- **WHEN** `/nix/nix-installer` が無く、cached binary を uninstall に使う場合
+- **THEN** ownership record が保存した installer SHA256 と cached binary の再計算 hash を比較し、一致しなければ abort する
+
+#### Scenario: custom receipt は ownership record と一致しなければ拒否
+- **WHEN** `--receipt` で ownership record の `upstream_receipt` と異なる path が指定された場合
+- **THEN** 既定では error で停止する (valid な ownership を別 receipt への root 実行に転用させない)
+
+### Requirement: root 実行時の privileged state は root 管理下に置く
+SchneeForge SHALL は root 実行時の installer cache と plan file を `/var/lib/schneeforge` 配下に置き、sudo で持ち込まれた user の HOME/XDG 変数に依存した user-writable path を root 実行 binary の保存先に使わない。
+
+#### Scenario: root 実行時の cache path
+- **WHEN** root で `schneeforge nix install` を実行する
+- **THEN** installer binary は `/var/lib/schneeforge/managed-nix/cache/{version}/nix-installer` に保存される
+
+#### Scenario: download の temp file は既存 file や symlink を open しない
+- **WHEN** installer binary を download する
+- **THEN** temp file は random suffix + 排他作成 (`O_CREAT|O_EXCL`) で作成され、atomic rename で確定する
+
+### Requirement: manifest 値の検証
+SchneeForge SHALL は `bootstrap-manifest.toml` を load 時に検証する (version は `X.Y.Z` 数値形式、sha256 は 64 文字の hex)。
+
+#### Scenario: 不正な manifest は load 時に拒否
+- **WHEN** version が `v2.35` 等の形式、または sha256 が 64 hex でない manifest を load する
+- **THEN** `ManifestParse` エラーで停止する
 
 ### Requirement: receipt は `/nix/receipt.json` を source of truth とする
 SchneeForge SHALL は `/nix/receipt.json` を source of truth とし、独自の receipt を複製しない。

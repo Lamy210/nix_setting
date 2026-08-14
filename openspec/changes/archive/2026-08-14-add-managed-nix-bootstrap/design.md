@@ -249,6 +249,15 @@ pub enum ManagedNixError {
   が強制する (CLI / GUI 両方が同一 API を通る)。guard の無い旧
   `install_with_progress()` は削除済み。root privilege と D8 最終確認の UX は
   caller (CLI / GUI) の責務として残る。
+- **[round-3 review] 既存 Nix 検出は ToolResolver 経由に統一**:
+  PATH-only の `has_nix()` は sudo の minimal PATH で false negative になる
+  ため、`/nix/var/nix/profiles/default/bin` 等の known locations を含む
+  resolver を使う (`existing_nix_detected()`)。
+- **[round-3 review] root 実行の installer cache も `/var/lib/schneeforge` 配下**:
+  sudo で user の XDG/HOME が持ち込まれても user-writable path を root 実行
+  binary の cache に使わない。download の temp file は random suffix +
+  `O_EXCL` 作成。ownership record に installer SHA256 を保存し、uninstall の
+  cached binary fallback 時に再検証する。
 - privileged-gui-operations と統合 (macOS 管理者認証)
 - DMG bundle 配布の法務設計 (別 ADR)
 
