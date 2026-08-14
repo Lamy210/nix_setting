@@ -16,7 +16,8 @@ pub use download::{cache_path, download, download_text};
 pub use error::ManagedNixError;
 pub use installer::{
     install_args, installed_binary_path, parse_json_line, plan_args, planner_name,
-    run_with_json_logs, uninstall_args, InstallPhase, JsonLogLine,
+    run_with_json_logs, run_with_json_logs_capture_stdout, uninstall_args, InstallPhase,
+    JsonLogLine,
 };
 pub use manifest::{BootstrapManifest, ManagedNixSection, Sha256ByArch};
 pub use ownership::{default_ownership_path, OwnershipRecord};
@@ -386,7 +387,7 @@ impl ManagedNix {
         PreflightSummary::detect()
     }
 
-    /// plan ファイルを生成する (`nix-installer plan <planner> --out-file <plan.json>`)
+    /// plan ファイルを生成する (`nix-installer plan <planner>` → stdout を書き込み)
     pub fn generate_plan(
         &self,
         binary: &Path,
@@ -398,10 +399,24 @@ impl ManagedNix {
         if let Some(p) = progress.as_deref_mut() {
             p.on_phase(InstallPhase::Plan);
         }
-        let args = plan_args(planner, out_file, extra_conf);
+        let args = plan_args(planner, extra_conf);
         let mut noop = NoProgress;
         let sink = progress.unwrap_or(&mut noop);
-        run_with_json_logs(binary, &args, |line| sink.on_log(line))
+        let stdout = run_with_json_logs_capture_stdout(binary, &args, |line| sink.on_log(line))?;
+        // plan JSON が空なら upstream 契約変更を疑う (Docker E2E 実測では
+        // 約 34KB の JSON が出力される)
+        if stdout.is_empty() {
+            return Err(ManagedNixError::Subprocess {
+                exit_status: Some(0),
+                stderr_tail: "plan subcommand produced empty stdout (upstream contract change?)"
+                    .to_string(),
+            });
+        }
+        std::fs::write(out_file, &stdout).map_err(|e| ManagedNixError::Io {
+            context: format!("write plan file {}", out_file.display()),
+            source: e.to_string(),
+        })?;
+        Ok(())
     }
 
     /// plan ファイルを元に install を実行する

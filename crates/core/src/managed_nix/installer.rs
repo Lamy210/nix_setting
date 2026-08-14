@@ -63,12 +63,15 @@ pub fn parse_json_line(line: &str) -> Option<JsonLogLine> {
 }
 
 /// `nix-installer plan <planner>` の CLI args を構築する
-pub fn plan_args(planner: &str, out_file: &Path, extra_conf: &[String]) -> Vec<String> {
+///
+/// upstream 2.35.1 の `plan` には `--out-file` 等の出力先 flag が無く、
+/// plan JSON は **stdout** へ出力される (stderr は `--logger json` の
+/// JSON Lines log)。出力先 path は SchneeForge 側で stdout を受け取って
+/// 書き込むため、args には含めない (Docker E2E 実測で確認)。
+pub fn plan_args(planner: &str, extra_conf: &[String]) -> Vec<String> {
     let mut args = vec![
         "plan".to_string(),
         planner.to_string(),
-        "--out-file".to_string(),
-        out_file.to_string_lossy().into_owned(),
         "--enable-flakes".to_string(),
     ];
     if !extra_conf.is_empty() {
@@ -168,6 +171,80 @@ where
     }
 }
 
+/// subprocess を spawn し、stderr を JSON Lines で best-effort parse しながら
+/// **stdout を全部受け取って返す**。`plan` subcommand は plan JSON を stdout へ
+/// 出力するため、この variant を使う。exit code 0 以外は `Subprocess` エラー
+/// (stderr の最後の N 行を保持)。
+pub fn run_with_json_logs_capture_stdout<F>(
+    binary: &Path,
+    args: &[String],
+    mut on_line: F,
+) -> Result<Vec<u8>, ManagedNixError>
+where
+    F: FnMut(&JsonLogLine),
+{
+    let mut child = Command::new(binary)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| ManagedNixError::Io {
+            context: format!("spawn {}", binary.display()),
+            source: e.to_string(),
+        })?;
+
+    // stderr reader は stderr が溢れる前に consume する必要があるため、
+    // stdout の読み取りは wait 後に行う (stderr を先に drain する)
+    const TAIL_LINES: usize = 20;
+    let mut tail: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    if let Some(stderr) = child.stderr.take() {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            match line {
+                Ok(s) => {
+                    tail.push_back(s.clone());
+                    if tail.len() > TAIL_LINES {
+                        tail.pop_front();
+                    }
+                    if let Some(parsed) = parse_json_line(&s) {
+                        on_line(&parsed);
+                    }
+                }
+                Err(e) => {
+                    return Err(ManagedNixError::Io {
+                        context: "read installer stderr".to_string(),
+                        source: e.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    let mut stdout: Vec<u8> = Vec::new();
+    if let Some(mut out) = child.stdout.take() {
+        use std::io::Read;
+        out.read_to_end(&mut stdout)
+            .map_err(|e| ManagedNixError::Io {
+                context: "read installer stdout".to_string(),
+                source: e.to_string(),
+            })?;
+    }
+
+    let status = child.wait().map_err(|e| ManagedNixError::Io {
+        context: format!("wait {}", binary.display()),
+        source: e.to_string(),
+    })?;
+
+    if status.success() {
+        Ok(stdout)
+    } else {
+        Err(ManagedNixError::Subprocess {
+            exit_status: status.code(),
+            stderr_tail: tail.into_iter().collect::<Vec<_>>().join("\n"),
+        })
+    }
+}
+
 /// `/nix/nix-installer` のパスを返す (uninstall 時に使われる既定位置)
 pub fn installed_binary_path() -> PathBuf {
     PathBuf::from("/nix/nix-installer")
@@ -224,18 +301,19 @@ mod tests {
 
     #[test]
     fn plan_args_basic() {
-        let args = plan_args("linux", Path::new("/tmp/plan.json"), &[]);
+        // upstream 2.35.1 の plan は出力先 flag を持たず stdout へ出力するため、
+        // args に出力先 path が含まれていてはならない
+        let args = plan_args("linux", &[]);
         assert_eq!(args[0], "plan");
         assert_eq!(args[1], "linux");
         assert!(args.contains(&"--enable-flakes".to_string()));
-        assert!(args.contains(&"--out-file".to_string()));
+        assert!(!args.contains(&"--out-file".to_string()));
     }
 
     #[test]
     fn plan_args_with_extra_conf() {
         let args = plan_args(
             "macos",
-            Path::new("/tmp/p.json"),
             &["experimental-features = flakes nix-command".to_string()],
         );
         let joined = args.join(" ");
