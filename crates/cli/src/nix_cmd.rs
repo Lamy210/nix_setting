@@ -45,6 +45,11 @@ pub struct InstallArgs {
     /// root 未実行時に即座に終了せず、処理を継続しようとする (Phase 1 では推奨しない)
     #[arg(long)]
     pub allow_non_root: bool,
+
+    /// detailed plan 表示後の最終確認を skip する (automation 用)。
+    /// upstream は --no-confirm で呼ぶため、確認責任は SchneeForge 側にある (D8)。
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Args, Debug)]
@@ -120,6 +125,7 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
 
     let mut progress = ShellProgress::new();
 
+    // D8: detailed plan 生成 → 表示 → 最終確認 → install
     let plan_file = match &args.plan {
         Some(p) => {
             if !p.exists() {
@@ -134,22 +140,41 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
                 .fetch_binary(preflight.platform, preflight.arch)
                 .map_err(|e| format!("fetch binary: {e}"))?;
             eprintln!("[verify]   SHA256 OK: {}", binary.display());
-            mn.run_install(&binary, p, &mut progress)
-                .map_err(|e| format!("install failed: {e}"))?;
             p.clone()
         }
         None => {
             let plan_dir = secure_plan_dir().map_err(|e| e.to_string())?;
-            mn.install_with_progress(
+            mn.prepare_plan(
                 preflight.platform,
                 preflight.arch,
                 &plan_dir,
                 &args.extra_conf,
                 &mut progress,
             )
-            .map_err(|e| format!("install failed: {e}"))?
+            .map_err(|e| format!("plan generation failed: {e}"))?
         }
     };
+
+    // detailed plan の内容を表示 (actions の概要)
+    print_plan_summary(&plan_file)?;
+
+    // 最終確認。upstream は --no-confirm で呼ぶため、この確認が唯一の gate (D8)
+    if !args.yes {
+        if !confirm_install()? {
+            eprintln!("aborted. `/nix` は変更していません。");
+            return Ok(());
+        }
+    } else {
+        eprintln!("[confirm]  --yes 指定のため最終確認を skip します。");
+    }
+
+    mn.execute_plan(
+        preflight.platform,
+        preflight.arch,
+        &plan_file,
+        &mut progress,
+    )
+    .map_err(|e| format!("install failed: {e}"))?;
 
     eprintln!("[verify]   reading /nix/receipt.json...");
     match Receipt::load_default() {
@@ -161,15 +186,21 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
             eprintln!("  actions: {}", r.actions.len());
             let _ = plan_file;
 
-            // SchneeForge 経由の install であることを記録 (uninstall 対称性のため)
+            // SchneeForge 経由の install であることを記録 (uninstall 対称性のため)。
+            // この record は uninstall safety の根拠なので、書けなければ success にしない。
+            // ただし Nix 自体は install 済みのため自動 rollback はしない。
             let ownership = OwnershipRecord::new(mn.version(), None);
             let ownership_path = default_ownership_path();
-            match ownership.write(&ownership_path) {
-                Ok(()) => eprintln!("  ownership: {}", ownership_path.display()),
-                Err(e) => {
-                    eprintln!("  ⚠ ownership record の書き込みに失敗しました: {e}");
-                }
+            if let Err(e) = ownership.write(&ownership_path) {
+                eprintln!();
+                eprintln!("⚠ Nix の install には成功しましたが、SchneeForge の ownership");
+                eprintln!("  metadata を書き込めませんでした: {e}");
+                eprintln!("  この状態では SchneeForge はこの Nix を管理対象とみなしません。");
+                eprintln!("  以下で状態を確認してください:");
+                eprintln!("    schneeforge nix doctor");
+                return Err("ownership record write failed after successful install".to_string());
             }
+            eprintln!("  ownership: {}", ownership_path.display());
         }
         Err(ManagedNixError::ReceiptNotFound { .. }) => {
             return Err(
@@ -181,6 +212,40 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
     eprintln!();
     eprintln!("Managed Nix install 完了。`schneeforge nix doctor` で状態を確認してください。");
     Ok(())
+}
+
+/// plan JSON から人間可読な概要を表示する (D8: Detailed Plan step)。
+fn print_plan_summary(plan_file: &Path) -> Result {
+    let lines = schneeforge_core::summarize_plan(plan_file).map_err(|e| e.to_string())?;
+    eprintln!();
+    eprintln!("=== Detailed plan ===");
+    for line in lines {
+        eprintln!("  {line}");
+    }
+    eprintln!();
+    Ok(())
+}
+
+/// install の最終確認。TTY でのみ prompt を出し、非 TTY では安全側に fail する。
+/// stdin が閉じている CI 環境で hang しない。
+fn confirm_install() -> std::result::Result<bool, String> {
+    use std::io::{IsTerminal, Read};
+
+    if !std::io::stdin().is_terminal() {
+        eprintln!("⚠ 非 interactive 環境では確認を取れません。");
+        eprintln!("  自動化で実行する場合は --yes を指定してください。");
+        return Err("cannot confirm installation without a TTY (use --yes)".to_string());
+    }
+
+    eprint!("この内容で install しますか? [y/N] ");
+    let _ = std::io::Write::flush(&mut std::io::stderr());
+
+    let mut buf = [0u8; 64];
+    let n = std::io::stdin()
+        .read(&mut buf)
+        .map_err(|e| format!("read confirmation: {e}"))?;
+    let answer = String::from_utf8_lossy(&buf[..n]).trim().to_lowercase();
+    Ok(answer == "y" || answer == "yes")
 }
 
 /// `schneeforge nix doctor`

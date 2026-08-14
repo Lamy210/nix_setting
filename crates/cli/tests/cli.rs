@@ -156,6 +156,22 @@ fn nix_install_dry_run_shows_preflight() {
         );
 }
 
+/// `schneeforge nix install --yes` で最終確認 skip が parse される (D8 automation mode)
+#[test]
+fn nix_install_parses_yes_flag() {
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(repo_root.canonicalize().unwrap())
+        .arg("nix")
+        .arg("install")
+        .arg("--dry-run")
+        .arg("--yes")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[dry-run]"));
+}
+
 /// `schneeforge nix install` (root 以外) は preflight 後に root 再実行を促して終了する (D4)
 #[test]
 fn nix_install_without_root_prompts_sudo() {
