@@ -18,8 +18,9 @@ pub struct OwnershipRecord {
     pub schema: u32,
     pub provider: String,
     pub installer_version: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub installer_sha256: Option<String>,
+    /// 検証済み installer binary の SHA256 (64 hex)。uninstall 時の
+    /// cached binary 再検証に使うため必須 (fail-closed)。
+    pub installer_sha256: String,
     pub upstream_receipt: PathBuf,
     pub installed_by: String,
     /// install 完了時刻 (ISO 8601)
@@ -34,7 +35,7 @@ pub fn default_ownership_path() -> PathBuf {
 }
 
 impl OwnershipRecord {
-    pub fn new(installer_version: &str, installer_sha256: Option<String>) -> Self {
+    pub fn new(installer_version: &str, installer_sha256: String) -> Self {
         Self {
             schema: OWNERSHIP_SCHEMA,
             provider: "nixos-nix-installer".to_string(),
@@ -88,6 +89,18 @@ impl OwnershipRecord {
         if self.installer_version.is_empty() {
             return Err(ManagedNixError::OwnershipInvalid {
                 reason: "installer_version is empty".to_string(),
+            });
+        }
+        // SHA は uninstall 時の cached binary 再検証に必須 (fail-closed)。
+        // 64 文字 hex であることも検証する。
+        if self.installer_sha256.len() != 64
+            || !self.installer_sha256.chars().all(|c| c.is_ascii_hexdigit())
+        {
+            return Err(ManagedNixError::OwnershipInvalid {
+                reason: format!(
+                    "installer_sha256 must be 64 hex chars, got len {}",
+                    self.installer_sha256.len()
+                ),
             });
         }
         if self.upstream_receipt != crate::managed_nix::receipt::default_receipt_path() {
@@ -147,6 +160,8 @@ fn set_owner_only_readable(path: &Path) {
 mod tests {
     use super::*;
 
+    const VALID_SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
     fn tmp_path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
             "schneeforge_ownership_{name}{}.json",
@@ -157,7 +172,7 @@ mod tests {
     #[test]
     fn roundtrip_write_and_load() {
         let p = tmp_path("roundtrip");
-        let rec = OwnershipRecord::new("2.35.1", Some("abc123".to_string()));
+        let rec = OwnershipRecord::new("2.35.1", VALID_SHA.to_string());
         rec.write(&p).unwrap();
         let loaded = OwnershipRecord::load(&p).unwrap();
         assert_eq!(loaded, rec);
@@ -192,7 +207,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_wrong_installed_by() {
-        let mut rec = OwnershipRecord::new("2.35.1", None);
+        let mut rec = OwnershipRecord::new("2.35.1", VALID_SHA.to_string());
         rec.installed_by = "someone-else".to_string();
         assert!(matches!(
             rec.validate(),
@@ -202,7 +217,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_wrong_schema() {
-        let mut rec = OwnershipRecord::new("2.35.1", None);
+        let mut rec = OwnershipRecord::new("2.35.1", VALID_SHA.to_string());
         rec.schema = 99;
         assert!(matches!(
             rec.validate(),
@@ -212,7 +227,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_wrong_provider() {
-        let mut rec = OwnershipRecord::new("2.35.1", None);
+        let mut rec = OwnershipRecord::new("2.35.1", VALID_SHA.to_string());
         rec.provider = "other-installer".to_string();
         assert!(matches!(
             rec.validate(),
@@ -222,7 +237,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_empty_version() {
-        let mut rec = OwnershipRecord::new("", None);
+        let mut rec = OwnershipRecord::new("", VALID_SHA.to_string());
         rec.installer_version = String::new();
         assert!(matches!(
             rec.validate(),
@@ -236,7 +251,7 @@ mod tests {
         // JSON としては有効だが installed_by が偽の record
         fs::write(
             &p,
-            r#"{"schema":1,"provider":"nixos-nix-installer","installer_version":"2.35.1","upstream_receipt":"/nix/receipt.json","installed_by":"attacker"}"#,
+            r#"{"schema":1,"provider":"nixos-nix-installer","installer_version":"2.35.1","installer_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","upstream_receipt":"/nix/receipt.json","installed_by":"attacker"}"#,
         )
         .unwrap();
         let res = OwnershipRecord::load(&p);
@@ -245,9 +260,44 @@ mod tests {
     }
 
     #[test]
+    fn validate_rejects_missing_sha() {
+        // installer_sha256 が無い (旧 fail-open 形式) record は拒否
+        let mut rec = OwnershipRecord::new("2.35.1", VALID_SHA.to_string());
+        rec.installer_sha256 = String::new();
+        assert!(matches!(
+            rec.validate(),
+            Err(ManagedNixError::OwnershipInvalid { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_rejects_short_sha() {
+        let mut rec = OwnershipRecord::new("2.35.1", VALID_SHA.to_string());
+        rec.installer_sha256 = "abc123".to_string();
+        assert!(matches!(
+            rec.validate(),
+            Err(ManagedNixError::OwnershipInvalid { .. })
+        ));
+    }
+
+    #[test]
+    fn load_rejects_record_without_sha_field() {
+        let p = tmp_path("no_sha");
+        // installer_sha256 field 自体が無い record (schema 1 の旧形式)
+        fs::write(
+            &p,
+            r#"{"schema":1,"provider":"nixos-nix-installer","installer_version":"2.35.1","upstream_receipt":"/nix/receipt.json","installed_by":"schneeforge"}"#,
+        )
+        .unwrap();
+        let res = OwnershipRecord::load(&p);
+        assert!(res.is_err());
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
     fn remove_existing() {
         let p = tmp_path("remove");
-        let rec = OwnershipRecord::new("2.35.1", None);
+        let rec = OwnershipRecord::new("2.35.1", VALID_SHA.to_string());
         rec.write(&p).unwrap();
         assert!(p.exists());
         OwnershipRecord::remove(&p).unwrap();

@@ -191,7 +191,7 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
             // この record は uninstall safety の根拠なので、書けなければ success にしない。
             // ただし Nix 自体は install 済みのため自動 rollback はしない。
             // installer_sha256 を保存し、uninstall 時に cached binary の trust を再確立する。
-            let ownership = OwnershipRecord::new(mn.version(), Some(expected_sha));
+            let ownership = OwnershipRecord::new(mn.version(), expected_sha);
             let ownership_path = default_ownership_path();
             if let Err(e) = ownership.write(&ownership_path) {
                 eprintln!();
@@ -421,26 +421,37 @@ pub fn run_uninstall(args: UninstallArgs) -> Result {
         eprintln!("(note) /nix/nix-installer が見つかりません。cached binary を探します。");
         let cached = cached_binary_for_receipt(&receipt_path)?;
         // root で実行する外部 binary は毎回 trust を再確立する:
-        // ownership record が保存した installer SHA256 と再計算 hash を比較する
-        if let Some(expected) = ownership
-            .as_ref()
-            .and_then(|r| r.installer_sha256.as_deref())
-        {
-            let actual = schneeforge_core::sha256_hex(&cached)
-                .map_err(|e| format!("hash cached installer: {e}"))?;
-            if actual != expected {
-                return Err(format!(
-                    "cached installer {} の SHA256 が ownership record と一致しません。\n\
-                     cache が改変されている可能性があります。再 download または手動確認が必要です。",
-                    cached.display()
-                ));
+        // ownership record が保存した installer SHA256 と再計算 hash を比較する。
+        // SHA が無い record は既定で abort (fail-closed)。--force のみ突破。
+        let sha_ok = match &ownership {
+            Some(rec) => {
+                let actual = schneeforge_core::sha256_hex(&cached)
+                    .map_err(|e| format!("hash cached installer: {e}"))?;
+                if actual == rec.installer_sha256 {
+                    eprintln!("  cached installer SHA256 verified (ownership record 一致)");
+                    true
+                } else {
+                    eprintln!(
+                        "cached installer {} の SHA256 が ownership record と一致しません。",
+                        cached.display()
+                    );
+                    false
+                }
             }
-            eprintln!("  cached installer SHA256 verified (ownership record 一致)");
-        } else {
-            eprintln!(
-                "⚠ ownership record に installer SHA256 が無いため、cached binary の\
-                 再検証を省略します (旧 version で install された可能性)"
+            None => {
+                eprintln!("⚠ ownership record が無いため cached binary を検証できません。");
+                false
+            }
+        };
+        if !sha_ok && !args.force {
+            return Err(
+                "cached installer の SHA256 検証に失敗しました (fail-closed)。続行するには \
+                 cache を削除して再 install するか、--force で明示的に突破してください"
+                    .to_string(),
             );
+        }
+        if !sha_ok && args.force {
+            eprintln!("⚠ --force により SHA256 検証失敗を突破して続行します。");
         }
         cached
     };
