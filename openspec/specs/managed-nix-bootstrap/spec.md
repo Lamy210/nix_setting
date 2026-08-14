@@ -94,7 +94,7 @@ SchneeForge SHALL は root 不要の preflight と、root 実行後の detailed 
 
 #### Scenario: detailed plan 表示と最終確認
 - **WHEN** root で `schneeforge nix install` を実行する
-- **THEN** `nix-installer plan <planner> --out-file plan.json --enable-flakes` で detailed plan を生成し、actions の概要を表示する
+- **THEN** `nix-installer plan <planner> --enable-flakes` を実行し、stdout へ出力された plan JSON を secure dir 内の file へ保存して actions の概要を表示する (upstream 2.35.1 の `plan` に出力先 flag は無く plan JSON は stdout へ出力される)
 - **AND** TTY では `y/N` の最終確認を求め、`y`/`yes` 以外なら install せずに終了する
 - **AND** 非 TTY (CI 等) では確認を取れないため error で終了する
 - **AND** `--yes` 指定時は最終確認を skip する (automation 用)
