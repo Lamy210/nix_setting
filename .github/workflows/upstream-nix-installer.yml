@@ -135,7 +135,7 @@ jobs:
         run: |
           set -euo pipefail
           {
-            printf 'Release [`%s`](https://github.com/NixOS/nix-installer/releases/tag/%s) の SLSA provenance 検証が失敗しました。\n\n' "$TARGET_VERSION" "$TARGET_VERSION"
+            printf 'Release [%s](https://github.com/NixOS/nix-installer/releases/tag/%s) の SLSA provenance 検証が失敗しました。\n\n' "$TARGET_VERSION" "$TARGET_VERSION"
             printf -- '- workflow run: %s\n' "$WORKFLOW_URL"
             printf -- '- 対象 asset: x86_64-linux / aarch64-linux / aarch64-darwin\n\n'
             printf '手動で原因確認 (workflow run log / upstream SLSA source) を行い、\n'
@@ -207,7 +207,7 @@ jobs:
           git add "$MANIFEST_PATH"
           {
             printf 'bump(nix-installer): %s\n\n' "$TARGET_VERSION"
-            printf 'SLSA provenance verified via `gh attestation verify`.\n'
+            printf 'SLSA provenance verified via gh attestation verify.\n'
             printf 'SHA256SUMS fetched from upstream release %s.\n\n' "$TARGET_VERSION"
             printf 'This bump was created automatically by upstream-nix-installer workflow.\n'
             printf 'Evaluate before merge per design.md D3 (release-cycle, not latest-tracking).\n\n'
@@ -219,8 +219,8 @@ jobs:
 
           {
             printf '## Summary\n'
-            printf -- '- bootstrap-manifest.toml を nix-installer `v%s` へ bump\n' "$TARGET_VERSION"
-            printf -- '- SLSA provenance 検証済み (`gh attestation verify`)\n'
+            printf -- '- bootstrap-manifest.toml を nix-installer v%s へ bump\n' "$TARGET_VERSION"
+            printf -- '- SLSA provenance 検証済み (gh attestation verify)\n'
             printf -- '- SHA256SUMS は upstream release から取得\n\n'
             printf '## Merge criteria (design.md D3)\n'
             printf -- '- [ ] breaking change 無し (CLI flag / receipt schema)\n'
