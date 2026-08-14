@@ -240,6 +240,12 @@ pub enum ManagedNixError {
 
 ### Phase 2 (別 change)
 - Tauri GUI (First Run Wizard) への IPC 接続
+- **[Phase 2 blocker] Core へ installation policy を集約**: Phase 1 では existing-Nix /
+  supported-platform / root policy の強制が CLI 側 (`nix_cmd.rs`) にあり、Core の
+  `install_with_progress()` は guard を持たない。Phase 2 で Tauri から直接
+  `ManagedNix::install()` を呼ぶ際は guard 迂回を防ぐため、policy 判定を Core の
+  public API 境界へ移動すること (CLI / GUI 両方が同一 API を通る形)。
+  この集約を完了するまで Tauri 側から `install_with_progress()` を直接呼んではならない。
 - privileged-gui-operations と統合 (macOS 管理者認証)
 - DMG bundle 配布の法務設計 (別 ADR)
 

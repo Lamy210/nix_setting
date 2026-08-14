@@ -78,17 +78,18 @@ pub fn plan_args(planner: &str, out_file: &Path, extra_conf: &[String]) -> Vec<S
     args
 }
 
-/// `nix-installer install --plan <plan.json>` の CLI args を構築する
+/// `nix-installer install <plan.json>` の CLI args を構築する
 ///
-/// `--plan` と planner-subcommand は排他なので、planner は渡さない。
+/// upstream 2.35.1 では plan は positional argument (`env = NIX_INSTALLER_PLAN`、
+/// long flag は無い) なので `--plan` は付けない。planner との併用は排他。
+/// `--enable-flakes` は plan 生成時に plan JSON へ焼き込んでいるため、
+/// replay 時には渡さない (upstream は plan 指定時 planner 経由の設定を使わない)。
 pub fn install_args(plan_file: &Path) -> Vec<String> {
     vec![
         "install".to_string(),
-        "--plan".to_string(),
         plan_file.to_string_lossy().into_owned(),
         "--logger".to_string(),
         "json".to_string(),
-        "--enable-flakes".to_string(),
         "--no-confirm".to_string(),
     ]
 }
@@ -243,14 +244,16 @@ mod tests {
     }
 
     #[test]
-    fn install_args_uses_plan_flag() {
+    fn install_args_passes_plan_as_positional() {
         let args = install_args(Path::new("/tmp/plan.json"));
-        // --plan と planner-subcommand は排他なので planner は無い
-        assert!(args.contains(&"--plan".to_string()));
+        // upstream 2.35.1 は plan を positional として受ける (--plan long flag は無い)
+        assert_eq!(args[0], "install");
+        assert_eq!(args[1], "/tmp/plan.json");
         assert!(args.contains(&"--logger".to_string()));
         assert!(args.contains(&"json".to_string()));
-        assert!(args.contains(&"--enable-flakes".to_string()));
         assert!(args.contains(&"--no-confirm".to_string()));
+        assert!(!args.contains(&"--plan".to_string()));
+        assert!(!args.contains(&"--enable-flakes".to_string()));
         assert!(!args.iter().any(|a| a == "linux" || a == "macos"));
     }
 

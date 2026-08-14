@@ -5,9 +5,10 @@ use std::path::{Path, PathBuf};
 use clap::Args;
 
 use schneeforge_core::{
-    cache_path, default_receipt_path, detect_arch, detect_platform, has_nix, installed_binary_path,
-    nix_health, run_with_json_logs, secure_plan_dir, uninstall_args as build_uninstall_args,
-    JsonLogLine, ManagedNix, ManagedNixError, NoProgress, ProgressSink, Receipt, ToolInventory,
+    cache_path, default_ownership_path, default_receipt_path, detect_arch, detect_platform,
+    has_nix, installed_binary_path, nix_health, run_with_json_logs, secure_plan_dir,
+    uninstall_args as build_uninstall_args, JsonLogLine, ManagedNix, ManagedNixError, NoProgress,
+    OwnershipRecord, ProgressSink, Receipt, ToolInventory,
 };
 
 /// `schneeforge nix` サブコマンド
@@ -51,6 +52,11 @@ pub struct UninstallArgs {
     /// `/nix/receipt.json` 以外の receipt path
     #[arg(long)]
     pub receipt: Option<PathBuf>,
+
+    /// SchneeForge ownership record が無い場合も uninstall を続行する
+    /// (SchneeForge 経由以外で install された Nix の明示的な削除)
+    #[arg(long)]
+    pub force: bool,
 }
 
 type Result = std::result::Result<(), String>;
@@ -154,6 +160,16 @@ pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
             );
             eprintln!("  actions: {}", r.actions.len());
             let _ = plan_file;
+
+            // SchneeForge 経由の install であることを記録 (uninstall 対称性のため)
+            let ownership = OwnershipRecord::new(mn.version(), None);
+            let ownership_path = default_ownership_path();
+            match ownership.write(&ownership_path) {
+                Ok(()) => eprintln!("  ownership: {}", ownership_path.display()),
+                Err(e) => {
+                    eprintln!("  ⚠ ownership record の書き込みに失敗しました: {e}");
+                }
+            }
         }
         Err(ManagedNixError::ReceiptNotFound { .. }) => {
             return Err(
@@ -245,6 +261,34 @@ pub fn run_uninstall(args: UninstallArgs) -> Result {
         ));
     }
 
+    // SchneeForge 経由で install されたものか確認 (install 拒否 policy との対称性)。
+    // record が無い = 用户が nix-installer 直接等で入れた Nix。既定では abort。
+    let ownership_path = default_ownership_path();
+    match OwnershipRecord::load(&ownership_path) {
+        Ok(rec) => {
+            eprintln!(
+                "ownership: SchneeForge managed (installer {})",
+                rec.installer_version
+            );
+        }
+        Err(ManagedNixError::OwnershipNotFound { .. }) if !args.force => {
+            eprintln!("⚠ SchneeForge の ownership record が見つかりません:");
+            eprintln!("  {}", ownership_path.display());
+            eprintln!();
+            eprintln!("  この Nix は SchneeForge 経由で install されたものではありません。");
+            eprintln!("  (SchneeForge は既存 Nix の上書き install を拒否するため、対応する");
+            eprintln!("   ownership record が存在しません)");
+            eprintln!();
+            eprintln!("  どうしても SchneeForge で uninstall したい場合は:");
+            eprintln!("    sudo schneeforge nix uninstall --force");
+            return Err("no SchneeForge ownership record (NotManagedBySchneeForge)".to_string());
+        }
+        Err(ManagedNixError::OwnershipNotFound { .. }) => {
+            eprintln!("⚠ ownership record がありませんが --force により続行します。");
+        }
+        Err(e) => return Err(format!("read ownership record: {e}")),
+    }
+
     if has_nix_darwin_markers() {
         eprintln!("⚠ nix-darwin の markers を検出しました。");
         eprintln!("  SchneeForge は現在 nix-darwin の自動取り外しをサポートしません。");
@@ -272,6 +316,11 @@ pub fn run_uninstall(args: UninstallArgs) -> Result {
     let mut noop = NoProgress;
     run_with_json_logs(&binary, &uninstall_args, |line| noop.on_log(line))
         .map_err(|e| format!("uninstall: {e}"))?;
+
+    // ownership record も削除 (Nix が無くなったので管理対象でも無くなる)
+    if let Err(e) = OwnershipRecord::remove(&ownership_path) {
+        eprintln!("⚠ ownership record の削除に失敗しました: {e}");
+    }
 
     eprintln!();
     eprintln!("upstream uninstall 完了。`/nix` が残っている場合は手動で確認してください。");

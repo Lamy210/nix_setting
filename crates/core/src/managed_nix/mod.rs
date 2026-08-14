@@ -7,6 +7,7 @@ pub mod download;
 pub mod error;
 pub mod installer;
 pub mod manifest;
+pub mod ownership;
 pub mod provider;
 pub mod receipt;
 pub mod verify;
@@ -18,6 +19,7 @@ pub use installer::{
     run_with_json_logs, uninstall_args, InstallPhase, JsonLogLine,
 };
 pub use manifest::{BootstrapManifest, ManagedNixSection, Sha256ByArch};
+pub use ownership::{default_ownership_path, OwnershipRecord};
 pub use provider::Provider;
 pub use receipt::{default_receipt_path, Receipt};
 pub use verify::{parse_sha256_sums, sha256_hex, verify_file, verify_sha256};
@@ -127,7 +129,10 @@ pub(crate) fn current_uid() -> u32 {
 ///
 /// `/tmp` は world-writable で symlink attack の危険があるため、
 /// `$XDG_STATE_HOME/schneeforge/managed-nix/plans/` を使う。
-/// directory が別 uid に所有されている場合は書き込みを拒否する。
+/// 以下を明示的に保証する:
+///   - directory 自体が symlink なら拒否 (metadata ではなく symlink_metadata で判定)
+///   - owner が現在の uid と一致しなければ拒否
+///   - permission を 0700 (owner のみ access) に設定
 pub fn secure_plan_dir() -> Result<PathBuf, ManagedNixError> {
     let base = dirs::state_dir()
         .or_else(dirs::data_dir)
@@ -141,14 +146,21 @@ pub fn secure_plan_dir() -> Result<PathBuf, ManagedNixError> {
         source: e.to_string(),
     })?;
 
-    // directory が symlink や別 uid 所有だと攻撃経路になるので拒否
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
-        let meta = std::fs::metadata(&dir).map_err(|e| ManagedNixError::Io {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        // symlink_metadata は symlink 自体の情報を返す (follow しない)
+        let meta = std::fs::symlink_metadata(&dir).map_err(|e| ManagedNixError::Io {
             context: format!("stat plan dir {}", dir.display()),
             source: e.to_string(),
         })?;
+        if meta.file_type().is_symlink() {
+            return Err(ManagedNixError::Io {
+                context: format!("plan dir {} is a symlink; refusing to write", dir.display()),
+                source: String::new(),
+            });
+        }
         let uid = current_uid();
         if meta.uid() != uid {
             return Err(ManagedNixError::Io {
@@ -160,6 +172,13 @@ pub fn secure_plan_dir() -> Result<PathBuf, ManagedNixError> {
                 source: String::new(),
             });
         }
+        // 0700 を強制 (作成時の umask に依存しない)
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).map_err(|e| {
+            ManagedNixError::Io {
+                context: format!("chmod 0700 {}", dir.display()),
+                source: e.to_string(),
+            }
+        })?;
     }
 
     Ok(dir)
@@ -295,7 +314,26 @@ impl ManagedNix {
             context: format!("create plan dir {}", plan_dir.display()),
             source: e.to_string(),
         })?;
+        // predictable name なので、既存 file が symlink 等で置き換えられていないか
+        // 確認してから上書きする (0700 dir 内だが defense in depth)
         let plan_file = plan_dir.join(format!("plan-{}.json", self.version()));
+        if plan_file.symlink_metadata().is_ok() {
+            let meta = plan_file
+                .symlink_metadata()
+                .map_err(|e| ManagedNixError::Io {
+                    context: format!("stat plan file {}", plan_file.display()),
+                    source: e.to_string(),
+                })?;
+            if meta.file_type().is_symlink() {
+                return Err(ManagedNixError::Io {
+                    context: format!(
+                        "plan file {} is a symlink; refusing to overwrite",
+                        plan_file.display()
+                    ),
+                    source: String::new(),
+                });
+            }
+        }
 
         self.generate_plan(&binary, planner, &plan_file, extra_conf, Some(progress))?;
         self.run_install(&binary, &plan_file, progress)?;

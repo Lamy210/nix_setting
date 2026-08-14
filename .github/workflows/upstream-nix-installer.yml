@@ -119,6 +119,14 @@ jobs:
               echo "  ✗ $asset: SLSA provenance verification FAILED"
               fail_open=1
             fi
+            # SLSA verified binary の actual SHA256 を SHA256SUMS と cross-check し、
+            # 「検証した binary」と「manifest に書く hash」が同一物であることを保証する
+            expected=$(awk -v a="$asset" '$2 == a {print $1}' SHA256SUMS | tr 'A-F' 'a-f')
+            actual=$(sha256sum "assets/$asset" | awk '{print $1}')
+            if [ "$actual" != "$expected" ]; then
+              echo "::error::$asset SHA256 mismatch: asset=$actual sums=$expected"
+              fail_open=1
+            fi
           done
           if [ "$fail_open" -ne 0 ]; then
             echo "slsa_failed=true" >> "$GITHUB_OUTPUT"

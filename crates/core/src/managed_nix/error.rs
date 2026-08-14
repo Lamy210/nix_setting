@@ -16,6 +16,9 @@ pub enum ManagedNixError {
     ReceiptNotFound {
         path: PathBuf,
     },
+    OwnershipNotFound {
+        path: PathBuf,
+    },
     Download {
         source: String,
     },
@@ -60,6 +63,11 @@ impl std::fmt::Display for ManagedNixError {
             ManagedNixError::ReceiptNotFound { path } => {
                 write!(f, "receipt not found: {}", path.display())
             }
+            ManagedNixError::OwnershipNotFound { path } => write!(
+                f,
+                "SchneeForge ownership record not found: {} (not installed by SchneeForge)",
+                path.display()
+            ),
             ManagedNixError::Download { source } => write!(f, "download failed: {source}"),
             ManagedNixError::Subprocess {
                 exit_status,
