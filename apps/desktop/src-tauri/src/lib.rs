@@ -100,7 +100,9 @@ async fn run_apply(state: tauri::State<'_, CachedToolInventory>) -> Result<Comma
 }
 
 #[tauri::command]
-async fn run_rollback(state: tauri::State<'_, CachedToolInventory>) -> Result<CommandOutput, String> {
+async fn run_rollback(
+    state: tauri::State<'_, CachedToolInventory>,
+) -> Result<CommandOutput, String> {
     let tc = state.get_or_discover()?;
     let out = tauri::async_runtime::spawn_blocking(move || {
         apply_output(schneeforge_core::rollback(
@@ -117,7 +119,9 @@ async fn run_rollback(state: tauri::State<'_, CachedToolInventory>) -> Result<Co
 }
 
 #[tauri::command]
-async fn run_upgrade(state: tauri::State<'_, CachedToolInventory>) -> Result<CommandOutput, String> {
+async fn run_upgrade(
+    state: tauri::State<'_, CachedToolInventory>,
+) -> Result<CommandOutput, String> {
     let tc = state.get_or_discover()?;
     let repo = resolve_repo(None);
     let out = tauri::async_runtime::spawn_blocking(move || {
@@ -129,7 +133,9 @@ async fn run_upgrade(state: tauri::State<'_, CachedToolInventory>) -> Result<Com
 }
 
 #[tauri::command]
-async fn run_preflight(state: tauri::State<'_, CachedToolInventory>) -> Result<PreflightReport, String> {
+async fn run_preflight(
+    state: tauri::State<'_, CachedToolInventory>,
+) -> Result<PreflightReport, String> {
     let tc = state.get_or_discover()?;
     tauri::async_runtime::spawn_blocking(move || schneeforge_core::preflight(&tc))
         .await
@@ -139,16 +145,17 @@ async fn run_preflight(state: tauri::State<'_, CachedToolInventory>) -> Result<P
 #[tauri::command]
 async fn run_generate_config(username: String) -> Result<CommandOutput, String> {
     let repo = resolve_repo(None);
-    tauri::async_runtime::spawn_blocking(move || match schneeforge_core::generate_config(&repo, &username)
-    {
-        Ok(()) => CommandOutput {
-            success: true,
-            output: "config.toml を生成しました".to_string(),
-        },
-        Err(e) => CommandOutput {
-            success: false,
-            output: e.to_string(),
-        },
+    tauri::async_runtime::spawn_blocking(move || {
+        match schneeforge_core::generate_config(&repo, &username) {
+            Ok(()) => CommandOutput {
+                success: true,
+                output: "config.toml を生成しました".to_string(),
+            },
+            Err(e) => CommandOutput {
+                success: false,
+                output: e.to_string(),
+            },
+        }
     })
     .await
     .map_err(|e| format!("task error: {e}"))
@@ -228,6 +235,8 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     /// frontend の invoke コマンド名と backend の generate_handler 登録名が一致することを検証する
     /// (button → IPC の mapping がずれたままにならないよう静的クロスチェック)
     #[test]
@@ -263,5 +272,55 @@ mod tests {
             frontend, backend,
             "frontend invoke() names must match backend generate_handler commands"
         );
+    }
+
+    /// wizard (stepPrereq) が読む `pre.*` field が PreflightReport の serde keys と
+    /// 一致することを検証する。コマンド名 test と違い、応答 field は JS で undefined
+    /// (falsy) に落ちるため実行時 error にならず「常に NG」化する (rc.3 で実際に発生)。
+    #[test]
+    fn wizard_reads_preflight_report_fields() {
+        let js = include_str!("../../dist/main.js");
+
+        // backend 側の serialize keys (serde は field 名そのまま)
+        let report = schneeforge_core::preflight(&ToolInventory {
+            nix: None,
+            git: None,
+            homebrew: None,
+            nh: None,
+        });
+        let keys: Vec<String> = serde_json::to_value(&report)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+
+        // frontend の `pre.<field>` 参照を抽出
+        let used: Vec<String> = js
+            .split("pre.")
+            .skip(1)
+            .filter_map(|rest| {
+                let field: String = rest
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
+                (!field.is_empty()).then_some(field)
+            })
+            .collect();
+        let used: Vec<String> = {
+            let mut u = used;
+            u.sort();
+            u.dedup();
+            u
+        };
+
+        assert!(!used.is_empty(), "wizard should read some pre.* fields");
+        for f in &used {
+            assert!(
+                keys.contains(f),
+                "frontend reads `pre.{f}` but PreflightReport serializes {keys:?}"
+            );
+        }
     }
 }
