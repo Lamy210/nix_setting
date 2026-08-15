@@ -60,10 +60,8 @@ jobs:
       - name: build nix-darwin system
         run: nix build .#darwinConfigurations.macbook-air.system
 
-      # release.yml の macOS CLI artifact と同一の build script で検証する
-      # (v0.2.0-rc.2 の「PR CI green なのに release build が失敗」coverage gap 対策)
-      - name: build release CLI (same script as release workflow)
-        run: ./scripts/ci/build-release-macos-cli.sh
+      # release artifact 経路の検証は独立 job `release-artifact-check` が担う
+      # (同一 script で二重実行しない)
 
   # release artifact を tag push 後に初めて build しない原則。
   # release workflow と同一の scripts/ci/*.sh で build し smoke する
