@@ -1,15 +1,12 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-/// このテストファイル内の "nix 必須" テストは環境に nix が無い場合は skip する
+/// このテストファイル内の "nix 必須" テストは環境に nix が無い場合は skip する。
+/// binary 側の ToolResolver と同一の解決 (PATH 以外に Nix profile 群 / Homebrew も
+/// 探索する) で判定する。PATH check だけだと「PATH に nix 無いが /nix はある」環境
+/// (例: nix build の checkPhase sandbox) で guard を抜けて assertion が崩れる
 fn nix_available() -> bool {
-    std::process::Command::new("nix")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    schneeforge_core::ToolInventory::discover().nix.is_some()
 }
 
 #[test]
@@ -33,8 +30,8 @@ fn version_prints_semver() {
 }
 
 #[test]
-fn doctor_runs() {
-    // doctor は Fresh install 環境でも動く (Nix 無しで nix_installed=no を表示)
+fn doctor_prints_system_section() {
+    // doctor の基本出力 (system/host)。Nix 有無の断言は core hermetic test が担う
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("doctor")
         .assert()
@@ -100,19 +97,19 @@ fn uninstall_runs_without_nix() {
         .stdout(predicate::str::contains("=== uninstall ==="));
 }
 
-/// doctor は Fresh install 環境 (Nix 未解決) でも成功し、未インストール状態を表示する。
-/// ToolInventory が partial 化されたので、Nix 無し = exit 0 で診断結果を出す。
+/// doctor は Fresh install 環境でもクラッシュしないことの実機検証。
+/// 「Nix 無し = installed: no と表示する」の決定論的な検証は core 側の
+/// `nix_health_returns_not_installed_when_unresolved` (ToolInventory を
+/// injection した hermetic test) が担う。CLI integration 側で環境の Nix
+/// 有無を前提にした assertion を書くと、nix build の checkPhase sandbox
+/// (PATH に nix 無いが /nix は読める) で壊れるため行わない
 #[test]
-fn doctor_succeeds_and_reports_missing_nix_without_nix() {
-    if nix_available() {
-        eprintln!("skipping: nix is installed (test is for no-nix env)");
-        return;
-    }
+fn doctor_runs() {
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("doctor")
         .assert()
         .success()
-        .stdout(predicate::str::contains("[nix]").and(predicate::str::contains("installed: no")));
+        .stdout(predicate::str::contains("[system]").and(predicate::str::contains("host")));
 }
 
 /// `schneeforge nix` サブコマンド一覧が help へ出る

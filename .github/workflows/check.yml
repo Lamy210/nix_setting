@@ -60,6 +60,25 @@ jobs:
       - name: build nix-darwin system
         run: nix build .#darwinConfigurations.macbook-air.system
 
+      # release artifact 経路の検証は独立 job `release-artifact-check` が担う
+      # (同一 script で二重実行しない)
+
+  # release artifact を tag push 後に初めて build しない原則。
+  # release workflow と同一の scripts/ci/*.sh で build し smoke する
+  release-artifact-check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-release
+
+      - name: build + smoke + portability gate (same script as release workflow)
+        run: ./scripts/ci/build-release-macos-cli.sh
+
   docker-check:
     runs-on: ubuntu-latest
     steps:
@@ -87,7 +106,7 @@ jobs:
         run: nix run nixpkgs#actionlint
 
       - name: shellcheck
-        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh tests/managed-nix-e2e.bats tests/install-sh.bats
+        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh scripts/ci/build-release-macos-cli.sh scripts/ci/build-release-linux-cli.sh tests/managed-nix-e2e.bats tests/install-sh.bats tests/ci-scripts.bats
 
       - name: statix check
         run: nix run nixpkgs#statix -- check .
@@ -186,6 +205,9 @@ jobs:
       - name: bats test (resolve-tools)
         run: nix run nixpkgs#bats -- tests/resolve-tools.bats
 
+      - name: bats test (ci-scripts gate patterns)
+        run: nix run nixpkgs#bats -- tests/ci-scripts.bats
+
       # pin 済み nix-installer 実 binary との invocation contract 検証
       # (install <plan> positional / SHA256 pin / --plan long flag 不在)
       - name: bats test (managed-nix contract)
@@ -219,18 +241,10 @@ jobs:
         with:
           key: musl
 
-      - name: build schneeforge (release, musl static)
-        run: cargo build --release -p schneeforge --target x86_64-unknown-linux-musl
-
-      # musl static であることの gate: INTERP (dynamic interpreter) を持たないこと
-      - name: verify static binary
-        run: |
-          file target/x86_64-unknown-linux-musl/release/schneeforge
-          if readelf -l target/x86_64-unknown-linux-musl/release/schneeforge | grep -q INTERP; then
-            echo "ERROR: binary is dynamically linked" >&2
-            exit 1
-          fi
-          echo "OK: fully static binary"
+      # release.yml と同一 script で build + smoke + static INTERP gate
+      # (PR CI と release workflow の build 経路 drift が RC.1/RC.2 両方の事故原因)
+      - name: build schneeforge (release, musl static, same script as release workflow)
+        run: ./scripts/ci/build-release-linux-cli.sh
 
       - name: stage binary at target/release
         run: |
