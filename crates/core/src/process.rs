@@ -75,10 +75,22 @@ pub fn run_capture(cmd: &Path, args: &[String]) -> Result<String> {
 mod tests {
     use super::*;
 
+    /// test 内で使う「必ず exit 0 する」実 binary。
+    /// /bin/true は nix build の checkPhase sandbox に存在しないため使わない。
+    /// /usr/bin/env は coreutils ではなく env 自体なので sandbox にもある
+    fn true_bin() -> std::path::PathBuf {
+        let bin = std::path::PathBuf::from("/usr/bin/env");
+        if bin.is_file() {
+            bin
+        } else {
+            // 念のため PATH 探索に fallback
+            std::path::PathBuf::from("env")
+        }
+    }
+
     #[test]
     fn command_succeeds_with_real_command() {
-        // /bin/true はUnix系OSで普遍的に存在
-        let ok = command_succeeds(Path::new("/bin/true"), &[]);
+        let ok = command_succeeds(&true_bin(), &[]);
         assert!(ok);
     }
 

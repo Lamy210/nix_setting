@@ -2596,7 +2596,7 @@ dependencies = [
 
 [[package]]
 name = "schneeforge-core"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -2605,7 +2605,7 @@ dependencies = [
 
 [[package]]
 name = "schneeforge-desktop"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.3"
 dependencies = [
  "fix-path-env",
  "schneeforge-core",
