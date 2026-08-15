@@ -8,27 +8,14 @@
 # Linux musl build と同じ理由で host build とする。
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 cargo build --release -p schneeforge
 
 BIN="target/release/schneeforge"
 "$BIN" --version
 "$BIN" doctor >/dev/null
 
-# direct dylib 依存に /nix/store が無いこと (otool -L の依存行は indent される)
-if otool -L "$BIN" | grep -qE '^[[:space:]]*/nix/store/'; then
-  echo "ERROR: release CLI links against /nix/store (not portable):" >&2
-  otool -L "$BIN" >&2
-  exit 1
-fi
-
-# LC_RPATH 経由の /nix/store も弾く (@rpath 依存 + rpath 解決で実行時破綻するため)
-if otool -l "$BIN" | awk '
-  $1 == "cmd" && $2 == "LC_RPATH" { in_rpath = 1; next }
-  in_rpath && $1 == "path" { print $2; in_rpath = 0 }
-' | grep -q '^/nix/store/'; then
-  echo "ERROR: release CLI contains /nix/store LC_RPATH (not portable):" >&2
-  otool -l "$BIN" >&2
-  exit 1
-fi
+"$SCRIPT_DIR/check-macos-portability.sh" "$BIN"
 
 echo "OK: macOS release CLI built and verified"
