@@ -60,6 +60,22 @@ jobs:
       - name: build nix-darwin system
         run: nix build .#darwinConfigurations.macbook-air.system
 
+      # release.yml の macOS CLI artifact と同一の build 経路を PR CI でも担保する。
+      # v0.2.0-rc.2 で「PR CI green なのに release の nix build .#schneeforge が
+      # checkPhase で失敗」した coverage gap の再発防止
+      - name: build release CLI package (same path as release artifact)
+        run: nix build .#schneeforge
+
+      - name: smoke + portability check of release CLI package
+        run: |
+          ./result/bin/schneeforge --version
+          # /nix/store 依存の dylib を持たない (Nix-less machine で動く) こと
+          if otool -L result/bin/schneeforge | grep -q '^/nix/store'; then
+            echo "::error::release CLI links against /nix/store (not portable)"
+            otool -L result/bin/schneeforge
+            exit 1
+          fi
+
   docker-check:
     runs-on: ubuntu-latest
     steps:

@@ -1,15 +1,12 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-/// このテストファイル内の "nix 必須" テストは環境に nix が無い場合は skip する
+/// このテストファイル内の "nix 必須" テストは環境に nix が無い場合は skip する。
+/// binary 側の ToolResolver と同一の解決 (PATH 以外に Nix profile 群 / Homebrew も
+/// 探索する) で判定する。PATH check だけだと「PATH に nix 無いが /nix はある」環境
+/// (例: nix build の checkPhase sandbox) で guard を抜けて assertion が崩れる
 fn nix_available() -> bool {
-    std::process::Command::new("nix")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    schneeforge_core::ToolInventory::discover().nix.is_some()
 }
 
 #[test]
@@ -102,10 +99,12 @@ fn uninstall_runs_without_nix() {
 
 /// doctor は Fresh install 環境 (Nix 未解決) でも成功し、未インストール状態を表示する。
 /// ToolInventory が partial 化されたので、Nix 無し = exit 0 で診断結果を出す。
+/// guard は binary と同一の ToolResolver 解決で判定する (release build の checkPhase
+/// sandbox では PATH に nix が無くても /nix を読めるため、PATH check では不正確)
 #[test]
 fn doctor_succeeds_and_reports_missing_nix_without_nix() {
     if nix_available() {
-        eprintln!("skipping: nix is installed (test is for no-nix env)");
+        eprintln!("skipping: nix is resolvable (test is for no-nix env)");
         return;
     }
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
