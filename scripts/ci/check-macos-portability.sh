@@ -32,16 +32,16 @@ if [ -z "$ARCH" ]; then
   # lipo が無い環境では file 出力の fallback
   ARCH="$(file "$BIN")"
   case "$ARCH" in
-    *arm64*) ARCH="arm64" ;;
-    *) ARCH="unknown" ;;
+  *arm64*) ARCH="arm64" ;;
+  *) ARCH="unknown" ;;
   esac
 fi
 case "$ARCH" in
-  arm64*|*arm64*) : ;;
-  *)
-    echo "ERROR: release binary is not arm64: $ARCH" >&2
-    exit 1
-    ;;
+arm64* | *arm64*) : ;;
+*)
+  echo "ERROR: release binary is not arm64: $ARCH" >&2
+  exit 1
+  ;;
 esac
 
 # 2. direct dylib 依存に /nix/store が無いこと (otool -L の依存行は indent される)
