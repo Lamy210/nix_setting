@@ -18,5 +18,3 @@ toml.workspace = true
 assert_cmd = "2"
 predicates = "3"
 libc = "0.2"
-# test guard を binary と同一の tool 解決 (PATH 以外の profile 群も含む) に合わせるため
-schneeforge-core = { path = "../core" }

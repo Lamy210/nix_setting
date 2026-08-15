@@ -276,7 +276,7 @@ pub fn sync(repo: &str, tc: &ToolInventory, capture: bool) -> Result<Option<Stri
 /// precondition (git 解決) は lock 取得の前に評価する — lock file の作成先が
 /// read-only の環境 (nix build の checkPhase sandbox 等) でも precondition error
 /// を正しく返せるようにするため。
-pub fn sync_with_lock(
+fn sync_with_lock(
     repo: &str,
     tc: &ToolInventory,
     capture: bool,

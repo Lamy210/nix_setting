@@ -11,8 +11,9 @@ nix build .#schneeforge
 ./result/bin/schneeforge --version
 ./result/bin/schneeforge doctor >/dev/null
 
-# portability: /nix/store 依存の dylib を持たないこと (Nix-less machine で動く)
-if otool -L result/bin/schneeforge | grep -q '^/nix/store'; then
+# portability: /nix/store 依存の dylib を持たないこと (Nix-less machine で動く)。
+# otool -L の dependency 行は行頭が indent されるため ^/nix/store では検出できない
+if otool -L result/bin/schneeforge | grep -qE '^[[:space:]]*/nix/store/'; then
   echo "ERROR: release CLI links against /nix/store (not portable):" >&2
   otool -L result/bin/schneeforge >&2
   exit 1
