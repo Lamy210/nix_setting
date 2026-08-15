@@ -148,17 +148,21 @@ async function stepPrereq(box, actions) {
 }
 
 function stepRepo(box, actions) {
+  const DEFAULT_REPO_URL = "https://github.com/Lamy210/nix_setting.git";
+  const escapedDefault = DEFAULT_REPO_URL
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
   box.innerHTML =
-    '<p>repository の URL を入力してください。</p>' +
-    '<input id="repo-url" type="text" placeholder="git@github.com:you/nix_setting.git" />';
+    '<p>repository の URL を確認してください。空のままなら既定 (upstream) を使います。</p>' +
+    '<input id="repo-url" type="text" value="' + escapedDefault + '" />';
   actions.appendChild(
     actionBtn("clone", async () => {
+      // 空 (または既定値のまま) なら backend の既定解決に任せる。
+      // fork を使うユーザーはここを自分の URL に書き換える
       const url = $("repo-url").value.trim();
-      if (!url) {
-        box.innerHTML += errorBlock("URL を入力してください。");
-        return;
-      }
-      box.textContent = "cloning...";
+      box.textContent = url ? `cloning ${url}...` : "cloning (default repository)...";
       const r = await invoke("run_clone_repo", { url });
       if (r.success) {
         next();

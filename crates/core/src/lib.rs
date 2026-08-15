@@ -16,7 +16,7 @@ pub mod tool;
 pub use actions::scan;
 pub use bootstrap::{
     clone_repo, doctor, enable_flakes, generate_config, preflight, setup, DoctorReport,
-    PreflightReport,
+    PreflightReport, DEFAULT_REPO_URL,
 };
 pub use diagnostics::{
     diagnose, nix_health, Diagnostics, NixHealth, ResolvedToolSummary, ToolInventorySummary,

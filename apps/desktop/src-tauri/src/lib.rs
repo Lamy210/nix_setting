@@ -323,4 +323,31 @@ mod tests {
             );
         }
     }
+
+    /// wizard (stepRepo) の既定 repository URL が core の DEFAULT_REPO_URL と一致
+    /// することを検証する。frontend の既定値と backend の fallback がずれると
+    /// 「空入力で clone した場合」と「既定値を明示入力した場合」で別 repository
+    /// を見ることになる (fork 利用者の誤誘導になる) ため静的に突合する。
+    #[test]
+    fn wizard_default_repo_url_matches_core() {
+        let js = include_str!("../../dist/main.js");
+
+        let default_marker = "DEFAULT_REPO_URL = \"";
+        let frontend_url: String = js
+            .split(default_marker)
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .unwrap_or_default()
+            .to_string();
+
+        assert!(
+            !frontend_url.is_empty(),
+            "stepRepo should define DEFAULT_REPO_URL"
+        );
+        assert_eq!(
+            frontend_url,
+            schneeforge_core::DEFAULT_REPO_URL,
+            "frontend default repo URL must match core DEFAULT_REPO_URL"
+        );
+    }
 }
