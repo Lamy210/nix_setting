@@ -269,8 +269,24 @@ fn current_branch(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Option<
 /// detached HEAD (install.sh の release tag pin clone) は pull できず失敗するため、
 /// clean no-op として pinned である旨を返す。
 pub fn sync(repo: &str, tc: &ToolInventory, capture: bool) -> Result<Option<String>> {
-    let _guard = acquire()?;
+    sync_with_lock(repo, tc, capture, OperationLock::global())
+}
+
+/// [`sync`] の lock を注入可能にした内部実装 (test は独立した lock path を使う)。
+/// precondition (git 解決) は lock 取得の前に評価する — lock file の作成先が
+/// read-only の環境 (nix build の checkPhase sandbox 等) でも precondition error
+/// を正しく返せるようにするため。
+pub fn sync_with_lock(
+    repo: &str,
+    tc: &ToolInventory,
+    capture: bool,
+    lock: &OperationLock,
+) -> Result<Option<String>> {
     let git = tc.require_git()?;
+    let _guard = match lock.try_acquire()? {
+        Some(guard) => guard,
+        None => return Err(Error::Busy("another operation is in progress".to_string())),
+    };
 
     if git_dirty(repo, git)? {
         return Err(Error::Busy(
@@ -421,7 +437,12 @@ mod tests {
 
     #[test]
     fn sync_returns_git_not_found_when_git_missing() {
-        // Git 未解決の環境では sync は GitNotFound (Precondition) で弾かれる
+        // Git 未解決の環境では sync は GitNotFound (Precondition) で弾かれる。
+        // 独立 lock + precondition を lock 前に評価することで、lock file の作成先が
+        // read-only な環境 (nix build の checkPhase sandbox) でも正しく弾ける
+        let lock = OperationLock::new(
+            std::env::temp_dir().join(format!("sf-lock-{}-git-missing", std::process::id())),
+        );
         let tc = ToolInventory {
             nix: Some(ResolvedTool::new(
                 PathBuf::from("/usr/local/bin/nix"),
@@ -431,7 +452,7 @@ mod tests {
             homebrew: None,
             nh: None,
         };
-        let err = sync("/tmp/repo", &tc, false).unwrap_err();
+        let err = sync_with_lock("/tmp/repo", &tc, false, &lock).unwrap_err();
         assert!(
             err.to_string().contains("git not found"),
             "expected git-not-found message, got: {err}"
