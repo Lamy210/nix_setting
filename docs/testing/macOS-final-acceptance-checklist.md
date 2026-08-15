@@ -64,13 +64,24 @@ one-liner 完走後は `schneeforge` command がどこにも残らない
 事前に保存しておく:
 
 ```bash
-# 以降の手順は全てこの bash session で続ける (pipefail と $SF を使い回す)
+# 以降の手順は全てこの bash session で続ける (pipefail と $SF を使い回す)。
+# fresh macOS に gh は無い前提で curl で取得し、CHECKSUMS.txt で SHA256 を
+# 検証してから使う (D/F/G では root 実行もするため、保存 binary の verify が必須)
 set -o pipefail
+TAG="v0.2.0-rc.2"
+ASSET="schneeforge-aarch64-darwin"
+BASE="https://github.com/Lamy210/nix_setting/releases/download/$TAG"
 ACCEPT_DIR="/tmp/schneeforge-rc2-acceptance"
 mkdir -p "$ACCEPT_DIR"
-gh release download v0.2.0-rc.2 -R Lamy210/nix_setting \
-  -p 'schneeforge-aarch64-darwin' -D "$ACCEPT_DIR"
-SF="$ACCEPT_DIR/schneeforge-aarch64-darwin"
+
+curl -fsSL "$BASE/$ASSET"       -o "$ACCEPT_DIR/$ASSET"
+curl -fsSL "$BASE/CHECKSUMS.txt" -o "$ACCEPT_DIR/CHECKSUMS.txt"
+
+expected="$(sed -n "s|^\([0-9a-f]\{64\}\)  .*/${ASSET}$|\1|p" "$ACCEPT_DIR/CHECKSUMS.txt")"
+actual="$(shasum -a 256 "$ACCEPT_DIR/$ASSET" | awk '{print $1}')"
+test -n "$expected" && test "$expected" = "$actual" && echo "OK: checksum verified"
+
+SF="$ACCEPT_DIR/$ASSET"
 chmod +x "$SF" && "$SF" --version
 ```
 
@@ -129,8 +140,13 @@ echo "bootstrap_rc=$bootstrap_rc"   # gate B1 は 0 であること
 sudo cat /nix/receipt.json | head -40          # receipt
 sudo cat /nix/schneeforge-managed.json         # ownership record
 
-# runtime (新しい shell で)
-exec $SHELL -l
+# runtime。exec $SHELL -l は使わない (bash session が置換され $SF / pipefail が消える)。
+# 現 session のまま Nix profile を source する
+if [ -e /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ]; then
+  # shellcheck disable=SC1091
+  . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+fi
+hash -r
 nix --version
 nix store ping
 nix flake show github:Lamy210/nix_setting --no-write-lock-file 2>&1 | head
@@ -166,7 +182,8 @@ cd "$HOME/nix_setting"
 DMG asset を使う (rc.2 の asset 名は release page で確認):
 
 ```bash
-gh release download v0.2.0-rc.2 -R Lamy210/nix_setting -p '*.dmg' -D /tmp
+# gh は fresh macOS に無い前提で curl で取得する
+curl -fL "$BASE/SchneeForge_0.2.0-rc.2_aarch64.dmg" -o /tmp/SchneeForge_0.2.0-rc.2_aarch64.dmg
 hdiutil attach /tmp/SchneeForge_0.2.0-rc.2_aarch64.dmg
 # Finder で SchneeForge.app を Applications へ drag & drop
 hdiutil detach /Volumes/SchneeForge*
@@ -183,13 +200,18 @@ PATH が継承され、minimal GUI PATH の検証にならない。
 ## F. Idempotency (2 回目 install の安全な拒否)
 
 ```bash
-sudo "$SF" nix install 2>&1 | tee install-second.log
+# --repo 明示: sudo で root 側 HOME を見て別 repository を探させない
+# (install.sh 自身も sudo env NIX_SETTING_DIR=... で渡している)
+sudo "$SF" --repo "$HOME/nix_setting" nix install 2>&1 | tee install-second.log
 second_install_rc=$?
 echo "second_install_rc=$second_install_rc"
+grep -q 'ExistingNixDetected' install-second.log && echo "OK: rejected as expected"
 ```
 
-- [ ] gate F1: `ExistingNixDetected` で拒否され、non-zero exit
-      (`test "$second_install_rc" -ne 0` が通ること)
+- [ ] gate F1: exit code と error 内容の両方で検証
+      (`test "$second_install_rc" -ne 0` かつ
+      `grep -q 'ExistingNixDetected' install-second.log` が通ること。
+      non-zero だけだと repository not found 等の別失敗も PASS になってしまう)
 - [ ] gate F2: 既存 install (/nix・receipt) が破壊されていない
       (再度 `nix store ping` が通る)
 
@@ -207,7 +229,7 @@ sudo nix --extra-experimental-features "nix-command flakes" \
 その後:
 
 ```bash
-sudo "$SF" nix uninstall 2>&1 | tee uninstall.log
+sudo "$SF" --repo "$HOME/nix_setting" nix uninstall 2>&1 | tee uninstall.log
 uninstall_rc=$?
 echo "uninstall_rc=$uninstall_rc"
 ```
