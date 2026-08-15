@@ -36,9 +36,11 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl
 
-      - name: build binary (musl static)
+      # build / smoke / static INTERP gate は scripts/ci/ に共通化
+      # (PR CI の release-artifact-check と同一 script。drift が rc.2 事故の原因)
+      - name: build binary (musl static, same script as PR CI)
         if: runner.os == 'Linux'
-        run: cargo build --release -p schneeforge --target x86_64-unknown-linux-musl
+        run: ./scripts/ci/build-release-linux-cli.sh
 
       - name: package binary (Linux)
         if: runner.os == 'Linux'
@@ -53,9 +55,11 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
-      - name: build binary (macOS)
+      # build / smoke / otool portability gate は scripts/ci/ に共通化
+      # (PR CI の release-artifact-check / macos-check と同一 script)
+      - name: build binary (macOS, same script as PR CI)
         if: runner.os == 'macOS'
-        run: nix build .#schneeforge
+        run: ./scripts/ci/build-release-macos-cli.sh
 
       - name: package binary (macOS)
         if: runner.os == 'macOS'

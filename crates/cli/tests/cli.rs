@@ -30,8 +30,8 @@ fn version_prints_semver() {
 }
 
 #[test]
-fn doctor_runs() {
-    // doctor は Fresh install 環境でも動く (Nix 無しで nix_installed=no を表示)
+fn doctor_prints_system_section() {
+    // doctor の基本出力 (system/host)。Nix 有無の断言は core hermetic test が担う
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("doctor")
         .assert()
@@ -97,21 +97,19 @@ fn uninstall_runs_without_nix() {
         .stdout(predicate::str::contains("=== uninstall ==="));
 }
 
-/// doctor は Fresh install 環境 (Nix 未解決) でも成功し、未インストール状態を表示する。
-/// ToolInventory が partial 化されたので、Nix 無し = exit 0 で診断結果を出す。
-/// guard は binary と同一の ToolResolver 解決で判定する (release build の checkPhase
-/// sandbox では PATH に nix が無くても /nix を読めるため、PATH check では不正確)
+/// doctor は Fresh install 環境でもクラッシュしないことの実機検証。
+/// 「Nix 無し = installed: no と表示する」の決定論的な検証は core 側の
+/// `nix_health_returns_not_installed_when_unresolved` (ToolInventory を
+/// injection した hermetic test) が担う。CLI integration 側で環境の Nix
+/// 有無を前提にした assertion を書くと、nix build の checkPhase sandbox
+/// (PATH に nix 無いが /nix は読める) で壊れるため行わない
 #[test]
-fn doctor_succeeds_and_reports_missing_nix_without_nix() {
-    if nix_available() {
-        eprintln!("skipping: nix is resolvable (test is for no-nix env)");
-        return;
-    }
+fn doctor_runs() {
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("doctor")
         .assert()
         .success()
-        .stdout(predicate::str::contains("[nix]").and(predicate::str::contains("installed: no")));
+        .stdout(predicate::str::contains("[system]").and(predicate::str::contains("host")));
 }
 
 /// `schneeforge nix` サブコマンド一覧が help へ出る
