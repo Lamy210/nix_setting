@@ -118,18 +118,30 @@ async function stepPrereq(box, actions) {
     actions.appendChild(actionBtn("再確認", () => renderStep()));
     return;
   }
+  const nixOk = pre.nix_installed;
+  const gitOk = pre.git_installed;
+  const flakesOk = pre.flakes_enabled;
   box.innerHTML =
     row("host", status ? status.host : "-") +
     row("platform", status ? `${status.platform}/${status.architecture}` : "-") +
-    row("Nix", pre.nix ? "OK" : "NG") +
-    row("Git", pre.git ? "OK" : "NG") +
-    row("flakes", pre.flakes ? "OK" : "NG");
-  if (pre.nix && pre.git && pre.flakes) {
+    row("Nix", nixOk ? "OK" : "NG") +
+    row("Git", gitOk ? "OK" : "NG") +
+    row("flakes", flakesOk ? "OK" : "NG");
+  if (nixOk && gitOk && flakesOk) {
     actions.appendChild(actionBtn("次へ", next));
+  } else if (!nixOk) {
+    box.innerHTML += errorBlock(
+      "Nix が未導入です。Nix をインストールしてください:<br>" +
+        "<code>curl -L https://nixos.org/nix/install | sh</code>"
+    );
+    actions.appendChild(actionBtn("再確認", () => renderStep()));
   } else {
     box.innerHTML += errorBlock(
-      "Nix が未導入、または flakes が無効です。Nix をインストールしてください:<br>" +
-        "<code>curl -L https://nixos.org/nix/install | sh</code>"
+      !gitOk
+        ? "Git が見つかりません。Xcode Command Line Tools をインストールしてください:<br>" +
+            "<code>xcode-select --install</code>"
+        : "flakes が無効です。Nix 設定に追加してください:<br>" +
+            "<code>experimental-features = nix-command flakes</code>"
     );
     actions.appendChild(actionBtn("再確認", () => renderStep()));
   }
