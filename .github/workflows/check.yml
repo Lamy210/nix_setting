@@ -65,6 +65,9 @@ jobs:
 
   # release artifact を tag push 後に初めて build しない原則。
   # release workflow と同一の scripts/ci/*.sh で build し smoke する
+  # macOS release artifacts 全部 (CLI + DMG) を release workflow と同一 script で
+  # build し gate する。DMG は RC.4 まで nix build 経路のまま /nix/store link が
+  # 検出されず release されていたため、ここで完成品検査まで回す
   release-artifact-check:
     runs-on: macos-latest
     steps:
@@ -78,6 +81,9 @@ jobs:
 
       - name: build + smoke + portability gate (same script as release workflow)
         run: ./scripts/ci/build-release-macos-cli.sh
+
+      - name: build DMG + mounted-app portability gate (same script as release workflow)
+        run: ./scripts/ci/build-release-macos-dmg.sh
 
   docker-check:
     runs-on: ubuntu-latest
@@ -106,7 +112,7 @@ jobs:
         run: nix run nixpkgs#actionlint
 
       - name: shellcheck
-        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh scripts/ci/build-release-macos-cli.sh scripts/ci/build-release-linux-cli.sh tests/managed-nix-e2e.bats tests/install-sh.bats tests/ci-scripts.bats
+        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh scripts/ci/build-release-macos-cli.sh scripts/ci/build-release-linux-cli.sh scripts/ci/build-release-macos-dmg.sh scripts/ci/check-macos-portability.sh tests/managed-nix-e2e.bats tests/install-sh.bats tests/ci-scripts.bats
 
       - name: statix check
         run: nix run nixpkgs#statix -- check .

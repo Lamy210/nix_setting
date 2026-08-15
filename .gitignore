@@ -34,3 +34,4 @@ result
 # Rust
 target/
 apps/desktop/src-tauri/gen/
+.opencode/command/
