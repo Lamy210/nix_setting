@@ -11,7 +11,7 @@ REPO_DIR="${NIX_SETTING_DIR:-$HOME/nix_setting}"
 # bootstrap が download する schneeforge CLI の version。
 # latest release 任せにすると rc (壊れた asset を含み得る) が拾われるため
 # release 毎に固定する。release 時は RELEASE.md の手順でこの値を bump する。
-SCHNEEFORGE_BOOTSTRAP_VERSION="${SCHNEEFORGE_VERSION:-v0.2.0-rc.2}"
+SCHNEEFORGE_BOOTSTRAP_VERSION="${SCHNEEFORGE_VERSION:-v0.2.0-rc.3}"
 # config repository (modules / bootstrap-manifest.toml) の ref。CLI binary と
 # 同一 release tag に固定することで bootstrap の対象が release unit として一致する
 # (default branch を拾うと過去の installer 実行時に「その時点の develop」が入る)。
