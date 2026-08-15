@@ -13,12 +13,15 @@ PR #11 で未実施だった「Finder からの .app 起動 smoke」を 1 本の
 
 ```text
 A. Environment    fresh Apple Silicon macOS・Nix なし・state なし
+A2. Pre-bootstrap GUI   DMG の SchneeForge.app を Nix 導入前に Finder 起動
+                         → crash 無し・Nix Missing 表示 (Nix 無し Mac で動くことの保証)
 B. Bootstrap      install.sh → pinned CLI → checksum → staging → install
                   └ 完走時は bootstrap.sh まで自動実行
                     (nix-darwin switch → Home Manager apply)
 C. Managed Nix    receipt / ownership / daemon / store / flakes
 D. CLI            nix doctor / doctor / status / plan
 E. Finder         SchneeForge.app を Finder 起動 → minimal GUI PATH で Nix 検出
+                  (post-bootstrap。A2 と対で「Nix 無し/有り」両面を保証)
 F. Idempotency    2 回目 install → ExistingNixDetected で安全に拒否
 G. Uninstall      ownership 確認 → uninstall → cleanup 確認
 H. Reinstall      再 install → 正常導入 (lifecycle 一周)
@@ -30,19 +33,28 @@ I. Final          ADR-0001 provisionally accepted → Accepted
 **「何を検証しているか」を曖昧にしない。** 検証は必ず
 「release pipeline が実際に配る artifact」と「同一 source ref」の組で行う。
 
+- 検証対象 TAG は環境変数で指定する (手順書に RC 番号を直書きしない):
+
+```bash
+TAG="${TAG:-v0.2.0-rc.5}"
+```
+
 - current main の installer (one-liner) は **RC.1-era の legacy Nix shell
   installer** であり、RC.2 acceptance の検証対象ではない
 - RC.1 の CLI asset は plan `--out-file` P0 (issue #14 で発見、PR #18 で修正) を
   含むため、**RC.1 asset での検証は不可**
+- **RC.4 の DMG asset は desktop binary が `/nix/store` の libiconv に link した
+  まま release されていた** (RC.5 の修正対象。`release-artifact-check` の DMG
+  gate 追加により以降は PR 段階で検出される)。RC.4 asset での検証は不可
 - release pipeline は **tag push でのみ発火**する (workflow_dispatch は無い)。
   したがって本手順は以下の順序の「Prerelease assets 生成後」に実施する:
 
 ```text
-PR (本手順書) merge → release/v0.2.0-rc.2 branch → version bump → release PR
-→ main → CI green → merge → v0.2.0-rc.2 tag push → Prerelease + assets 生成
+fix merge → release/vX.Y.Z-rc.N branch → version bump → release PR
+→ main → CI green → merge → vX.Y.Z-rc.N tag push → Prerelease + assets 生成
 → 本手順 (Final Acceptance)
    → PASS → ADR-0001 を Accepted へ昇格
-   → FAIL → ADR は provisional のまま維持 → fix → RC.3 で出し直し
+   → FAIL → ADR は provisional のまま維持 → fix → 次 RC で出し直し
 ```
 
 ### 0-1. install.sh の取得
@@ -51,7 +63,7 @@ install.sh も artifact と同一 ref から取得する (develop HEAD ではな
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/Lamy210/nix_setting/v0.2.0-rc.2/install.sh \
+  "https://raw.githubusercontent.com/Lamy210/nix_setting/${TAG}/install.sh" \
   -o /tmp/install.sh
 less /tmp/install.sh   # 内容を確認してから実行
 ```
@@ -68,10 +80,10 @@ one-liner 完走後は `schneeforge` command がどこにも残らない
 # fresh macOS に gh は無い前提で curl で取得し、CHECKSUMS.txt で SHA256 を
 # 検証してから使う (D/F/G では root 実行もするため、保存 binary の verify が必須)
 set -o pipefail
-TAG="v0.2.0-rc.2"
+TAG="${TAG:-v0.2.0-rc.5}"
 ASSET="schneeforge-aarch64-darwin"
 BASE="https://github.com/Lamy210/nix_setting/releases/download/$TAG"
-ACCEPT_DIR="/tmp/schneeforge-rc2-acceptance"
+ACCEPT_DIR="/tmp/schneeforge-acceptance"
 mkdir -p "$ACCEPT_DIR"
 
 curl -fsSL "$BASE/$ASSET"       -o "$ACCEPT_DIR/$ASSET"
@@ -91,8 +103,8 @@ chmod +x "$SF" && "$SF" --version
 
 - 手元 `cargo build` での検証は unit smoke にはなるが **Release Acceptance
   にはならない** (Linux で「CI binary と release binary が違って壊れた」実績が
-  あるため。macOS release binary は `nix build` 産)
-- rc.2 公開前に通す必要がある場合は付録 B (手元 build)。ただし D8 の
+  あるため)
+- 対象 TAG 公開前に通す必要がある場合は付録 B (手元 build)。ただし D8 の
   /dev/tty 経路など install.sh 由来の検証は含まれない点を記録に明記する
 
 - [ ] gate 0: 検証対象 ref と artifact (tag・SHA) を記録に明記した
@@ -109,6 +121,49 @@ command -v nix && echo "NG: nix in PATH" || echo "OK"
 
 - [ ] gate A: `/nix` 無し・`nix` command 無し・SchneeForge state 無しを確認
 
+## A2. Pre-bootstrap GUI smoke (Nix 無し Mac で起動できることの保証)
+
+RC.4 までは Finder 起動の検証が gate B (Nix install) の後のみで、
+「Nix が無い Mac でも SchneeForge.app は起動できる」という製品要件が
+実機検証されていなかった。RC.4 の DMG は desktop binary が
+`/nix/store/.../libiconv.2.dylib` に link しており、この gate で即座に
+発覚する類の defect だったため、RC.5 から gate を追加する。
+
+DMG を download して checksum 検証後に mount する (gate E でも使い回す):
+
+```bash
+DMG_NAME="SchneeForge_${TAG#v}_aarch64.dmg"
+curl -fsSL "$BASE/$DMG_NAME" -o "$ACCEPT_DIR/$DMG_NAME"
+
+expected="$(sed -n "s|^\([0-9a-f]\{64\}\)  .*/${DMG_NAME}$|\1|p" "$ACCEPT_DIR/CHECKSUMS.txt")"
+actual="$(shasum -a 256 "$ACCEPT_DIR/$DMG_NAME" | awk '{print $1}')"
+test -n "$expected" && test "$expected" = "$actual" && echo "OK: DMG checksum verified"
+
+hdiutil attach "$ACCEPT_DIR/$DMG_NAME"
+# Finder で /Volumes/SchneeForge/SchneeForge.app を起動する
+# (terminal から起動すると PATH が継承され、minimal GUI PATH の検証にならない)
+```
+
+**この時点では Nix は未導入** (gate B の前) であること:
+
+```bash
+[ -d /nix ] && echo "NG: gate B already run?" || echo "OK: pre-bootstrap"
+```
+
+確認ポイント:
+- app が開く (crash / blank なし)。dyld error dialog も出ない
+  (RC.4 の `/nix/store` link はここで即 crash したはず)
+- wizard (Set up SchneeForge) が表示され、Nix が NG であることが**正しく**表示される
+  (rc.3 の field mismatch のように「常に NG」ではなく、実際の状態に追随する)
+- gate A と同じ shell で確認する (gate B 実行後は再現できない)
+
+```bash
+hdiutil detach /Volumes/SchneeForge*
+```
+
+- [ ] gate A2-1: Nix 未導入状態で SchneeForge.app が Finder 起動で開く
+- [ ] gate A2-2: Nix Missing が正しく表示される (crash・誤表示なし)
+
 ## B. Bootstrap (install.sh 経路)
 
 ```bash
@@ -122,7 +177,7 @@ echo "bootstrap_rc=$bootstrap_rc"   # gate B1 は 0 であること
   (`/private/var/db/schneeforge/bootstrap/`) → root 側再検証 → `schneeforge nix install`
   の順で log が出ること
 - D8 最終確認 (detailed plan → y/N) が /dev/tty 経由で表示されること
-- repository が `--branch v0.2.0-rc.2 --depth 1` で clone されること
+- repository が `--branch "$TAG" --depth 1` で clone されること
   (detached HEAD。`schneeforge sync` が pinned no-op 案内になることは
   PR #18 で担保済み)
 - **install.sh が完走すると、続く `bootstrap.sh` まで自動実行される**
@@ -179,12 +234,10 @@ cd "$HOME/nix_setting"
 
 ## E. Finder 起動 (PR #11 smoke + fix-path-env-rs 検証)
 
-DMG asset を使う (rc.2 の asset 名は release page で確認):
+A2 で mount した DMG asset を使う (gate B で Nix 導入済みの状態で再検証する):
 
 ```bash
-# gh は fresh macOS に無い前提で curl で取得する
-curl -fL "$BASE/SchneeForge_0.2.0-rc.2_aarch64.dmg" -o /tmp/SchneeForge_0.2.0-rc.2_aarch64.dmg
-hdiutil attach /tmp/SchneeForge_0.2.0-rc.2_aarch64.dmg
+hdiutil attach "$ACCEPT_DIR/$DMG_NAME"
 # Finder で SchneeForge.app を Applications へ drag & drop
 hdiutil detach /Volumes/SchneeForge*
 ```
@@ -292,13 +345,14 @@ README.md の Result template:
 
 Platform: macOS Apple Silicon
 Architecture: aarch64
-Verified artifact: v0.2.0-rc.2 (tag) / <commit SHA>
+Verified artifact: $TAG (tag) / <commit SHA>
 Date: 2026-08-XX
 Result: PASS
 
 ### Gates
 
 - [x] Fresh host had no Nix
+- [x] Pre-bootstrap GUI smoke (Nix 無しで起動・Nix Missing 表示)
 - [x] install.sh bootstrap
 - [x] checksum verified
 - [x] Managed Nix install
@@ -306,7 +360,7 @@ Result: PASS
 - [x] ownership
 - [x] store ping
 - [x] flakes
-- [x] Finder launch
+- [x] Finder launch (post-bootstrap)
 - [x] minimal GUI PATH detection
 - [x] doctor
 - [x] status
@@ -326,16 +380,32 @@ Result: PASS
 どこかで ❌ になった場合は:
 - ADR は provisional のまま
 - 失敗 gate・log・環境を issue (or PR) に記録し、修正後に再実施
-  (rc.2 asset に問題があれば rc.3 で出し直す)
+  (asset に問題があれば次 RC で出し直す)
 
 ---
 
-## 付録 A: rc.2 未 release 時の扱い
+## 付録 A: 検証対象 TAG 未 release 時の扱い
 
-`install.sh` の pin (`v0.2.0-rc.2`) は rc.2 の Release が存在しないと
-CHECKSUMS download に失敗する。**rc.2 release assets 公開後に本手順を
-実施するのが原則** (gate 0 参照)。rc.1 asset を使った代替は
-plan `--out-file` P0 のため存在しない。
+`install.sh` の pin (`$TAG`) は対象 Release が存在しないと
+CHECKSUMS download に失敗する。**release assets 公開後に本手順を
+実施するのが原則** (gate 0 参照)。
+
+### RC.4 の判定記録 (Final Acceptance FAIL・参考)
+
+RC.4 は release workflow 完走・CHECKSUMS 検証まで PASS したが、
+DMG portability preflight で FAIL となり Final Acceptance を実施していない:
+
+```text
+Gate 0 (checksum / metadata 二重検証)  PASS
+Mach-O compatibility (arm64 / minos)   PASS
+CLI portability (/nix/store 無し)      PASS
+DMG portability (/nix/store libiconv)  FAIL  ← desktop binary が
+  /nix/store/jspv3c5...-libiconv-115.100.1/lib/libiconv.2.dylib に link。
+  release-artifact-check が DMG を検査対象外だったため PR 段階で検出されず。
+  RC.5 で DMG を host build 化 + mounted-app gate 追加で修正
+```
+
+RC.4 asset を使った検証は不可。
 
 ## 付録 B: 手元 build の CLI で事前 smoke する場合
 

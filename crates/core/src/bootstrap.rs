@@ -172,15 +172,33 @@ pub fn generate_config(repo: &str, username: &str) -> Result<()> {
 
 /// repository を clone する。clone 出力を返す
 ///
+/// `url` が空のときは既定 repository (upstream) を使う。既定値は
+/// `SCHNEEFORGE_REPO_URL` 環境変数で上書きできる (install.sh の
+/// `REPO_URL="${SCHNEEFORGE_REPO_URL:-...}"` と同じ規約。fork を使う
+/// ユーザーは環境変数か wizard 入力で上書きする)。
 /// clone は Git を必要とする操作。
+pub const DEFAULT_REPO_URL: &str = "https://github.com/Lamy210/nix_setting.git";
+
 pub fn clone_repo(url: &str, dest: &str, tc: &ToolInventory) -> Result<String> {
-    if url.trim().is_empty() || url.starts_with('-') || url.contains("::") {
+    let effective_url = if url.trim().is_empty() {
+        std::env::var("SCHNEEFORGE_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string())
+    } else {
+        url.to_string()
+    };
+    if effective_url.trim().is_empty()
+        || effective_url.starts_with('-')
+        || effective_url.contains("::")
+    {
         return Err(Error::Precondition("invalid repository URL".to_string()));
     }
     let git = tc.require_git()?;
     run_capture(
         &git.path,
-        &["clone".to_string(), url.to_string(), dest.to_string()],
+        &[
+            "clone".to_string(),
+            effective_url.to_string(),
+            dest.to_string(),
+        ],
     )
 }
 
@@ -272,9 +290,22 @@ mod tests {
     #[test]
     fn clone_repo_rejects_invalid_url() {
         let tc = dummy_tc();
-        assert!(clone_repo("", "/tmp/dest", &tc).is_err());
         assert!(clone_repo("-malicious", "/tmp/dest", &tc).is_err());
         assert!(clone_repo("proto:://evil", "/tmp/dest", &tc).is_err());
+    }
+
+    #[test]
+    fn clone_repo_empty_url_falls_back_to_default() {
+        // 空文字は error ではなく既定 repository への fallback。dummy_tc の
+        // git (/usr/bin/git) が実在する環境では実際に clone が走ってしまうため、
+        // destination を必ず失敗する path にして「URL validation は通過した」
+        // (既定値が採用された) ことを git 実行段階の失敗で判定する
+        let tc = dummy_tc();
+        let err = clone_repo("", "/proc/no-such-dir/dest", &tc).unwrap_err();
+        assert!(
+            !err.to_string().contains("invalid repository URL"),
+            "empty URL should fall back to default, got: {err}"
+        );
     }
 
     #[test]
@@ -293,6 +324,14 @@ mod tests {
         assert!(
             err.to_string().contains("git not found"),
             "expected git-not-found message, got: {err}"
+        );
+    }
+
+    #[test]
+    fn default_repo_url_is_upstream() {
+        assert_eq!(
+            DEFAULT_REPO_URL,
+            "https://github.com/Lamy210/nix_setting.git"
         );
     }
 }

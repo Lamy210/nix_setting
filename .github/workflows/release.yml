@@ -78,18 +78,24 @@ jobs:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.artifact }}
 
+  # DMG も CLI と同じく host cargo + pinned Tauri CLI で build し、mount した
+  # .app 内 binary に portability gate をかける (RC.4 の /nix/store libiconv 事故の
+  # 再発防止。script は check.yml release-artifact-check と同一)
   build-dmg:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-      - uses: cachix/install-nix-action@08dcb3a5e62fa31e2da3d490afc4176ef55ecd72
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: build DMG
-        run: nix develop --command cargo tauri build
-        working-directory: apps/desktop/src-tauri
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-release-dmg
+
+      # build + gate は scripts/ci/build-release-macos-dmg.sh に共通化
+      # (PR CI の release-artifact-check と同一 script。drift が事故原因)
+      - name: build DMG (host toolchain, same script as PR CI)
+        run: ./scripts/ci/build-release-macos-dmg.sh
 
       - name: upload DMG
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

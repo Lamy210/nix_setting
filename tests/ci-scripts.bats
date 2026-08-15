@@ -56,3 +56,34 @@ extract_rpaths() {
   run sh -c "printf '  LOAD    0x0000000000000000\n' | grep -q INTERP"
   [ "$status" -ne 0 ]
 }
+
+# --- check-macos-portability.sh の arm64 判定 (RC.4 DMG 事故で追加) ---
+
+@test "arm64 gate accepts arm64 architecture string" {
+  output="$(printf 'arm64\n' | grep -qE '^(arm64|\*arm64)' && echo matched)"
+  [ "$output" = "matched" ]
+}
+
+@test "arm64 gate rejects x86_64 architecture string" {
+  run sh -c "printf 'x86_64\n' | grep -qE '^(arm64|\*arm64)'"
+  [ "$status" -ne 0 ]
+}
+
+# --- build-release-macos-dmg.sh の pin 検証 ---
+
+@test "tauri CLI sha256 pin is exact length" {
+  SHA="$(grep '^TAURI_CLI_SHA256=' scripts/ci/build-release-macos-dmg.sh | cut -d'"' -f2)"
+  [ "${#SHA}" -eq 64 ]
+}
+
+@test "tauri CLI download URL embeds pinned version" {
+  VERSION="$(grep '^TAURI_CLI_VERSION=' scripts/ci/build-release-macos-dmg.sh | cut -d'"' -f2)"
+  URL="$(grep '^TAURI_CLI_URL=' scripts/ci/build-release-macos-dmg.sh | sed "s/\${TAURI_CLI_VERSION}/$VERSION/" | cut -d'"' -f2)"
+  echo "$URL" | grep -q "tauri-cli-v${VERSION}/"
+}
+
+@test "dmg script gates mounted app binary not raw build output" {
+  grep -q 'hdiutil attach' scripts/ci/build-release-macos-dmg.sh
+  grep -q 'check-macos-portability.sh' scripts/ci/build-release-macos-dmg.sh
+  grep -q 'CFBundleShortVersionString' scripts/ci/build-release-macos-dmg.sh
+}
