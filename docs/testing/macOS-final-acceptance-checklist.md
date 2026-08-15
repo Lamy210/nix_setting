@@ -28,18 +28,52 @@ I. Final          ADR-0001 provisionally accepted → Accepted
 **「何を検証しているか」を曖昧にしない。** 検証は必ず
 「release pipeline が実際に配る artifact」と「同一 source ref」の組で行う。
 
-- `main` の one-liner は直近の stable release を指す。
-  RC.1 の CLI は plan `--out-file` P0 (issue #14 で発見、PR #18 で修正) を
+- current main の installer (one-liner) は **RC.1-era の legacy Nix shell
+  installer** であり、RC.2 acceptance の検証対象ではない
+- RC.1 の CLI asset は plan `--out-file` P0 (issue #14 で発見、PR #18 で修正) を
   含むため、**RC.1 asset での検証は不可**
-- **原則、`v0.2.0-rc.2` の release assets が公開されてから本手順を実施する**:
+- release pipeline は **tag push でのみ発火**する (workflow_dispatch は無い)。
+  したがって本手順は以下の順序の「Prerelease assets 生成後」に実施する:
+
+```text
+PR (本手順書) merge → release/v0.2.0-rc.2 branch → version bump → release PR
+→ main → CI green → merge → v0.2.0-rc.2 tag push → Prerelease + assets 生成
+→ 本手順 (Final Acceptance)
+   → PASS → ADR-0001 を Accepted へ昇格
+   → FAIL → ADR は provisional のまま維持 → fix → RC.3 で出し直し
+```
+
+### 0-1. install.sh の取得
+
+install.sh も artifact と同一 ref から取得する (develop HEAD ではない):
 
 ```bash
-# install.sh も artifact と同一 ref から取得する (develop HEAD ではない)
 curl -fsSL \
   https://raw.githubusercontent.com/Lamy210/nix_setting/v0.2.0-rc.2/install.sh \
   -o /tmp/install.sh
 less /tmp/install.sh   # 内容を確認してから実行
 ```
+
+### 0-2. CLI binary の保存 (gates D / F / G で使用)
+
+install.sh は CLI を staging から実行した後に **staging を削除**する。
+one-liner 完走後は `schneeforge` command がどこにも残らない
+(Home Manager profile にも入らない) ため、検証用 CLI は release asset から
+事前に保存しておく:
+
+```bash
+# 以降の手順は全てこの bash session で続ける (pipefail と $SF を使い回す)
+set -o pipefail
+ACCEPT_DIR="/tmp/schneeforge-rc2-acceptance"
+gh release download v0.2.0-rc.2 -R Lamy210/nix_setting \
+  -p 'schneeforge-aarch64-darwin' -D "$ACCEPT_DIR"
+SF="$ACCEPT_DIR/schneeforge-aarch64-darwin"
+chmod +x "$SF" && "$SF" --version
+```
+
+以降の log 取得は `cmd 2>&1 | tee X.log` の直後に `X_rc=$?` で exit code を
+変数に残す (`set -o pipefail` が無いと `$?` は tee の exit code になり、
+失敗を見逃す)。
 
 - 手元 `cargo build` での検証は unit smoke にはなるが **Release Acceptance
   にはならない** (Linux で「CI binary と release binary が違って壊れた」実績が
@@ -65,18 +99,24 @@ command -v nix && echo "NG: nix in PATH" || echo "OK"
 
 ```bash
 bash /tmp/install.sh 2>&1 | tee bootstrap.log
+bootstrap_rc=$?
+echo "bootstrap_rc=$bootstrap_rc"   # gate B1 は 0 であること
 ```
 
 確認ポイント:
 - CLI binary の download → CHECKSUMS.txt SHA256 検証 → root-owned staging
-  (`/var/db/schneeforge/bootstrap/`) → root 側再検証 → `schneeforge nix install`
+  (`/private/var/db/schneeforge/bootstrap/`) → root 側再検証 → `schneeforge nix install`
   の順で log が出ること
 - D8 最終確認 (detailed plan → y/N) が /dev/tty 経由で表示されること
 - repository が `--branch v0.2.0-rc.2 --depth 1` で clone されること
   (detached HEAD。`schneeforge sync` が pinned no-op 案内になることは
   PR #18 で担保済み)
+- **install.sh が完走すると、続く `bootstrap.sh` まで自動実行される**
+  (macOS では nix-darwin switch → Home Manager apply まで自動適用)。
+  つまり gate B 完走時点で環境は full bootstrap 済みであり、
+  gate G (uninstall) では nix-darwin を先に外すことが**必須**になる
 
-- [ ] gate B1: install.sh が完走 (exit 0)
+- [ ] gate B1: install.sh が完走 (`bootstrap_rc=0`)
 - [ ] gate B2: checksum verification / staging の log が確認できた
 - [ ] gate B3: D8 確認プロンプトが表示され、`y` で先に進んだ
 
@@ -103,12 +143,15 @@ nix flake show github:Lamy210/nix_setting --no-write-lock-file 2>&1 | head
 
 ## D. CLI (doctor / status / plan)
 
+one-liner 完走後は `schneeforge` command が PATH に無いため、gate 0-2 で
+保存した release binary (`$SF`) を使う:
+
 ```bash
 cd "$HOME/nix_setting"
-schneeforge nix doctor     # receipt / store ping / flakes
-schneeforge doctor         # toolchain 診断
-schneeforge status         # state
-schneeforge plan           # dry-run build
+"$SF" nix doctor     # receipt / store ping / flakes
+"$SF" doctor         # toolchain 診断
+"$SF" status         # state
+"$SF" plan           # dry-run build
 ```
 
 - [ ] gate D1: `nix doctor` が receipt / installed: true / store accessible:
@@ -137,18 +180,21 @@ PATH が継承され、minimal GUI PATH の検証にならない。
 ## F. Idempotency (2 回目 install の安全な拒否)
 
 ```bash
-sudo schneeforge nix install 2>&1 | tee install-second.log
-echo "exit=$?"
+sudo "$SF" nix install 2>&1 | tee install-second.log
+second_install_rc=$?
+echo "second_install_rc=$second_install_rc"
 ```
 
 - [ ] gate F1: `ExistingNixDetected` で拒否され、non-zero exit
+      (`test "$second_install_rc" -ne 0` が通ること)
 - [ ] gate F2: 既存 install (/nix・receipt) が破壊されていない
       (再度 `nix store ping` が通る)
 
 ## G. Uninstall / cleanup
 
 **注意**: `/nix` 配下と build users・launchd 設定が削除される。
-nix-darwin を適用した場合は必ず先に nix-darwin を外す:
+**gate B が完走している (= bootstrap.sh による nix-darwin 適用済み) 場合は、
+uninstall の前に必ず nix-darwin を外す** (SSL cert 破損防止):
 
 ```bash
 sudo nix --extra-experimental-features "nix-command flakes" \
@@ -158,7 +204,9 @@ sudo nix --extra-experimental-features "nix-command flakes" \
 その後:
 
 ```bash
-sudo schneeforge nix uninstall 2>&1 | tee uninstall.log
+sudo "$SF" nix uninstall 2>&1 | tee uninstall.log
+uninstall_rc=$?
+echo "uninstall_rc=$uninstall_rc"
 ```
 
 確認ポイント:
@@ -172,7 +220,7 @@ sudo dscl . -list /Users | grep _nixbld || echo "OK: build users removed"
 sudo launchctl print system/nix-daemon 2>&1 | head -1   # not found なら OK
 ```
 
-- [ ] gate G1: uninstall が完走 (ownership check 通過)
+- [ ] gate G1: uninstall が完走 (ownership check 通過・`uninstall_rc=0`)
 - [ ] gate G2: `/nix` が消え、build users・launchd service も残っていない
 
 ## H. Reinstall (lifecycle 一周の証明)
@@ -182,10 +230,13 @@ lifecycle が一周する。
 
 ```bash
 bash /tmp/install.sh 2>&1 | tee reinstall.log
+reinstall_rc=$?
+echo "reinstall_rc=$reinstall_rc"
 nix store ping && echo "reinstall OK"
 ```
 
-- [ ] gate H1: 再 install が完走し、receipt / ownership が再生成される
+- [ ] gate H1: 再 install が完走し (`reinstall_rc=0`)、receipt / ownership が
+      再生成される
 - [ ] gate H2: `nix store ping` が通る
 
 最終状態: 環境を綺麗に残すならもう一度 G の uninstall を実行して
@@ -267,11 +318,11 @@ plan `--out-file` P0 のため存在しない。
 git clone https://github.com/Lamy210/nix_setting.git ~/nix_setting
 cd ~/nix_setting && git checkout develop
 cargo build --release -p schneeforge
-sudo env NIX_SETTING_DIR="$HOME/nix_setting" \
-  ./target/release/schneeforge nix install
+SF="$PWD/target/release/schneeforge"
+sudo env NIX_SETTING_DIR="$HOME/nix_setting" "$SF" nix install
 ```
 
 以降は gate C から同一 (gate 0・B は「手元 build で代替」旨を記録)。
-D8 確認は terminal TTY で行われ、install.sh 経路 (checksum / staging /
-/dev/tty) の検証は含まれない。**これは Release Acceptance ではない**
-点を記録に明記する。
+gates D / F / G も同じ `$SF` を使う。D8 確認は terminal TTY で行われ、
+install.sh 経路 (checksum / staging / /dev/tty) の検証は含まれない。
+**これは Release Acceptance ではない**点を記録に明記する。
