@@ -22,9 +22,12 @@ impl RepoResolver {
     }
 }
 
-/// repository path から現在の git revision (HEAD) を取得する
-pub fn current_git_revision(repo: &str) -> Option<String> {
-    let out = std::process::Command::new("git")
+/// repository path から現在の git revision (HEAD) を取得する。
+///
+/// `git` は解決済みの ToolInventory パスを `git_bin` で受け取る（文字列リテラル
+/// `Command::new("git")` は CI の forbid-raw-spawn lint で禁止）。
+pub fn current_git_revision(repo: &str, git_bin: &std::path::Path) -> Option<String> {
+    let out = std::process::Command::new(git_bin)
         .current_dir(repo)
         .args(["rev-parse", "HEAD"])
         .output()

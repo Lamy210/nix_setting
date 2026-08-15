@@ -4,6 +4,7 @@ pub mod diagnostics;
 pub mod discovery;
 pub mod error;
 pub mod lock;
+pub mod managed_nix;
 pub mod manifest;
 pub mod operations;
 pub(crate) mod process;
@@ -17,7 +18,10 @@ pub use bootstrap::{
     clone_repo, doctor, enable_flakes, generate_config, preflight, setup, DoctorReport,
     PreflightReport,
 };
-pub use diagnostics::{diagnose, Diagnostics, ToolsSummary};
+pub use diagnostics::{
+    diagnose, nix_health, Diagnostics, NixHealth, ResolvedToolSummary, ToolInventorySummary,
+    ToolsSummary,
+};
 pub use discovery::{
     current_user, detect_arch, detect_arch_for, detect_platform, detect_platform_for,
     detect_target, detect_target_for, has_git, has_homebrew, has_nix, which, Architecture,
@@ -25,6 +29,15 @@ pub use discovery::{
 };
 pub use error::{Error, Result};
 pub use lock::{OperationGuard, OperationLock};
+pub use managed_nix::{
+    cache_path, default_ownership_path, default_receipt_path, download, download_text,
+    existing_nix_detected, install_args, installed_binary_path, is_root, parse_json_line,
+    parse_sha256_sums, plan_args, planner_name, run_with_json_logs,
+    run_with_json_logs_capture_stdout, secure_plan_dir, sha256_hex, summarize_plan, uninstall_args,
+    verify_file, verify_sha256, BootstrapManifest, InstallPhase, JsonLogLine, ManagedNix,
+    ManagedNixError, ManagedNixSection, NoProgress, OwnershipRecord, PreflightSummary,
+    ProgressSink, Provider, Receipt, Sha256ByArch,
+};
 pub use manifest::{Manifest, Validation};
 pub use operations::{
     apply, plan, plan_target, rollback, sync, upgrade, verify, ApplyResult, PlanResult,
@@ -33,4 +46,7 @@ pub use operations::{
 pub use repo::{current_git_revision, resolve_repo, Repo, RepoResolver};
 pub use state::{State, StateStore};
 pub use time::{days_to_ymd, format_unix_secs, now_iso8601};
-pub use tool::{find_executable, version_of, ToolResolver, ToolStatus};
+pub use tool::{
+    find_executable, version_of, ResolvedTool, ToolInventory, ToolRequirementError, ToolResolver,
+    ToolSource, ToolStatus,
+};

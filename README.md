@@ -6,6 +6,8 @@ Nix + Home Manager + nix-darwin によるクロスプラットフォーム開発
 
 - **対象**: Apple Silicon Mac / Linux x86_64 / Linux aarch64
 - **管理**: パッケージ・dotfiles・macOS設定・Homebrew cask を宣言的に管理
+- **one-line bootstrap (`install.sh`)**: Apple Silicon Mac / Linux x86_64 のみ
+  (Linux aarch64 の release binary は未提供。Nix/Home Manager 設定自体は aarch64 Linux に対応)
 - **検証**: CI で評価・ビルド・lint・secret scan を自動実行
 
 > 開発への参加は [CONTRIBUTING.md](./CONTRIBUTING.md) を参照（ブランチ運用・OpenSpec・PR ルール）。
@@ -26,23 +28,46 @@ nix_setting/
 
 ## 導入手順
 
-### ワンライナー (推奨)
+### Managed Nix (推奨)
+
+Nix 未導入の machine では SchneeForge CLI 経由で Nix を install する
+(version pinning・SHA256 検証・uninstall 時の ownership check 有効)。
+
+```bash
+# 1. クローン (OS/arch を自動検出)
+git clone https://github.com/Lamy210/nix_setting.git "$HOME/nix_setting"
+cd "$HOME/nix_setting"
+
+# 2. schneeforge CLI を取得 (GitHub Release の binary または cargo build)
+#    Release binary の場合 (Nix / Rust 環境不要):
+#      v0.1.0 以降から schneeforge-<os>-<arch> を download して実行権限を付与
+#    cargo build の場合 (Rust 環境が必要):
+cargo build --release -p schneeforge
+
+# 3. Managed Nix install (NixOS/nix-installer を SchneeForge が subprocess 実行)
+#    (cargo build した場合は ./target/release/schneeforge を指定)
+sudo ./target/release/schneeforge nix install
+./target/release/schneeforge nix doctor   # /nix/receipt.json + nix store ping + flakes 確認
+
+# 4. dotfiles 適用
+./bootstrap.sh
+```
+
+### ワンライナー
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/main/install.sh | bash
 ```
 
-### 手動
+Nix 未導入環境では、この script が GitHub Release から schneeforge CLI binary を
+download し (CHECKSUMS.txt の SHA256 で検証)、**Managed Nix 経路**で Nix を
+install します (version pinning・ownership record 付き。ADR-0001 参照)。
+既に Nix が導入済みの場合は何も install せず、flakes 有効化と
+dotfiles 適用のみを行います。
 
-```bash
-# 1. Nix インストール
-curl -L https://nixos.org/nix/install | sh
-
-# 2. クローン & 適用 (OS/arch を自動検出)
-git clone https://github.com/Lamy210/nix_setting.git "$HOME/nix_setting"
-cd "$HOME/nix_setting"
-./bootstrap.sh
-```
+Managed Nix は `bootstrap-manifest.toml` で version + SHA256 を pin し、
+online で download + verify する。offline 配布・DMG bundle は Phase 2。
+詳細: `docs/adr/0001-managed-nix-provider.md`
 
 ### 診断のみ
 
@@ -163,6 +188,9 @@ nh darwin switch .#darwinConfigurations.macbook-air   # Homebrew cask も自動�
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — 設計方針・責務分離
 - [docs/runtime-ownership.md](./docs/runtime-ownership.md) — runtime 管理の責務
 - [docs/terminal-spec.md](./docs/terminal-spec.md) — 全体仕様
+- [docs/schneeforge-spec.md](./docs/schneeforge-spec.md) — SchneeForge 全体仕様書
+- [docs/adr/0001-managed-nix-provider.md](./docs/adr/0001-managed-nix-provider.md) — Managed Nix provider 決定 (NixOS/nix-installer)
+- [docs/spikes/2026-08-14-nix-bootstrap-provider-evaluation/spike-report.md](./docs/spikes/2026-08-14-nix-bootstrap-provider-evaluation/spike-report.md) — Provider 評価 Spike
 
 ## カスタマイズ
 

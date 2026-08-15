@@ -1,11 +1,12 @@
 use crate::actions;
-use crate::discovery::{detect_target, which, ConfigurationTarget};
+use crate::discovery::{detect_target, ConfigurationTarget};
 use crate::error::{Error, Result};
 use crate::lock::{OperationGuard, OperationLock};
 use crate::process::{run_capture, run_stream};
 use crate::repo::current_git_revision;
 use crate::state::{State, StateStore};
 use crate::time::now_iso8601;
+use crate::tool::ToolInventory;
 use serde::Serialize;
 
 /// apply / rollback の結果。output は capture 時のみ Some
@@ -53,18 +54,24 @@ pub fn apply(
     target: &ConfigurationTarget,
     repo: &str,
     store: &StateStore,
+    tc: &ToolInventory,
     capture: bool,
 ) -> Result<ApplyResult> {
     let _guard = acquire()?;
 
     let output = if capture {
-        Some(actions::apply_captured(target, repo)?)
+        Some(actions::apply_captured(target, repo, tc)?)
     } else {
-        actions::apply(target, repo)?;
+        actions::apply(target, repo, tc)?;
         None
     };
 
-    let state = applied_state(target, current_git_revision(repo));
+    let state = applied_state(
+        target,
+        tc.git
+            .as_ref()
+            .and_then(|g| current_git_revision(repo, &g.path)),
+    );
     store.save(&state)?;
 
     Ok(ApplyResult { output, state })
@@ -77,14 +84,15 @@ pub fn rollback(
     target: &ConfigurationTarget,
     repo: &str,
     store: &StateStore,
+    tc: &ToolInventory,
     capture: bool,
 ) -> Result<ApplyResult> {
     let _guard = acquire()?;
 
     let output = if capture {
-        Some(actions::rollback_captured(target, repo)?)
+        Some(actions::rollback_captured(target, repo, tc)?)
     } else {
-        actions::rollback(target, repo)?;
+        actions::rollback(target, repo, tc)?;
         None
     };
 
@@ -95,12 +103,12 @@ pub fn rollback(
 }
 
 /// upgrade (`nix flake update --flake <repo>`) をロック付きで実行する
-pub fn upgrade(repo: &str, capture: bool) -> Result<Option<String>> {
+pub fn upgrade(repo: &str, tc: &ToolInventory, capture: bool) -> Result<Option<String>> {
     let _guard = acquire()?;
     let output = if capture {
-        Some(actions::upgrade_captured(repo)?)
+        Some(actions::upgrade_captured(repo, tc)?)
     } else {
-        actions::upgrade(repo)?;
+        actions::upgrade(repo, tc)?;
         None
     };
     Ok(output)
@@ -131,17 +139,18 @@ pub fn plan_target(repo: &str) -> Result<PlanResult> {
 }
 
 /// plan: 適用内容の dry-run を実行する (CWD 非依存)
-pub fn plan(repo: &str, capture: bool) -> Result<PlanResult> {
+pub fn plan(repo: &str, tc: &ToolInventory, capture: bool) -> Result<PlanResult> {
     let mut result = plan_target(repo)?;
+    let nix = tc.require_nix()?;
     let args = [
         "build".to_string(),
         "--dry-run".to_string(),
         result.flake_target.clone(),
     ];
     result.output = if capture {
-        Some(run_capture("nix", &args)?)
+        Some(run_capture(&nix.path, &args)?)
     } else {
-        run_stream("nix", &args)?;
+        run_stream(&nix.path, &args)?;
         None
     };
     Ok(result)
@@ -175,15 +184,23 @@ impl VerifyReport {
 }
 
 /// verify: 環境・repo/manifest・state を検証する (各検査は infallible)
-pub fn verify(repo: &str) -> VerifyReport {
+pub fn verify(repo: &str, tc: &ToolInventory) -> VerifyReport {
     let mut checks = Vec::new();
 
-    for cmd in ["nix", "zsh", "git"] {
-        checks.push(VerifyCheck {
-            name: cmd.to_string(),
-            ok: which(cmd).is_some(),
-        });
-    }
+    // discover 済み inventory の各ツールが実際に実行可能か
+    checks.push(VerifyCheck {
+        name: "nix".to_string(),
+        ok: tc.nix.as_ref().is_some_and(|t| t.path.is_file()),
+    });
+    checks.push(VerifyCheck {
+        name: "git".to_string(),
+        ok: tc.git.as_ref().is_some_and(|t| t.path.is_file()),
+    });
+    // zsh は shell 必須だが inventory 対象外なので PATH 探索
+    checks.push(VerifyCheck {
+        name: "zsh".to_string(),
+        ok: crate::discovery::which("zsh").is_some(),
+    });
 
     let home = std::env::var("HOME").unwrap_or_default();
     for (name, path) in [
@@ -223,30 +240,67 @@ fn sync_args(repo: &str) -> Vec<String> {
     ]
 }
 
-/// sync: dirty check の後 `git -C <repo> pull --ff-only` で更新する
-pub fn sync(repo: &str, capture: bool) -> Result<Option<String>> {
-    let _guard = acquire()?;
+/// checkout 中の branch 名。detached HEAD (release tag の depth-1 clone 等) では None
+fn current_branch(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Option<String>> {
+    let out = run_capture(
+        &git.path,
+        &[
+            "-C".to_string(),
+            repo.to_string(),
+            "symbolic-ref".to_string(),
+            "--short".to_string(),
+            "HEAD".to_string(),
+        ],
+    );
+    match out {
+        Ok(branch) => {
+            let branch = branch.trim();
+            if branch.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(branch.to_string()))
+            }
+        }
+        Err(_) => Ok(None),
+    }
+}
 
-    if git_dirty(repo)? {
+/// sync: dirty check と branch checkout の確認の後 `git pull --ff-only` で更新する。
+/// detached HEAD (install.sh の release tag pin clone) は pull できず失敗するため、
+/// clean no-op として pinned である旨を返す。
+pub fn sync(repo: &str, tc: &ToolInventory, capture: bool) -> Result<Option<String>> {
+    let _guard = acquire()?;
+    let git = tc.require_git()?;
+
+    if git_dirty(repo, git)? {
         return Err(Error::Busy(
             "repository has uncommitted changes; commit or stash first".to_string(),
         ));
     }
 
+    if current_branch(repo, git)?.is_none() {
+        let note = "Repository is pinned to a release checkout (detached HEAD). No branch sync was performed.";
+        if capture {
+            return Ok(Some(note.to_string()));
+        }
+        println!("{note}");
+        return Ok(None);
+    }
+
     let args = sync_args(repo);
     let output = if capture {
-        Some(run_capture("git", &args)?)
+        Some(run_capture(&git.path, &args)?)
     } else {
-        run_stream("git", &args)?;
+        run_stream(&git.path, &args)?;
         None
     };
     Ok(output)
 }
 
 /// repository の working tree に未コミット変更があるか
-fn git_dirty(repo: &str) -> Result<bool> {
+fn git_dirty(repo: &str, git: &crate::tool::ResolvedTool) -> Result<bool> {
     let out = run_capture(
-        "git",
+        &git.path,
         &[
             "-C".to_string(),
             repo.to_string(),
@@ -261,6 +315,23 @@ fn git_dirty(repo: &str) -> Result<bool> {
 mod tests {
     use super::*;
     use crate::discovery::detect_target_for;
+    use crate::tool::{ResolvedTool, ToolSource};
+    use std::path::PathBuf;
+
+    fn dummy_tc() -> ToolInventory {
+        ToolInventory {
+            nix: Some(ResolvedTool::new(
+                PathBuf::from("/usr/local/bin/nix"),
+                ToolSource::Homebrew,
+            )),
+            git: Some(ResolvedTool::new(
+                PathBuf::from("/usr/bin/git"),
+                ToolSource::Path,
+            )),
+            homebrew: None,
+            nh: None,
+        }
+    }
 
     #[test]
     fn applied_state_contains_host_and_revision() {
@@ -333,5 +404,178 @@ mod tests {
         assert_eq!(report.passed(), 2);
         assert_eq!(report.failed(), 1);
         assert!(!report.is_ok());
+    }
+
+    #[test]
+    fn verify_uses_resolved_inventory_paths() {
+        // inventory が指すパスが file として存在するかで判定される。
+        // dummy_tc の /usr/local/bin/nix は存在しないので ok=false になるはず
+        let report = verify("/tmp", &dummy_tc());
+        let nix_check = report
+            .checks
+            .iter()
+            .find(|c| c.name == "nix")
+            .expect("nix check should exist");
+        assert!(!nix_check.ok, "dummy /usr/local/bin/nix should not exist");
+    }
+
+    #[test]
+    fn sync_returns_git_not_found_when_git_missing() {
+        // Git 未解決の環境では sync は GitNotFound (Precondition) で弾かれる
+        let tc = ToolInventory {
+            nix: Some(ResolvedTool::new(
+                PathBuf::from("/usr/local/bin/nix"),
+                ToolSource::Homebrew,
+            )),
+            git: None,
+            homebrew: None,
+            nh: None,
+        };
+        let err = sync("/tmp/repo", &tc, false).unwrap_err();
+        assert!(
+            err.to_string().contains("git not found"),
+            "expected git-not-found message, got: {err}"
+        );
+    }
+
+    /// 実 git で temp repository を作る helper。git binary が無い環境では skip する
+    fn git_repo_fixture(name: &str) -> Option<(PathBuf, PathBuf)> {
+        let git_bin = PathBuf::from("git");
+        let dir = std::env::temp_dir().join(format!("sf-sync-{}-{}", name, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).ok()?;
+        let ok = |args: &[&str]| -> bool {
+            std::process::Command::new(&git_bin)
+                .current_dir(&dir)
+                .args(args)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        };
+        if !ok(&["init", "-q"]) {
+            return None;
+        }
+        if !ok(&["config", "user.email", "test@schneeforge.invalid"]) {
+            return None;
+        }
+        if !ok(&["config", "user.name", "SchneeForge Test"]) {
+            return None;
+        }
+        std::fs::write(dir.join("README.md"), "# test\n").ok()?;
+        if !ok(&["add", "."]) || !ok(&["commit", "-q", "-m", "init"]) {
+            return None;
+        }
+        Some((dir, git_bin))
+    }
+
+    fn resolved_git(git_bin: &std::path::Path) -> ResolvedTool {
+        ResolvedTool::new(git_bin.to_path_buf(), ToolSource::Path)
+    }
+
+    #[test]
+    fn current_branch_is_some_on_branch_checkout() {
+        let Some((repo, git_bin)) = git_repo_fixture("branch") else {
+            eprintln!("skipping: git not available");
+            return;
+        };
+        let branch = current_branch(repo.to_str().unwrap(), &resolved_git(&git_bin)).unwrap();
+        // git init 直後は branch checkout (master / main 等) のはず
+        assert!(branch.is_some(), "expected branch checkout after git init");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn sync_is_noop_on_release_tag_detached_checkout() {
+        // regression (PR #18 review P1): install.sh は fresh clone を
+        // `git clone --branch <tag> --depth 1` で行うため detached HEAD になる。
+        // `git pull --ff-only` は追跡 branch 無しで失敗するため、sync は
+        // error ではなく clean no-op (pinned 案内) として扱わなければならない
+        let Some((src, git_bin)) = git_repo_fixture("tagged") else {
+            eprintln!("skipping: git not available");
+            return;
+        };
+        let git = resolved_git(&git_bin);
+        let tag = "v0.2.0-rc.2";
+        let run = |args: &[&str], cwd: &std::path::Path| -> bool {
+            std::process::Command::new(&git_bin)
+                .current_dir(cwd)
+                .args(args)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        };
+        assert!(run(&["tag", tag], &src), "tag creation failed");
+
+        // install.sh と同じ形式の clone: --branch <tag> --depth 1 → detached HEAD
+        let clone_dir = std::env::temp_dir().join(format!("sf-sync-clone-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&clone_dir);
+        assert!(run(
+            &[
+                "clone",
+                "--branch",
+                tag,
+                "--depth",
+                "1",
+                src.to_str().unwrap(),
+                clone_dir.to_str().unwrap(),
+            ],
+            &std::env::temp_dir(),
+        ));
+
+        // 前提確認: この clone は実際に detached HEAD になっている
+        let branch = current_branch(clone_dir.to_str().unwrap(), &git).unwrap();
+        assert!(
+            branch.is_none(),
+            "clone --branch <tag> should be detached, got branch: {branch:?}"
+        );
+
+        // sync は raw git pull error にならず pinned として扱われる
+        let tc = ToolInventory {
+            git: Some(git),
+            ..dummy_tc()
+        };
+        let out = sync(clone_dir.to_str().unwrap(), &tc, true).unwrap();
+        let msg = out.expect("capture mode should return the pinned note");
+        assert!(
+            msg.contains("pinned to a release checkout"),
+            "expected pinned note, got: {msg}"
+        );
+        assert!(
+            !msg.contains("fatal"),
+            "should not surface raw git error: {msg}"
+        );
+
+        // 対称性: 通常の branch checkout は pinned 扱いにならず pull が走る。
+        // sync は global lock を取るため、同一 test 内で直列に検証する
+        // (cargo test は test を並列実行し、別 test での lock 競合が Busy になる)
+        let branch_clone =
+            std::env::temp_dir().join(format!("sf-sync-branch-clone-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&branch_clone);
+        assert!(
+            run(
+                &[
+                    "clone",
+                    "-q",
+                    src.to_str().unwrap(),
+                    branch_clone.to_str().unwrap(),
+                ],
+                &std::env::temp_dir(),
+            ),
+            "branch clone failed"
+        );
+        let tc_branch = ToolInventory {
+            git: Some(resolved_git(&git_bin)),
+            ..dummy_tc()
+        };
+        let out = sync(branch_clone.to_str().unwrap(), &tc_branch, true).unwrap();
+        let msg = out.expect("capture mode should return pull output");
+        assert!(
+            !msg.contains("pinned to a release checkout"),
+            "branch checkout must not be treated as pinned: {msg}"
+        );
+
+        let _ = std::fs::remove_dir_all(&src);
+        let _ = std::fs::remove_dir_all(&clone_dir);
+        let _ = std::fs::remove_dir_all(&branch_clone);
     }
 }
