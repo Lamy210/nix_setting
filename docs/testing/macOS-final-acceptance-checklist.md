@@ -14,6 +14,8 @@ PR #11 で未実施だった「Finder からの .app 起動 smoke」を 1 本の
 ```text
 A. Environment    fresh Apple Silicon macOS・Nix なし・state なし
 B. Bootstrap      install.sh → pinned CLI → checksum → staging → install
+                  └ 完走時は bootstrap.sh まで自動実行
+                    (nix-darwin switch → Home Manager apply)
 C. Managed Nix    receipt / ownership / daemon / store / flakes
 D. CLI            nix doctor / doctor / status / plan
 E. Finder         SchneeForge.app を Finder 起動 → minimal GUI PATH で Nix 検出
@@ -65,6 +67,7 @@ one-liner 完走後は `schneeforge` command がどこにも残らない
 # 以降の手順は全てこの bash session で続ける (pipefail と $SF を使い回す)
 set -o pipefail
 ACCEPT_DIR="/tmp/schneeforge-rc2-acceptance"
+mkdir -p "$ACCEPT_DIR"
 gh release download v0.2.0-rc.2 -R Lamy210/nix_setting \
   -p 'schneeforge-aarch64-darwin' -D "$ACCEPT_DIR"
 SF="$ACCEPT_DIR/schneeforge-aarch64-darwin"
