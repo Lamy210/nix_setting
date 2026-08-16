@@ -403,8 +403,8 @@ fn nix_install_escalated_blocking(app: tauri::AppHandle) -> CommandOutput {
 ///   NIX_SETTING_DIR は昇格と同じく明示渡しする (root の HOME は違うため)
 /// - stderr は JSON Lines として parse し `nix-install-progress` event を
 ///   frontend へ流す (nix install と apply 系で共通の progress 表示)
-/// - `dev_guard` は nix install のみ true: debug build で誤って本物の
-///   install を走らせない `--dry-run` 標識を付ける
+/// - `dev_guard` は nix install / nix repair のみ true: debug build で
+///   誤って本物の install や record 削除を走らせない `--dry-run` 標識を付ける
 fn run_escalated_cli(
     app: &tauri::AppHandle,
     op: EscalatedOp,
