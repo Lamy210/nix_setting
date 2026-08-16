@@ -5,10 +5,10 @@ use std::path::{Path, PathBuf};
 use clap::Args;
 
 use schneeforge_core::{
-    cache_path, default_ownership_path, default_receipt_path, detect_arch, detect_platform,
-    existing_nix_detected, installed_binary_path, nix_health, run_with_json_logs, secure_plan_dir,
-    uninstall_args as build_uninstall_args, JsonLogLine, ManagedNix, ManagedNixError, NoProgress,
-    OwnershipRecord, ProgressSink, Receipt, ToolInventory,
+    cache_path, classify_current, default_ownership_path, default_receipt_path, detect_arch,
+    detect_platform, existing_nix_detected, installed_binary_path, nix_health, run_with_json_logs,
+    secure_plan_dir, uninstall_args as build_uninstall_args, JsonLogLine, ManagedNix,
+    ManagedNixError, NoProgress, OwnershipRecord, ProgressSink, Receipt, ToolInventory,
 };
 
 /// `schneeforge nix` サブコマンド
@@ -263,6 +263,23 @@ fn confirm_install() -> std::result::Result<bool, String> {
 ///  「文字列リテラル spawn 禁止」に従う)
 pub fn run_doctor(tc: Option<&ToolInventory>) -> Result {
     println!("=== schneeforge nix doctor ===");
+    println!();
+
+    // [status]: NixStatus 4 状態分類 (issue #15)。
+    // ping 成否は既存の [nix runtime] 診断 (nix_health) と同じ解決済み binary から
+    // 取る。Nix 未解決環境では nix_health が store_accessible = false を返すため
+    // そのまま使う (Missing 分類は marker の有無だけで決まるため影響しない)。
+    let store_ping_ok = tc
+        .map(nix_health)
+        .map(|h| h.store_accessible)
+        .unwrap_or(false);
+    let report = classify_current(store_ping_ok);
+    println!("[status]");
+    println!("  status:      {}", report.status.label());
+    println!("  next action: {}", report.status.next_action());
+    if let Some(mismatch) = &report.mismatch {
+        println!("  mismatch:    {mismatch}");
+    }
     println!();
 
     println!("[environment]");

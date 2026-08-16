@@ -350,4 +350,46 @@ mod tests {
             "frontend default repo URL must match core DEFAULT_REPO_URL"
         );
     }
+
+    /// wizard (stepPrereq) は legacy な `curl | sh` での Nix 導入を案内しない。
+    /// この案内で入れた Nix は SchneeForge の ownership 管理外になり
+    /// uninstall 対称性が崩れるため (gui-diagnostics spec)。
+    #[test]
+    fn wizard_does_not_suggest_legacy_curl_install() {
+        let js = include_str!("../../dist/main.js");
+        assert!(
+            !js.contains("nixos.org/nix/install"),
+            "wizard must not suggest the legacy curl | sh install"
+        );
+        assert!(
+            js.contains("schneeforge nix install"),
+            "wizard should suggest the Managed Nix install instead"
+        );
+    }
+
+    /// wizard (stepPrereq) は get_status 応答の `nix_status` (NixStatus 分類) を
+    /// 参照する。Diagnostics が当該 field を serialize することと、frontend が
+    /// 読むことの両方が揃って初めて表示が機能するため静的に突合する。
+    #[test]
+    fn wizard_reads_nix_status_field() {
+        let js = include_str!("../../dist/main.js");
+        assert!(
+            js.contains("nix_status"),
+            "stepPrereq should read status.nix_status from get_status"
+        );
+
+        // backend 側: Diagnostics が nix_status を serialize すること
+        let tc = ToolInventory {
+            nix: None,
+            git: None,
+            homebrew: None,
+            nh: None,
+        };
+        let d = schneeforge_core::diagnose(&tc, None);
+        let json = serde_json::to_value(&d).unwrap();
+        assert!(
+            json.get("nix_status").is_some(),
+            "Diagnostics must serialize nix_status"
+        );
+    }
 }

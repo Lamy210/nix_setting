@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 use crate::discovery::{current_user, detect_arch, detect_platform, detect_target};
+use crate::managed_nix::status::{classify_current, StatusReport};
 use crate::manifest::{Manifest, Validation};
 use crate::process::{command_succeeds, run_capture};
 use crate::repo::resolve_repo;
@@ -46,6 +47,10 @@ pub struct Diagnostics {
     pub tools: ToolsSummary,
     /// Nix の詳細ヘルス（store 接続・flakes 有効・出処）
     pub nix_health: NixHealth,
+    /// NixStatus 4 状態分類 (Missing / Healthy / Degraded / Broken)。
+    /// `nix_health` が binary 単位の検知であるのに対し、こちらは
+    /// marker / receipt / ownership を組合せた install 状態の分類。
+    pub nix_status: StatusReport,
     /// 解決済み tool inventory（GUI が内部で使う・表示用）
     pub tool_inventory: ToolInventorySummary,
     pub applied_revision: Option<String>,
@@ -125,6 +130,9 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
     };
 
     let nix_health = nix_health(tc);
+    // 分類の ping 成否は nix_health の検証結果を使い回す (同一 binary で
+    // 二重に ping しない)
+    let nix_status = classify_current(nix_health.store_accessible);
 
     let target = detect_target();
     let repo_path = resolve_repo(cli_repo);
@@ -148,6 +156,7 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
         validation,
         tools,
         nix_health,
+        nix_status,
         tool_inventory: ToolInventorySummary {
             nix: tc.nix.as_ref().map(ResolvedToolSummary::from),
             git: tc.git.as_ref().map(ResolvedToolSummary::from),
@@ -324,6 +333,28 @@ mod tests {
         assert!(json.contains("installed"));
         assert!(json.contains("store_accessible"));
         assert!(json.contains("flakes_available"));
+    }
+
+    #[test]
+    fn diagnose_includes_nix_status() {
+        let tc = dummy_tc();
+        let d = diagnose(&tc, Some("/definitely/not/a/real/repo"));
+        let json = serde_json::to_string(&d.nix_status).expect("StatusReport must be serializable");
+        // status は 4 状態のいずれかの label で serialize される
+        assert!(json.contains("status"));
+        assert!(
+            ["Missing", "Healthy", "Degraded", "Broken"]
+                .iter()
+                .any(|label| json.contains(label)),
+            "got: {json}"
+        );
+        // Diagnostics 全体にも nix_status が入っている (GUI は get_status で受け取る)
+        let whole = serde_json::to_string(&d).expect("Diagnostics must be serializable");
+        assert!(
+            whole.contains("nix_status"),
+            "got: {}",
+            &whole[..200.min(whole.len())]
+        );
     }
 
     #[test]

@@ -121,18 +121,36 @@ async function stepPrereq(box, actions) {
   const nixOk = pre.nix_installed;
   const gitOk = pre.git_installed;
   const flakesOk = pre.flakes_enabled;
+  // NixStatus 分類 (Missing / Healthy / Degraded / Broken)。nix_health が
+  // binary 単位の検知なのに対し、marker / receipt / ownership を組合せた
+  // install 状態。get_status 失敗時は未取得として表示しない
+  const nixStatus = status && status.nix_status ? status.nix_status.status : null;
+  const nixNextAction = status && status.nix_status ? status.nix_status.next_action : null;
   box.innerHTML =
     row("host", status ? status.host : "-") +
     row("platform", status ? `${status.platform}/${status.architecture}` : "-") +
     row("Nix", nixOk ? "OK" : "NG") +
+    row("Nix status", nixStatus ?? "-") +
     row("Git", gitOk ? "OK" : "NG") +
     row("flakes", flakesOk ? "OK" : "NG");
   if (nixOk && gitOk && flakesOk) {
+    if (nixStatus === "Degraded" || nixStatus === "Broken") {
+      // wizard は install 案内だけで済ませず、修復 / 手動調査の案内を出す
+      box.innerHTML += errorBlock(
+        `Nix の状態は ${nixStatus} です: ${nixNextAction}`
+      );
+    }
     actions.appendChild(actionBtn("次へ", next));
   } else if (!nixOk) {
+    // Managed Nix を SchneeForge 自身で導入する案内 (ownership 管理下)。
+    // legacy な curl | sh は ownership record が残らず uninstall 対称性が
+    // 崩れるため案内しない
     box.innerHTML += errorBlock(
-      "Nix が未導入です。Nix をインストールしてください:<br>" +
-        "<code>curl -L https://nixos.org/nix/install | sh</code>"
+      "Nix が未導入です。SchneeForge の Managed Nix で導入してください:<br>" +
+        "<code>sudo schneeforge nix install</code>" +
+        (nixStatus && nixStatus !== "Missing"
+          ? `<br>現在の状態は ${nixStatus} です — まず修復が必要です: ${nixNextAction}`
+          : "")
     );
     actions.appendChild(actionBtn("再確認", () => renderStep()));
   } else {
