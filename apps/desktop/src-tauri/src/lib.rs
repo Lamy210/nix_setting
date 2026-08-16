@@ -217,25 +217,32 @@ fn load_manifest() -> Option<schneeforge_core::Manifest> {
 
 // ---------- Managed Nix install (issue #16 / D4 Phase 2, D8 GUI 版) ----------
 
-/// bundle 内の CLI sidecar (`binaries/schneeforge-cli-$TRIPLE`) の path。
+/// bundle 内の CLI sidecar の path。
 /// escalation 先は CLI binary でなければならない — desktop 自身の binary は
 /// CLI 引数を解釈しないため (externalBin として tauri が main binary と同じ
-/// directory へ配置する)。
+/// directory へ配置する)。tauri 2.x は bundle 時に triple suffix を除去して
+/// `schneeforge-cli` の名で配置するため、まず suffix 無しを探し、開発環境の
+/// cargo target (triple 付きのまま) を fallback とする。
 fn cli_sidecar_path() -> Result<std::path::PathBuf, String> {
-    let triple = current_target_triple();
-    let name = format!("schneeforge-cli-{triple}{}", std::env::consts::EXE_SUFFIX);
+    let plain = format!("schneeforge-cli{}", std::env::consts::EXE_SUFFIX);
+    let tripled = format!(
+        "schneeforge-cli-{}{}",
+        current_target_triple(),
+        std::env::consts::EXE_SUFFIX
+    );
 
-    // current_exe の同階層 (macOS: .app/Contents/MacOS/) を確認する
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let p = dir.join(&name);
-            if p.exists() {
-                return Ok(p);
+            for name in [&plain, &tripled] {
+                let p = dir.join(name);
+                if p.exists() {
+                    return Ok(p);
+                }
             }
         }
     }
     Err(format!(
-        "CLI sidecar ({name}) が見つかりません。desktop app の bundle が不正です"
+        "CLI sidecar ({plain}) が見つかりません。desktop app の bundle が不正です"
     ))
 }
 
@@ -780,6 +787,12 @@ mod tests {
         assert!(
             build.contains("schneeforge-cli-{triple}"),
             "build.rs must stage the sidecar with the target triple suffix"
+        );
+        // tauri 2.x は bundle 時に triple suffix を除去するため、runtime は
+        // suffix 無しの名前も解決できなければならない (DMG gate が実際の配置名)
+        assert!(
+            rs.contains("\"schneeforge-cli{}\""),
+            "runtime resolution must try the unsuffixed bundle name first"
         );
     }
 
