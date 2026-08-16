@@ -70,8 +70,9 @@ DESKTOP_BIN="$APP/Contents/MacOS/schneeforge-desktop"
 
 # GUI の escalation 先は bundle 内 CLI sidecar でなければならない
 # (GUI binary は CLI 引数を解釈しない。externalBin が外れると install が
-#  実行されないまま昇格だけ走る)。arm64 固定で検査する
-SIDECAR_BIN="$APP/Contents/MacOS/schneeforge-cli-aarch64-apple-darwin"
+#  実行されないまま昇格だけ走る)。tauri 2.x は triple suffix を除去して
+#  `schneeforge-cli` の名で配置する
+SIDECAR_BIN="$APP/Contents/MacOS/schneeforge-cli"
 if [ ! -f "$SIDECAR_BIN" ]; then
   echo "ERROR: CLI sidecar missing from .app bundle: $SIDECAR_BIN" >&2
   ls "$APP/Contents/MacOS/" >&2

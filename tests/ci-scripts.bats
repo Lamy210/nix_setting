@@ -101,5 +101,6 @@ extract_rpaths() {
 }
 
 @test "dmg script verifies CLI sidecar inside mounted app" {
-  grep -q 'schneeforge-cli-aarch64-apple-darwin' scripts/ci/build-release-macos-dmg.sh
+  # tauri 2.x は bundle 時に triple suffix を除去する
+  grep -q 'MacOS/schneeforge-cli' scripts/ci/build-release-macos-dmg.sh
 }
