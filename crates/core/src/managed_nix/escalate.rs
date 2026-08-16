@@ -17,6 +17,12 @@ use crate::managed_nix::error::ManagedNixError;
 pub enum EscalatedOp {
     /// `schneeforge nix install --yes` (GUI の最終確認済みを前提)
     NixInstall,
+    /// `schneeforge apply` (デグレ #5: root 必須の host 適用)
+    Apply,
+    /// `schneeforge rollback` (世代ロールバック)
+    Rollback,
+    /// `schneeforge upgrade` (flake.lock 更新)
+    Upgrade,
 }
 
 impl EscalatedOp {
@@ -28,6 +34,9 @@ impl EscalatedOp {
                 "install".to_string(),
                 "--yes".to_string(),
             ],
+            EscalatedOp::Apply => vec!["apply".to_string()],
+            EscalatedOp::Rollback => vec!["rollback".to_string()],
+            EscalatedOp::Upgrade => vec!["upgrade".to_string()],
         }
     }
 }
@@ -288,6 +297,41 @@ mod tests {
             EscalatedOp::NixInstall.cli_args(),
             vec!["nix", "install", "--yes"]
         );
+    }
+
+    #[test]
+    fn escalated_ops_cover_apply_rollback_upgrade() {
+        assert_eq!(EscalatedOp::Apply.cli_args(), vec!["apply"]);
+        assert_eq!(EscalatedOp::Rollback.cli_args(), vec!["rollback"]);
+        assert_eq!(EscalatedOp::Upgrade.cli_args(), vec!["upgrade"]);
+    }
+
+    #[test]
+    fn osascript_args_carry_apply_op() {
+        let args = osascript_args(
+            Path::new("/usr/local/bin/schneeforge"),
+            EscalatedOp::Apply,
+            &base_env(Path::new(REPO)),
+        );
+        let script = &args[1];
+        assert!(
+            script.contains("'apply'"),
+            "apply op must be embedded: {script}"
+        );
+        assert!(
+            !script.contains("'--yes'"),
+            "host apply ops take no --yes: {script}"
+        );
+    }
+
+    #[test]
+    fn pkexec_args_carry_rollback_op() {
+        let args = pkexec_args(
+            Path::new("/usr/bin/schneeforge"),
+            EscalatedOp::Rollback,
+            &base_env(Path::new(REPO)),
+        );
+        assert_eq!(&args[3..], &["rollback"]);
     }
 
     #[test]
