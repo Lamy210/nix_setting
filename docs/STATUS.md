@@ -61,8 +61,7 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
 |------|------|------|
 | Managed Nix Bootstrap Phase 1 + install 修正 (PR #13/#18) | **develop merge 済み** (a7d4777)。review 4 巡。CI 18/18 green | `openspec/changes/archive/2026-08-14-add-managed-nix-bootstrap/` |
 | Spike `nix-bootstrap-provider-evaluation` | 完了 (Linux x86_64 実測済み、macOS aarch64 は ADR final acceptance 条件) | `openspec/changes/spike-nix-bootstrap-provider-evaluation/` |
-| NixStatus 状態分類 (issue #15) | 実装済み (feat/nix-status-classification branch): `NixStatus` 4 状態 model + doctor `[status]` 欄。`nix repair` は別 change で設計予定 | `openspec/changes/add-nix-status-classification/` |
-| GUI NixStatus 表示 (issue #16 第一段) | `Diagnostics` に `nix_status` 追加 + wizard が分類を表示・案内を Managed Nix へ変更 (feat/nix-status-classification branch に積み増し) | `openspec/changes/add-gui-managed-nix-status/` |
+| NixStatus 状態分類 (issue #15) | **develop merge 済み** (PR #33 / 6c48837)。`NixStatus` 4 状態 model + doctor `[status]` 欄 + GUI `nix_status` 表示・wizard の Managed Nix 案内。`nix repair` は別 change で設計予定 | `openspec/changes/archive/2026-08-16-add-nix-status-classification/` / `2026-08-16-add-gui-managed-nix-status/` |
 
 ## 既知のデグレ・機能漏れ（要対応）
 
