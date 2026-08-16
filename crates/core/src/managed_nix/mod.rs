@@ -16,7 +16,7 @@ pub mod verify;
 
 pub use download::{cache_path, download, download_text};
 pub use error::ManagedNixError;
-pub use escalate::{escalate_command, self_binary_path, EscalatedOp};
+pub use escalate::{escalate_command, EscalatedOp};
 pub use installer::{
     install_args, installed_binary_path, parse_json_line, plan_args, planner_name, repair_args,
     run_with_json_logs, run_with_json_logs_capture_stdout, uninstall_args, InstallPhase,

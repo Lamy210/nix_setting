@@ -87,3 +87,19 @@ extract_rpaths() {
   grep -q 'check-macos-portability.sh' scripts/ci/build-release-macos-dmg.sh
   grep -q 'CFBundleShortVersionString' scripts/ci/build-release-macos-dmg.sh
 }
+
+# --- DMG 内 CLI sidecar (GUI escalation 先) の gate ---
+
+@test "dmg script builds CLI before tauri bundle (externalBin source)" {
+  # build script は target/<profile>/schneeforge を stage 元にするため、
+  # tauri build の前に CLI build が必要
+  CLI_BUILD_LINE="$(grep -n 'cargo build --release -p schneeforge' scripts/ci/build-release-macos-dmg.sh | cut -d: -f1)"
+  TAURI_BUILD_LINE="$(grep -n '"$TAURI_BIN" build' scripts/ci/build-release-macos-dmg.sh | cut -d: -f1)"
+  [ -n "$CLI_BUILD_LINE" ]
+  [ -n "$TAURI_BUILD_LINE" ]
+  [ "$CLI_BUILD_LINE" -lt "$TAURI_BUILD_LINE" ]
+}
+
+@test "dmg script verifies CLI sidecar inside mounted app" {
+  grep -q 'schneeforge-cli-aarch64-apple-darwin' scripts/ci/build-release-macos-dmg.sh
+}

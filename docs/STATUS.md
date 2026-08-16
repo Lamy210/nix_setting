@@ -63,7 +63,7 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
 | Spike `nix-bootstrap-provider-evaluation` | 完了 (Linux x86_64 実測済み、macOS aarch64 は ADR final acceptance 条件) | `openspec/changes/spike-nix-bootstrap-provider-evaluation/` |
 | NixStatus 状態分類 (issue #15) | **develop merge 済み** (PR #33 / 6c48837)。`NixStatus` 4 状態 model + doctor `[status]` 欄 + GUI `nix_status` 表示・wizard の Managed Nix 案内。`nix repair` は別 change で設計予定 | `openspec/changes/archive/2026-08-16-add-nix-status-classification/` / `2026-08-16-add-gui-managed-nix-status/` |
 | `schneeforge nix repair` (issue #15 残件) | 実装完了 (branch `feat/nix-repair`)。`RepairAction` state-driven 修復 (Broken → stale ownership record 削除のみ自動、Degraded → uninstall/手動 cleanup 案内) + upstream `repair {hooks,sequoia}` wrap。E2E 11/11 pass | `openspec/changes/add-nix-repair/` |
-| GUI Managed Nix install (issue #16 第一段) | 実装中 (branch `feat/gui-managed-nix-install`)。privilege escalation helper (osascript / pkexec) + wizard からの 2 段階 install UI (plan preview → 確認 → install)。CLI fallback 案内維持 | `openspec/changes/add-gui-managed-nix-install/` |
+| GUI Managed Nix install (issue #16 第一段) | 実装中 (branch `feat/gui-managed-nix-install`)。privilege escalation helper (osascript / pkexec、昇格先は bundle 同梱の CLI sidecar) + wizard からの 2 段階 install UI (plan preview → 確認 → install)。`NIX_SETTING_DIR` 昇格先渡し・repo 未 clone 時の gate 付き。CLI fallback 案内維持 | `openspec/changes/add-gui-managed-nix-install/` |
 
 ## 既知のデグレ・機能漏れ（要対応）
 

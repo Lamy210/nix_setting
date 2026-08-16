@@ -18,3 +18,13 @@
 - [x] 3.1 core / desktop の全 unit test pass (Docker: GTK deps install 済み container)
 - [x] 3.2 `openspec validate add-gui-managed-nix-install --strict` が通ること
 - [x] 3.3 docs/STATUS.md 更新
+
+## 4. Review 指摘修正 (PR review A-E)
+
+- [x] 4.1 (A) 昇格先を CLI sidecar (Tauri externalBin) に変更: build.rs が workspace CLI binary を `binaries/schneeforge-cli-$TRIPLE` として stage し、runtime は `cli_sidecar_path()` で解決。GUI 自身の binary を昇格しない
+- [x] 4.2 (B) `NIX_SETTING_DIR` を昇格先へ明示渡し: osascript は export prefix、pkexec は `env` 経由、root 直接実行は `cmd.env()`
+- [x] 4.3 (C) stdout / stderr を別 thread で並行読み取り (pipe buffer 満杯による相互 block の解消)
+- [x] 4.4 (D) frontend が `status.repo_exists` で install 案内を gate (未 clone は repo step へ誘導)。backend も `nix_prepare_plan` で manifest 不存在を fail-closed 拒否
+- [x] 4.5 (E) pkexec / osascript を絶対 path (`/usr/bin/…`) で呼ぶ
+- [x] 4.6 静的回帰 test 追加 (sidecar 参照 / repo gate / NIX_SETTING_DIR) と core・desktop の全 test 再実行
+- [x] 4.7 fmt / clippy / openspec validate --strict

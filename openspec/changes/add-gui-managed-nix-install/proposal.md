@@ -20,8 +20,9 @@ D8 の 2 段階 Plan UX は Phase 1 (PR #13) で集約済みで、GUI はこれ�
 ## What Changes
 
 - **ADDED: GUI 用 privilege escalation helper (core)**
-  - `escalate_command()`: macOS は `osascript -e 'do shell script "…" with administrator privileges'`、Linux は `pkexec env DISPLAY=… XAUTHORITY=… <cmd>` を構築する
-  - 対象 command は SchneeForge 自身の binary (`schneeforge nix install --yes`) に限定。shell 文字列を組み立てる際は引数の escape を helper が担う
+  - `escalate_command()`: macOS は `osascript -e 'do shell script "…" with administrator privileges'`、Linux は `pkexec env NIX_SETTING_DIR=… DISPLAY=… XAUTHORITY=… <cmd>` を構築する
+  - 対象 command は SchneeForge の **CLI** binary (`schneeforge nix install --yes`) に限定。GUI binary は CLI 引数を解釈しないため昇格先には使えない。shell 文字列を組み立てる際は引数の escape を helper が担う
+  - 昇格先には `NIX_SETTING_DIR` (repo 位置) を明示渡しする (root 環境では HOME が変わり repo が解決できなくなるため)
   - escalation 先でも D8 の確認責任は維持する: GUI が detailed plan を表示してユーザーの [Install] 操作を受けたことを「確認済み」とみなし、`--yes` を付けて再実行する (GUI が確認 UI の一部であるため)
 - **ADDED: GUI install flow (desktop / Tauri)**
   - wizard stepPrereq の Nix 未導入時、「SchneeForge で導入」ボタンを追加
@@ -41,6 +42,11 @@ D8 の 2 段階 Plan UX は Phase 1 (PR #13) で集約済みで、GUI はこれ�
   使う。policy / plan 生成 / ownership 記録 / post-install gate の
   二重実装を避ける)。GUI は plan preview のために root 不要の
   `prepare_plan` を自 process で呼び、確認後に root 再実行へ移行する
+- 昇格先の CLI binary は Tauri の externalBin (sidecar) として GUI bundle
+  に同梱する — build script が workspace の CLI binary を
+  `binaries/schneeforge-cli-$TARGET_TRIPLE` へ stage し、runtime は
+  main binary と同じ directory から解決する (Nix-less 環境で PATH 解決に
+  頼れないため)
 - 進捗の可視化: root process の stderr JSON Lines を GUI が読めるよう、
   再実行時は stderr を pipe で受け取り phase 行を event で frontend へ
   流す
@@ -59,6 +65,8 @@ D8 の 2 段階 Plan UX は Phase 1 (PR #13) で集約済みで、GUI はこれ�
   `managed-nix-bootstrap` (escalation helper の要件) に追加
 - **code**: `crates/core/src/managed_nix/escalate.rs` (新規 helper)、
   `apps/desktop/src-tauri/src/lib.rs` (Tauri command)、
+  `apps/desktop/src-tauri/build.rs` + `tauri.conf.json` (CLI sidecar の
+  stage / bundle 設定)、
   `apps/desktop/dist/main.js` (wizard UI)
 - **test**: escalation helper の unit test (args 構築の escape 検証)、
   desktop 静的回帰 test (frontend / backend の IPC 整合・CLI fallback
