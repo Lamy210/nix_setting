@@ -99,18 +99,16 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
    - SchneeForge.app を Finder から起動 (PR #11 の実機 smoke)
    - minimal GUI PATH でも Nix を検出すること (`fix-path-env-rs` 検証)
    - doctor / status 正常終了
+   - **PR #37/#40 の実機 smoke**: osascript 昇格での apply、wizard の「修復を試みる」ボタン・Ready 画面の「Nix を削除」ボタン (confirm dialog)
    - uninstall → cleanup
    - 通れば ADR-0001 を `Accepted` へ昇格
-2. **release/v0.2.0-rc.2**: RELEASE.md checklist に沿って release branch → main → tag。`SCHNEEFORGE_BOOTSTRAP_VERSION` bump (`v0.2.0-rc.2`) + musl asset の実機確認 (Nix-less dry-run)
-3. **Phase 2 残作業** (issue #14-17):
-   - #14 acceptance 残り: receipt 冪等性 regression
-   - #15 Nix 状態分類 (Missing/Healthy/Degraded/Broken): **完了** — 分類 model (`schneeforge nix doctor` の `[status]` 欄) + `schneeforge nix repair` (state-driven 修復、`feat/nix-repair` で PR 提出予定)
-   - #16 GUI (Tauri) 統合: `prepare_plan()` / `execute_plan()` API + osascript/pkexec 特権昇格 + **GUI nix repair / uninstall** (feat/gui-nix-repair-uninstall で完了)
-   - #17 DMG bundle + LGPL-2.1 法務 ADR: **ADR-0002 起票済み** (Accepted provisionally)。実装は弁護士確認後の別 change
+2. **release/v0.2.0-rc.2**: RELEASE.md checklist に沿って release branch → main → tag。`SCHNEEFORGE_BOOTSTRAP_VERSION` bump (`v0.2.0-rc.2`) + **README の Stable ワンライナー URL を rc.2 tag へ差し替え** (bats test が検知する) + musl asset の実機確認 (Nix-less dry-run)
+3. Phase 2 残作業:
+   - #17 DMG bundle + LGPL-2.1 法務 ADR: **ADR-0002 起票済み** (Accepted provisionally)。実装 (bundle 同梱・offline 経路、`add-dmg-offline-bundle-licensing` tasks 4.x) は弁護士確認後の別 change
 4. 残デグレ対応:
-   - #5 GUI 特権ヘルパー: **完了** (feat/gui-privileged-apply — apply/rollback/upgrade を sidecar 昇格へ集約)
-   - #12 install.sh の Stable/Edge 分離: **完了・merge 済み** (PR #38)
    - glib advisory (Dependabot #2): gtk3-rs#857 と Tauri v2 側の追従を monitor、upstream release 後に再評価
+
+※ issue #14/#15/#16 は 2026-08-16 時点で全て完了・develop merge 済み (PR #35/#36/#37/#40)。次は issue を close してよい。
 
 ## 開発フロー
 
