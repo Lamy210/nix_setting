@@ -110,3 +110,9 @@ h2 {
   margin: 0 0 0.5rem;
 }
 
+.note {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  margin: 0.5rem 0;
+  line-height: 1.5;
+}

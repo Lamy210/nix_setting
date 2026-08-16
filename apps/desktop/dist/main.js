@@ -142,17 +142,29 @@ async function stepPrereq(box, actions) {
     }
     actions.appendChild(actionBtn("次へ", next));
   } else if (!nixOk) {
-    // Managed Nix を SchneeForge 自身で導入する案内 (ownership 管理下)。
+    // Managed Nix を SchneeForge 自身で install する (ownership 管理下)。
     // legacy な curl | sh は ownership record が残らず uninstall 対称性が
     // 崩れるため案内しない
-    box.innerHTML += errorBlock(
-      "Nix が未導入です。SchneeForge の Managed Nix で導入してください:<br>" +
-        "<code>sudo schneeforge nix install</code>" +
-        (nixStatus && nixStatus !== "Missing"
-          ? `<br>現在の状態は ${nixStatus} です — まず修復が必要です: ${nixNextAction}`
-          : "")
-    );
-    actions.appendChild(actionBtn("再確認", () => renderStep()));
+    const statusNote =
+      nixStatus && nixStatus !== "Missing"
+        ? `<br>現在の状態は ${nixStatus} です — まず修復が必要です: ${nixNextAction}`
+        : "";
+    if (nixStatus && nixStatus !== "Missing") {
+      // Missing 以外 (Broken 等) は GUI install を offering しない
+      box.innerHTML += errorBlock(
+        "Nix が未導入です。" + statusNote
+      );
+      actions.appendChild(actionBtn("再確認", () => renderStep()));
+    } else {
+      box.innerHTML += errorBlock(
+        "Nix が未導入です。SchneeForge の Managed Nix で導入できます。" + statusNote
+      );
+      actions.appendChild(actionBtn("SchneeForge で導入", () => stepNixInstall(box, actions)));
+      // escalation helper が使えない環境向けの fallback 案内
+      box.innerHTML +=
+        '<p class="note">ターミナルから <code>sudo schneeforge nix install</code> でも導入できます</p>';
+      actions.appendChild(actionBtn("再確認", () => renderStep()));
+    }
   } else {
     box.innerHTML += errorBlock(
       !gitOk
@@ -163,6 +175,78 @@ async function stepPrereq(box, actions) {
     );
     actions.appendChild(actionBtn("再確認", () => renderStep()));
   }
+}
+
+// Managed Nix install flow (D8 の GUI 版: plan preview → 最終確認 → install)
+async function stepNixInstall(box, actions) {
+  box.textContent = "Managed Nix の plan を生成しています... (download / verify を含みます)";
+  actions.innerHTML = "";
+  let plan;
+  try {
+    plan = await invoke("nix_prepare_plan");
+  } catch (e) {
+    box.innerHTML = errorBlock(`plan 生成に失敗しました: ${e}`) +
+      cliFallbackNote();
+    actions.appendChild(actionBtn("再試行", () => stepNixInstall(box, actions)));
+    return;
+  }
+  if (!plan.success) {
+    box.innerHTML = errorBlock(`plan 生成に失敗しました: ${plan.output}`) +
+      cliFallbackNote();
+    actions.appendChild(actionBtn("再試行", () => stepNixInstall(box, actions)));
+    return;
+  }
+
+  // detailed plan 表示 (D8: この確認が GUI 側の確認 gate)
+  box.innerHTML =
+    "<p>以下の内容で Nix を導入します (detailed plan):</p>" +
+    "<pre>" + escapeHtml(plan.output) + "</pre>" +
+    "<p>続行しますか? 管理者権限の確認が表示される場合があります。</p>";
+  actions.innerHTML = "";
+  actions.appendChild(
+    actionBtn("導入する", async () => {
+      box.textContent = "Managed Nix を導入しています... (数分かかります)";
+      actions.innerHTML = "";
+      let r;
+      try {
+        r = await invoke("nix_install_escalated");
+      } catch (e) {
+        box.innerHTML = errorBlock(`導入に失敗しました: ${e}`) + cliFallbackNote();
+        actions.appendChild(actionBtn("再試行", () => stepNixInstall(box, actions)));
+        return;
+      }
+      if (r.success) {
+        box.innerHTML =
+          "<p>Managed Nix の導入が完了しました。</p><pre>" +
+          escapeHtml(tailLines(r.output, 30)) +
+          "</pre>";
+        actions.innerHTML = "";
+        actions.appendChild(actionBtn("前提確認へ戻る", () => renderStep()));
+      } else {
+        box.innerHTML = errorBlock(r.output) + cliFallbackNote();
+        actions.innerHTML = "";
+        actions.appendChild(actionBtn("再試行", () => stepNixInstall(box, actions)));
+      }
+    })
+  );
+  actions.appendChild(actionBtn("キャンセル", () => renderStep()));
+}
+
+function cliFallbackNote() {
+  return '<p class="note">ターミナルから <code>sudo schneeforge nix install</code> でも導入できます</p>';
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function tailLines(s, n) {
+  const lines = String(s).split("\n");
+  return lines.slice(Math.max(0, lines.length - n)).join("\n");
 }
 
 function stepRepo(box, actions) {
