@@ -64,6 +64,7 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
 | NixStatus 状態分類 (issue #15) | **develop merge 済み** (PR #33 / 6c48837)。`NixStatus` 4 状態 model + doctor `[status]` 欄 + GUI `nix_status` 表示・wizard の Managed Nix 案内。`nix repair` は別 change で設計予定 | `openspec/changes/archive/2026-08-16-add-nix-status-classification/` / `2026-08-16-add-gui-managed-nix-status/` |
 | `schneeforge nix repair` (issue #15 残件) | 実装完了 (branch `feat/nix-repair`)。`RepairAction` state-driven 修復 (Broken → stale ownership record 削除のみ自動、Degraded → uninstall/手動 cleanup 案内) + upstream `repair {hooks,sequoia}` wrap。E2E 11/11 pass | `openspec/changes/add-nix-repair/` |
 | GUI Managed Nix install (issue #16) | 実装完了 (branch `feat/gui-managed-nix-install`、PR #36 CI 19/19 green)。privilege escalation helper (osascript / pkexec、昇格先は bundle 同梱の CLI sidecar) + wizard からの 2 段階 install UI (plan preview → 確認 → install) + install progress の event streaming。`NIX_SETTING_DIR` 昇格先渡し・repo 未 clone 時の gate 付き。CLI fallback 案内維持 | `openspec/changes/add-gui-managed-nix-install/` |
+| GUI apply 系の昇格統合 (デグレ #5) | 実装完了 (branch `feat/gui-privileged-apply`)。`run_apply` / `run_rollback` / `run_upgrade` を core 直接呼び出しから CLI sidecar の昇格実行 (osascript / pkexec) へ集約。`EscalatedOp` に Apply/Rollback/Upgrade を追加。lock / state 保存は昇格先 CLI 内。実機 (osascript 昇格での apply) は macOS Final Acceptance で確認 | `openspec/changes/add-gui-privileged-apply/` |
 | DMG offline bundle 法務 ADR (issue #17) | ADR-0002 起票・openspec change 作成 (branch `feat/gui-managed-nix-install` に同梱)。無改変再配布 + LICENSE 同梱 + written offer の方針を固定。**実装 (bundle 同梱・offline 経路) は弁護士確認後の別 change** | `docs/adr/0002-dmg-bundle-lgpl-redistribution.md` / `openspec/changes/add-dmg-offline-bundle-licensing/` |
 
 ## 既知のデグレ・機能漏れ（要対応）
@@ -72,7 +73,7 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
 
 | # | 問題 | 対応 |
 |---|------|------|
-| 5 | GUI apply の sudo/TTY 問題（privileged helper 未実装） | desktop: 昇格ヘルパー実装（設計は design.md に済み。macOS authorization / osascript）。※ runtime-tool-resolution-hardening で「GUI 起動時に Nix が見つからない」副次症状は解消（`fix-path-env-rs` + `Toolchain` 解決） |
+| 5 | GUI apply の sudo/TTY 問題（privileged helper 未実装） | **解消** (feat/gui-privileged-apply): `run_apply` / `run_rollback` / `run_upgrade` を CLI sidecar の昇格実行 (osascript / pkexec) へ集約。nix install と同じ `escalate_command()` 経路。実機確認は macOS Final Acceptance に統合 |
 
 ### 中
 
@@ -106,7 +107,7 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
    - #16 GUI (Tauri) 統合: `prepare_plan()` / `execute_plan()` API + osascript/pkexec 特権昇格
    - #17 DMG bundle + LGPL-2.1 法務 ADR: **ADR-0002 起票済み** (Accepted provisionally)。実装は弁護士確認後の別 change
 4. 残デグレ対応:
-   - #5 GUI 特権ヘルパー（macOS authorization）— privileged-gui-operations で Managed Nix と統合
+   - #5 GUI 特権ヘルパー: **完了** (feat/gui-privileged-apply — apply/rollback/upgrade を sidecar 昇格へ集約)
    - #12 install.sh の Stable/Edge 分離（release 方針の判断）
    - glib advisory (Dependabot #2): gtk3-rs#857 と Tauri v2 側の追従を monitor、upstream release 後に再評価
 
