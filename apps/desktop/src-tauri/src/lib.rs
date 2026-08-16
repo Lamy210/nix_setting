@@ -1,6 +1,5 @@
 use schneeforge_core::{
-    detect_target, resolve_repo, scan, ApplyResult, Diagnostics, PreflightReport, StateStore,
-    ToolInventory, VerifyReport,
+    detect_target, resolve_repo, scan, Diagnostics, PreflightReport, ToolInventory, VerifyReport,
 };
 use serde::Serialize;
 use std::sync::Mutex;
@@ -11,32 +10,6 @@ use schneeforge_core::{escalate_command, existing_nix_detected, is_root, Escalat
 struct CommandOutput {
     success: bool,
     output: String,
-}
-
-fn apply_output(r: schneeforge_core::Result<ApplyResult>) -> CommandOutput {
-    match r {
-        Ok(r) => CommandOutput {
-            success: true,
-            output: r.output.unwrap_or_default(),
-        },
-        Err(e) => CommandOutput {
-            success: false,
-            output: e.to_string(),
-        },
-    }
-}
-
-fn option_output(r: schneeforge_core::Result<Option<String>>) -> CommandOutput {
-    match r {
-        Ok(out) => CommandOutput {
-            success: true,
-            output: out.unwrap_or_default(),
-        },
-        Err(e) => CommandOutput {
-            success: false,
-            output: e.to_string(),
-        },
-    }
 }
 
 /// desktop アプリ内で ToolInventory を1回 discover してキャッシュする State。
@@ -84,54 +57,48 @@ fn run_scan(state: tauri::State<'_, CachedToolInventory>) -> Result<CommandOutpu
     })
 }
 
+/// `run_apply`: host 設定の適用。root 権限が必要なため GUI process 内で
+/// 直接は実行せず CLI sidecar を昇格実行する (デグレ #5: sudo の TTY 問題)。
+/// lock / state 保存は昇格先 CLI process 内で行われる。
 #[tauri::command]
-async fn run_apply(state: tauri::State<'_, CachedToolInventory>) -> Result<CommandOutput, String> {
-    let tc = state.get_or_discover()?;
-    let out = tauri::async_runtime::spawn_blocking(move || {
-        apply_output(schneeforge_core::apply(
-            &detect_target(),
-            &resolve_repo(None),
-            &StateStore::default(),
-            &tc,
-            true,
-        ))
+async fn run_apply(app: tauri::AppHandle) -> Result<CommandOutput, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_escalated_cli(&app, EscalatedOp::Apply, "sudo schneeforge apply", "apply", false)
     })
     .await
-    .map_err(|e| format!("task error: {e}"))?;
-    Ok(out)
+    .map_err(|e| format!("task error: {e}"))
 }
 
+/// `run_rollback`: 前の世代へ戻す。apply と同じ昇格経路。
 #[tauri::command]
-async fn run_rollback(
-    state: tauri::State<'_, CachedToolInventory>,
-) -> Result<CommandOutput, String> {
-    let tc = state.get_or_discover()?;
-    let out = tauri::async_runtime::spawn_blocking(move || {
-        apply_output(schneeforge_core::rollback(
-            &detect_target(),
-            &resolve_repo(None),
-            &StateStore::default(),
-            &tc,
-            true,
-        ))
+async fn run_rollback(app: tauri::AppHandle) -> Result<CommandOutput, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_escalated_cli(
+            &app,
+            EscalatedOp::Rollback,
+            "sudo schneeforge rollback",
+            "rollback",
+            false,
+        )
     })
     .await
-    .map_err(|e| format!("task error: {e}"))?;
-    Ok(out)
+    .map_err(|e| format!("task error: {e}"))
 }
 
+/// `run_upgrade`: flake.lock の更新。apply と同じ昇格経路。
 #[tauri::command]
-async fn run_upgrade(
-    state: tauri::State<'_, CachedToolInventory>,
-) -> Result<CommandOutput, String> {
-    let tc = state.get_or_discover()?;
-    let repo = resolve_repo(None);
-    let out = tauri::async_runtime::spawn_blocking(move || {
-        option_output(schneeforge_core::upgrade(&repo, &tc, true))
+async fn run_upgrade(app: tauri::AppHandle) -> Result<CommandOutput, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_escalated_cli(
+            &app,
+            EscalatedOp::Upgrade,
+            "sudo schneeforge upgrade",
+            "upgrade",
+            false,
+        )
     })
     .await
-    .map_err(|e| format!("task error: {e}"))?;
-    Ok(out)
+    .map_err(|e| format!("task error: {e}"))
 }
 
 #[tauri::command]
@@ -377,40 +344,62 @@ fn nix_install_escalated_blocking(app: tauri::AppHandle) -> CommandOutput {
             output: "existing Nix detected; SchneeForge does not overwrite".to_string(),
         };
     }
+    run_escalated_cli(
+        &app,
+        EscalatedOp::NixInstall,
+        "sudo schneeforge nix install",
+        "install",
+        true,
+    )
+}
 
+/// CLI sidecar を昇格 (非 root) / 直接 (root) 実行する共通 runner。
+///
+/// - root 実行の GUI (例: 開発中に sudo で起動) は昇格不要で直接実行。
+///   NIX_SETTING_DIR は昇格と同じく明示渡しする (root の HOME は違うため)
+/// - stderr は JSON Lines として parse し `nix-install-progress` event を
+///   frontend へ流す (nix install と apply 系で共通の progress 表示)
+/// - `dev_guard` は nix install のみ true: debug build で誤って本物の
+///   install を走らせない `--dry-run` 標識を付ける
+fn run_escalated_cli(
+    app: &tauri::AppHandle,
+    op: EscalatedOp,
+    cli_fallback: &str,
+    op_label: &str,
+    dev_guard: bool,
+) -> CommandOutput {
     let cli_bin = match cli_sidecar_path() {
         Ok(p) => p,
         Err(e) => {
             return CommandOutput {
                 success: false,
-                output: format!("{e}\nCLI で実行してください: sudo schneeforge nix install"),
+                output: format!("{e}\nCLI で実行してください: {cli_fallback}"),
             }
         }
     };
     let repo_dir = resolve_repo(None);
     let repo_path = std::path::PathBuf::from(&repo_dir);
 
-    // root 実行の GUI (例: 開発中に sudo で起動) は昇格不要で直接実行。
-    // NIX_SETTING_DIR は昇格と同じく明示渡しする (root の HOME は違うため)
     let (program, args) = if is_root() {
-        let mut args = vec![
-            "nix".to_string(),
-            "install".to_string(),
-            "--yes".to_string(),
-        ];
-        if cfg!(debug_assertions) {
+        let mut args: Vec<String> = match op {
+            EscalatedOp::NixInstall => vec!["nix".into(), "install".into(), "--yes".into()],
+            EscalatedOp::Apply => vec!["apply".into()],
+            EscalatedOp::Rollback => vec!["rollback".into()],
+            EscalatedOp::Upgrade => vec!["upgrade".into()],
+        };
+        if dev_guard && cfg!(debug_assertions) {
             // 開発 build で誤って本物の install を走らせない標識 (E2E では使わない)
             args.push("--dry-run".to_string());
         }
         (cli_bin, args)
     } else {
-        match escalate_command(&cli_bin, EscalatedOp::NixInstall, &repo_path) {
+        match escalate_command(&cli_bin, op, &repo_path) {
             Ok(cmd) => cmd,
             Err(e) => {
                 return CommandOutput {
                     success: false,
                     output: format!(
-                        "{e}\n昇格 helper が利用できません。CLI で実行してください: sudo schneeforge nix install"
+                        "{e}\n昇格 helper が利用できません。CLI で実行してください: {cli_fallback}"
                     ),
                 }
             }
@@ -432,7 +421,7 @@ fn nix_install_escalated_blocking(app: tauri::AppHandle) -> CommandOutput {
             return CommandOutput {
                 success: false,
                 output: format!(
-                    "昇格実行の起動に失敗しました ({e}): {}\nCLI で実行してください: sudo schneeforge nix install",
+                    "昇格実行の起動に失敗しました ({e}): {}\nCLI で実行してください: {cli_fallback}",
                     program.display()
                 ),
             }
@@ -443,14 +432,14 @@ fn nix_install_escalated_blocking(app: tauri::AppHandle) -> CommandOutput {
     // 出力するため、片方ずつ順に読むと反対側の pipe buffer (64KB) 満杯で
     // child が block し相互待ちになる (deadlock)
     let stdout_thread = spawn_line_reader(child.stdout.take());
-    let stderr_thread = spawn_progress_reader(child.stderr.take(), &app);
+    let stderr_thread = spawn_progress_reader(child.stderr.take(), app);
 
     let status = match child.wait() {
         Ok(s) => s,
         Err(e) => {
             return CommandOutput {
                 success: false,
-                output: format!("wait escalated install: {e}"),
+                output: format!("wait escalated {op_label}: {e}"),
             }
         }
     };
@@ -467,7 +456,7 @@ fn nix_install_escalated_blocking(app: tauri::AppHandle) -> CommandOutput {
         CommandOutput {
             success: false,
             output: format!(
-                "install が失敗しました (exit: {}):\n{}\nCLI での再試行: sudo schneeforge nix install",
+                "{op_label} が失敗しました (exit: {}):\n{}\nCLI での再試行: {cli_fallback}",
                 status.code().map(|c| c.to_string()).unwrap_or("?".into()),
                 tail
             ),
@@ -894,5 +883,55 @@ mod tests {
             js.contains(&format!("listen(\"{EVENT}\"")),
             "frontend must listen to the progress event"
         );
+    }
+
+    /// apply / rollback / upgrade は GUI process 内で直接 core を呼ばず
+    /// CLI sidecar の昇格実行へ集約されていること (デグレ #5: sudo の TTY
+    /// 問題)。直接 `schneeforge_core::apply` 等を呼ぶと root 昇格されない
+    /// まま activation が失敗するため静的に検証する。
+    #[test]
+    fn apply_rollback_upgrade_run_via_escalated_sidecar() {
+        let rs = include_str!("lib.rs");
+        // handler は run_escalated_cli (sidecar 昇格) 経由であること
+        for (op, marker) in [
+            (EscalatedOp::Apply, "run_escalated_cli(&app, EscalatedOp::Apply"),
+            (EscalatedOp::Rollback, "EscalatedOp::Rollback"),
+            (EscalatedOp::Upgrade, "EscalatedOp::Upgrade"),
+        ] {
+            let _ = op;
+            assert!(
+                rs.contains(marker),
+                "apply-family commands must run via the escalated sidecar: {marker}"
+            );
+        }
+        // GUI process 内の直接 core 呼び出しは残っていないこと
+        // (nix_prepare_plan の root 不要な plan preview は対象外)。
+        // marker は test 自身の文字列と区別するため quote 付きで検索する
+        for marker in [
+            "schneeforge_core::apply(",
+            "schneeforge_core::rollback(",
+            "schneeforge_core::upgrade(",
+        ] {
+            let quoted = format!("\"{marker}\"");
+            let call_sites: Vec<usize> = rs
+                .match_indices(marker)
+                .map(|(i, _)| i)
+                .filter(|&i| rs.get(i.saturating_sub(1)..i + marker.len() + 1) != Some(&quoted[..]))
+                .collect();
+            assert!(
+                call_sites.is_empty(),
+                "apply-family commands must not call {marker} in the GUI process"
+            );
+        }
+    }
+
+    /// 昇格失敗時の CLI fallback 案内が apply 系にも存在すること。
+    /// pkexec 未導入環境などで GUI 操作が使えない場合の回復経路。
+    #[test]
+    fn apply_family_keeps_cli_fallback_guidance() {
+        let rs = include_str!("lib.rs");
+        assert!(rs.contains("\"sudo schneeforge apply\""));
+        assert!(rs.contains("\"sudo schneeforge rollback\""));
+        assert!(rs.contains("\"sudo schneeforge upgrade\""));
     }
 }
