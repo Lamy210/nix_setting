@@ -136,9 +136,14 @@ async function stepPrereq(box, actions) {
     row("flakes", flakesOk ? "OK" : "NG");
   if (nixOk && gitOk && flakesOk) {
     if (nixStatus === "Degraded" || nixStatus === "Broken") {
-      // wizard は install 案内だけで済ませず、修復 / 手動調査の案内を出す
+      // wizard は install 案内だけで済ませず、修復 / 手動調査の案内を出す。
+      // repair は非破壊の状態を含むため確認なしで実行できる (破壊操作は
+      // stale ownership record の削除のみで、内容は CLI 側が案内する)
       box.innerHTML += errorBlock(
         `Nix の状態は ${nixStatus} です: ${nixNextAction}`
+      );
+      actions.appendChild(
+        actionBtn("修復を試みる", () => stepNixRepair(box, actions))
       );
     }
     actions.appendChild(actionBtn("次へ", next));
@@ -265,6 +270,34 @@ async function stepNixInstall(box, actions) {
 
 function cliFallbackNote() {
   return '<p class="note">ターミナルから <code>sudo schneeforge nix install</code> でも導入できます</p>';
+}
+
+// Nix repair flow: NixStatus 分類に基づく修復 (Broken は stale record 削除、
+// Degraded は uninstall / 手動手順の案内)。実行は昇格された CLI sidecar。
+async function stepNixRepair(box, actions) {
+  box.textContent = "Nix の状態を修復しています... (schneeforge nix repair)";
+  actions.innerHTML = "";
+  let r;
+  try {
+    r = await invoke("nix_repair_escalated");
+  } catch (e) {
+    box.innerHTML = errorBlock(`修復の実行に失敗しました: ${e}`) +
+      '<p class="note">ターミナルから <code>sudo schneeforge nix repair</code> でも実行できます</p>';
+    actions.appendChild(actionBtn("再試行", () => stepNixRepair(box, actions)));
+    actions.appendChild(actionBtn("前提確認へ戻る", () => renderStep()));
+    return;
+  }
+  if (r.success) {
+    box.innerHTML =
+      "<p>修復コマンドが完了しました。結果:</p><pre>" +
+      escapeHtml(tailLines(r.output, 30)) +
+      "</pre>";
+  } else {
+    box.innerHTML = errorBlock(r.output) +
+      '<p class="note">ターミナルから <code>sudo schneeforge nix repair</code> でも実行できます</p>';
+  }
+  actions.innerHTML = "";
+  actions.appendChild(actionBtn("前提確認へ戻る (状態を再確認)", () => renderStep()));
 }
 
 function escapeHtml(s) {
@@ -415,6 +448,7 @@ $("apply").addEventListener("click", () => run(() => invoke("run_apply"), "apply
 $("rollback").addEventListener("click", () => run(() => invoke("run_rollback"), "rollback", "ロールバック"));
 $("upgrade").addEventListener("click", () => run(() => invoke("run_upgrade"), "upgrade", "アップグレード"));
 $("verify").addEventListener("click", verify);
+$("nix-uninstall").addEventListener("click", nixUninstall);
 
 async function verify() {
   const btn = $("verify");
@@ -438,6 +472,22 @@ async function verify() {
   } finally {
     btn.disabled = false;
   }
+}
+
+// Managed Nix の削除 (破壊的操作)。確認 dialog を経てのみ実行する。
+// ownership record が無い環境では CLI 側が fail-closed で拒否する
+// (--force は GUI からは渡さない)。
+async function nixUninstall() {
+  const ok = confirm(
+    "SchneeForge の管理する Nix (/nix 配下) を削除します。\n" +
+      "適用済みの環境も失われます。本当に削除しますか?"
+  );
+  if (!ok) return;
+  await run(
+    () => invoke("nix_uninstall_escalated"),
+    "nix-uninstall",
+    "Nix 削除"
+  );
 }
 
 boot();

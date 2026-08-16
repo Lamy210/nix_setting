@@ -63,7 +63,13 @@ fn run_scan(state: tauri::State<'_, CachedToolInventory>) -> Result<CommandOutpu
 #[tauri::command]
 async fn run_apply(app: tauri::AppHandle) -> Result<CommandOutput, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        run_escalated_cli(&app, EscalatedOp::Apply, "sudo schneeforge apply", "apply", false)
+        run_escalated_cli(
+            &app,
+            EscalatedOp::Apply,
+            "sudo schneeforge apply",
+            "apply",
+            false,
+        )
     })
     .await
     .map_err(|e| format!("task error: {e}"))
@@ -94,6 +100,44 @@ async fn run_upgrade(app: tauri::AppHandle) -> Result<CommandOutput, String> {
             EscalatedOp::Upgrade,
             "sudo schneeforge upgrade",
             "upgrade",
+            false,
+        )
+    })
+    .await
+    .map_err(|e| format!("task error: {e}"))
+}
+
+/// `nix_repair_escalated`: NixStatus 分類に基づく修復 (stale ownership
+/// record の削除 / 状態に応じた案内)。削除対象は root 所有のため昇格経路で
+/// 実行する。案内のみの状態 (Healthy / Missing 等) は何も変更しないため
+/// 確認 dialog なしで呼べる。
+#[tauri::command]
+async fn nix_repair_escalated(app: tauri::AppHandle) -> Result<CommandOutput, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_escalated_cli(
+            &app,
+            EscalatedOp::NixRepair,
+            "sudo schneeforge nix repair",
+            "repair",
+            true,
+        )
+    })
+    .await
+    .map_err(|e| format!("task error: {e}"))
+}
+
+/// `nix_uninstall_escalated`: Managed Nix の削除。破壊的操作のため
+/// frontend の確認 dialog を経てのみ呼ばれる (確認責任は GUI 側, D8 と
+/// 同じ構図)。`--force` は付与しない — fail-closed の突破は CLI の明示
+/// 指定に限定する。
+#[tauri::command]
+async fn nix_uninstall_escalated(app: tauri::AppHandle) -> Result<CommandOutput, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_escalated_cli(
+            &app,
+            EscalatedOp::NixUninstall,
+            "sudo schneeforge nix uninstall",
+            "uninstall",
             false,
         )
     })
@@ -386,6 +430,8 @@ fn run_escalated_cli(
             EscalatedOp::Apply => vec!["apply".into()],
             EscalatedOp::Rollback => vec!["rollback".into()],
             EscalatedOp::Upgrade => vec!["upgrade".into()],
+            EscalatedOp::NixRepair => vec!["nix".into(), "repair".into()],
+            EscalatedOp::NixUninstall => vec!["nix".into(), "uninstall".into()],
         };
         if dev_guard && cfg!(debug_assertions) {
             // 開発 build で誤って本物の install を走らせない標識 (E2E では使わない)
@@ -421,9 +467,9 @@ fn run_escalated_cli(
             return CommandOutput {
                 success: false,
                 output: format!(
-                    "昇格実行の起動に失敗しました ({e}): {}\nCLI で実行してください: {cli_fallback}",
-                    program.display()
-                ),
+                "昇格実行の起動に失敗しました ({e}): {}\nCLI で実行してください: {cli_fallback}",
+                program.display()
+            ),
             }
         }
     };
@@ -584,7 +630,9 @@ pub fn run() {
             run_plan,
             run_verify,
             nix_prepare_plan,
-            nix_install_escalated
+            nix_install_escalated,
+            nix_repair_escalated,
+            nix_uninstall_escalated
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -894,7 +942,10 @@ mod tests {
         let rs = include_str!("lib.rs");
         // handler は run_escalated_cli (sidecar 昇格) 経由であること
         for (op, marker) in [
-            (EscalatedOp::Apply, "run_escalated_cli(&app, EscalatedOp::Apply"),
+            (
+                EscalatedOp::Apply,
+                "run_escalated_cli(&app, EscalatedOp::Apply",
+            ),
             (EscalatedOp::Rollback, "EscalatedOp::Rollback"),
             (EscalatedOp::Upgrade, "EscalatedOp::Upgrade"),
         ] {
@@ -933,5 +984,55 @@ mod tests {
         assert!(rs.contains("\"sudo schneeforge apply\""));
         assert!(rs.contains("\"sudo schneeforge rollback\""));
         assert!(rs.contains("\"sudo schneeforge upgrade\""));
+    }
+
+    /// nix repair / uninstall も apply 系と同じ sidecar 昇格経路で実行
+    /// されること (stale ownership record 削除と upstream uninstall は
+    /// root が必要)。GUI process 内での直接実行が無いことを静的に検証する。
+    #[test]
+    fn nix_repair_uninstall_run_via_escalated_sidecar() {
+        let rs = include_str!("lib.rs");
+        assert!(
+            rs.contains("EscalatedOp::NixRepair"),
+            "nix repair must run via the escalated sidecar"
+        );
+        assert!(
+            rs.contains("EscalatedOp::NixUninstall"),
+            "nix uninstall must run via the escalated sidecar"
+        );
+        // GUI から --force を付けた uninstall を組み立てていないこと
+        // (fail-closed の突破は CLI の明示指定に限定)
+        assert!(
+            !rs.contains("\"nix\", \"uninstall\", \"--force\""),
+            "GUI must not bypass the ownership check with --force"
+        );
+    }
+
+    /// repair / uninstall の CLI fallback 案内が存在すること。
+    #[test]
+    fn nix_repair_uninstall_keep_cli_fallback_guidance() {
+        let rs = include_str!("lib.rs");
+        assert!(rs.contains("\"sudo schneeforge nix repair\""));
+        assert!(rs.contains("\"sudo schneeforge nix uninstall\""));
+    }
+
+    /// wizard の修復ボタンと Ready 画面の削除ボタンが backend command を
+    /// invoke していること (button → IPC の mapping ずれ検知)。
+    #[test]
+    fn frontend_invokes_nix_repair_uninstall_commands() {
+        let js = include_str!("../../dist/main.js");
+        assert!(
+            js.contains("invoke(\"nix_repair_escalated\")"),
+            "wizard repair button must invoke nix_repair_escalated"
+        );
+        assert!(
+            js.contains("invoke(\"nix_uninstall_escalated\")"),
+            "ready-view uninstall button must invoke nix_uninstall_escalated"
+        );
+        // uninstall は確認を経てのみ実行されること
+        assert!(
+            js.contains("confirm("),
+            "uninstall must be behind a confirmation"
+        );
     }
 }
