@@ -23,6 +23,12 @@ pub enum EscalatedOp {
     Rollback,
     /// `schneeforge upgrade` (flake.lock 更新)
     Upgrade,
+    /// `schneeforge nix repair` (stale ownership record は root 所有のため
+    /// 削除に root が必要。案内のみの状態は何も変更しない)
+    NixRepair,
+    /// `schneeforge nix uninstall` (upstream uninstall は root 専用)。
+    /// `--force` は GUI から渡さない (fail-closed の突破は CLI 明示指定に限定)
+    NixUninstall,
 }
 
 impl EscalatedOp {
@@ -37,6 +43,8 @@ impl EscalatedOp {
             EscalatedOp::Apply => vec!["apply".to_string()],
             EscalatedOp::Rollback => vec!["rollback".to_string()],
             EscalatedOp::Upgrade => vec!["upgrade".to_string()],
+            EscalatedOp::NixRepair => vec!["nix".to_string(), "repair".to_string()],
+            EscalatedOp::NixUninstall => vec!["nix".to_string(), "uninstall".to_string()],
         }
     }
 }
@@ -304,6 +312,50 @@ mod tests {
         assert_eq!(EscalatedOp::Apply.cli_args(), vec!["apply"]);
         assert_eq!(EscalatedOp::Rollback.cli_args(), vec!["rollback"]);
         assert_eq!(EscalatedOp::Upgrade.cli_args(), vec!["upgrade"]);
+    }
+
+    #[test]
+    fn escalated_ops_cover_nix_repair_uninstall() {
+        assert_eq!(EscalatedOp::NixRepair.cli_args(), vec!["nix", "repair"]);
+        assert_eq!(
+            EscalatedOp::NixUninstall.cli_args(),
+            vec!["nix", "uninstall"]
+        );
+    }
+
+    #[test]
+    fn nix_ops_never_carry_force_or_yes() {
+        // GUI 経由の nix repair / uninstall は確認 bypass flag を持たない
+        for op in [EscalatedOp::NixRepair, EscalatedOp::NixUninstall] {
+            for a in op.cli_args() {
+                assert_ne!(a, "--force", "{op:?} must not carry --force");
+                assert_ne!(a, "--yes", "{op:?} must not carry --yes");
+            }
+        }
+    }
+
+    #[test]
+    fn osascript_args_carry_nix_repair_op() {
+        let args = osascript_args(
+            Path::new("/usr/local/bin/schneeforge"),
+            EscalatedOp::NixRepair,
+            &base_env(Path::new(REPO)),
+        );
+        let script = &args[1];
+        assert!(
+            script.contains("'nix' 'repair'"),
+            "nix repair must be embedded: {script}"
+        );
+    }
+
+    #[test]
+    fn pkexec_args_carry_nix_uninstall_op() {
+        let args = pkexec_args(
+            Path::new("/usr/bin/schneeforge"),
+            EscalatedOp::NixUninstall,
+            &base_env(Path::new(REPO)),
+        );
+        assert_eq!(&args[3..], &["nix", "uninstall"]);
     }
 
     #[test]

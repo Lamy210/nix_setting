@@ -65,6 +65,7 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
 | `schneeforge nix repair` (issue #15 残件) | 実装完了 (branch `feat/nix-repair`)。`RepairAction` state-driven 修復 (Broken → stale ownership record 削除のみ自動、Degraded → uninstall/手動 cleanup 案内) + upstream `repair {hooks,sequoia}` wrap。E2E 11/11 pass | `openspec/changes/add-nix-repair/` |
 | GUI Managed Nix install (issue #16) | 実装完了 (branch `feat/gui-managed-nix-install`、PR #36 CI 19/19 green)。privilege escalation helper (osascript / pkexec、昇格先は bundle 同梱の CLI sidecar) + wizard からの 2 段階 install UI (plan preview → 確認 → install) + install progress の event streaming。`NIX_SETTING_DIR` 昇格先渡し・repo 未 clone 時の gate 付き。CLI fallback 案内維持 | `openspec/changes/add-gui-managed-nix-install/` |
 | GUI apply 系の昇格統合 (デグレ #5) | 実装完了 (branch `feat/gui-privileged-apply`)。`run_apply` / `run_rollback` / `run_upgrade` を core 直接呼び出しから CLI sidecar の昇格実行 (osascript / pkexec) へ集約。`EscalatedOp` に Apply/Rollback/Upgrade を追加。lock / state 保存は昇格先 CLI 内。実機 (osascript 昇格での apply) は macOS Final Acceptance で確認 | `openspec/changes/add-gui-privileged-apply/` |
+| GUI nix repair / uninstall (issue #16 残作業) | 実装完了 (branch `feat/gui-nix-repair-uninstall`)。`EscalatedOp` に NixRepair/NixUninstall を追加し、wizard の Degraded/Broken 表示に「修復を試みる」ボタン・Ready 画面に確認付き「Nix を削除」ボタン。`--force` は GUI から渡さない (fail-closed 維持) | `openspec/changes/add-gui-nix-repair-uninstall/` |
 | DMG offline bundle 法務 ADR (issue #17) | ADR-0002 起票・openspec change 作成 (branch `feat/gui-managed-nix-install` に同梱)。無改変再配布 + LICENSE 同梱 + written offer の方針を固定。**実装 (bundle 同梱・offline 経路) は弁護士確認後の別 change** | `docs/adr/0002-dmg-bundle-lgpl-redistribution.md` / `openspec/changes/add-dmg-offline-bundle-licensing/` |
 
 ## 既知のデグレ・機能漏れ（要対応）
@@ -104,7 +105,7 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
 3. **Phase 2 残作業** (issue #14-17):
    - #14 acceptance 残り: receipt 冪等性 regression
    - #15 Nix 状態分類 (Missing/Healthy/Degraded/Broken): **完了** — 分類 model (`schneeforge nix doctor` の `[status]` 欄) + `schneeforge nix repair` (state-driven 修復、`feat/nix-repair` で PR 提出予定)
-   - #16 GUI (Tauri) 統合: `prepare_plan()` / `execute_plan()` API + osascript/pkexec 特権昇格
+   - #16 GUI (Tauri) 統合: `prepare_plan()` / `execute_plan()` API + osascript/pkexec 特権昇格 + **GUI nix repair / uninstall** (feat/gui-nix-repair-uninstall で完了)
    - #17 DMG bundle + LGPL-2.1 法務 ADR: **ADR-0002 起票済み** (Accepted provisionally)。実装は弁護士確認後の別 change
 4. 残デグレ対応:
    - #5 GUI 特権ヘルパー: **完了** (feat/gui-privileged-apply — apply/rollback/upgrade を sidecar 昇格へ集約)
