@@ -42,9 +42,9 @@ TAURI_BIN="$WORKDIR/tauri-cli/cargo-tauri"
 chmod +x "$TAURI_BIN"
 
 # --- build (host cargo + pinned CLI) ---
-# CLI sidecar (externalBin) の source を先に build する — build script は
-# target/<profile>/schneeforge を stage 元として参照するため、未 build だと
-# bundle 時の externalBin 解決に失敗する
+# CLI sidecar (externalBin) の source を先に build する。desktop は root
+# workspace と分離しているため root 側で build し、build script は
+# <repo>/target/release/schneeforge を stage 元として解決する
 cd "$REPO_ROOT"
 cargo build --release -p schneeforge
 
