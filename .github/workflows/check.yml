@@ -191,7 +191,11 @@ jobs:
           ./target/release/schneeforge doctor
 
       - name: desktop build smoke
-        run: nix develop --command cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml
+        # CLI sidecar (externalBin) の stage 元として debug build した CLI が
+        # 必要 (build script は <repo>/target/<profile>/schneeforge を参照する)
+        run: |
+          nix develop --command cargo build -p schneeforge
+          nix develop --command cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml
 
   bootstrap-test:
     runs-on: ubuntu-latest
