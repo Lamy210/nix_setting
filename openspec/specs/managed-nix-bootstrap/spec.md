@@ -223,6 +223,17 @@ SchneeForge SHALL は install / uninstall 時の privilege escalation を明示�
 - **WHEN** Tauri GUI から install を実行する (Phase 2 以降)
 - **THEN** TTY に依存せず、osascript (macOS) / pkexec (Linux) 等で認証を要求する
 
+#### Scenario: GUI から repair を昇格実行する
+- **WHEN** Tauri GUI から repair を実行する
+- **THEN** CLI sidecar (`schneeforge nix repair`) が osascript / pkexec 経由で実行される
+- **AND** stale ownership record の削除 (`/nix/schneeforge-managed.json`, root 所有) が昇格先で完結する
+
+#### Scenario: GUI から uninstall を昇格実行する
+- **WHEN** Tauri GUI から uninstall を実行する (確認 dialog 済み)
+- **THEN** CLI sidecar (`schneeforge nix uninstall`) が osascript / pkexec 経由で実行される
+- **AND** upstream `nix-installer uninstall` の root 検査は昇格先 process で満たされる
+- **AND** `--force` は GUI から付与されない
+
 ### Requirement: Nix 状態分類 (NixStatus)
 
 SchneeForge SHALL は install 済み環境を `Missing` / `Healthy` / `Degraded` / `Broken` の 4 状態に分類する `NixStatus` model を持つ。分類は installation marker (`/nix/store`, `/nix/var/nix`, `/nix/receipt.json`)、receipt の内容、ownership record、runtime 検証 (`nix store ping`) の組合せで決定する。
@@ -277,3 +288,109 @@ SchneeForge SHALL は NixStatus の分類 input (marker path 群・receipt path�
 - **WHEN** いずれの状態 (Missing を含む) で `schneeforge nix doctor` を実行する
 - **THEN** doctor は非 zero exit で異常終了しない (診断コマンドであるため)
 
+
+### Requirement: GUI 向け privilege escalation helper
+
+SchneeForge SHALL は GUI から特権操作を委譲するための escalation helper を core に持つ。helper は macOS では osascript、Linux では pkexec を使う command を構築し、実行する command は SchneeForge の CLI binary (GUI bundle に同梱された sidecar) に限定する。昇格先には `NIX_SETTING_DIR` (repo 位置) を環境変数として明示渡しする — root 環境では HOME が変わり user の repo が解決できなくなるため。
+
+#### Scenario: macOS で osascript 経由の command を構築する
+
+- **WHEN** macOS で SchneeForge CLI を管理者権限で再実行する command を構築する
+- **THEN** `osascript -e 'do shell script "…" with administrator privileges'` 形式の引数列が構築される
+- **AND** 実行する文字列に含まれる quote 等が escape される
+- **AND** 実行する文字列の先頭に `NIX_SETTING_DIR` の export が置かれる
+
+#### Scenario: Linux で pkexec 経由の command を構築する
+
+- **WHEN** Linux で SchneeForge CLI を管理者権限で再実行する command を構築する
+- **THEN** `pkexec env <env-assignments…> <schneeforge-binary> nix install --yes` 形式の引数列が構築される
+- **AND** GUI 表示に必要な環境変数 (DISPLAY / XAUTHORITY / WAYLAND_DISPLAY) が引き継がれる
+- **AND** env-assignments に `NIX_SETTING_DIR` が含まれる
+
+#### Scenario: 任意の command は実行しない
+
+- **WHEN** helper に SchneeForge binary 以外の実行対象を渡す要求がある
+- **THEN** 構築を拒否する、または SchneeForge の subcommand 引数として安全に escape された形式のみを受け付ける
+
+### Requirement: GUI から昇格再実行する install は CLI と同一 policy に従う
+
+GUI 経由で昇格実行される `schneeforge nix install --yes` SHALL は CLI 実行と同一の policy (既存 Nix 拒否 / plan 生成 / ownership 記録 / post-install gate) に従う。GUI 経由であることを理由に確認や検証を省略しない。
+
+#### Scenario: GUI 経由の install も既存 Nix を上書きしない
+
+- **WHEN** GUI から昇格実行された install が既存 Nix を検出する
+- **THEN** install は ExistingNixDetected で失敗する
+- **AND** GUI は失敗を表示し `/nix` は変更されない
+
+#### Scenario: GUI 経由の install も ownership record を記録する
+
+- **WHEN** GUI 経由の install が成功する
+- **THEN** CLI と同一の ownership record が書き込まれ uninstall 対称性が保たれる
+
+### Requirement: nix repair は NixStatus に基づいて修復 action を決定する
+
+SchneeForge SHALL は `schneeforge nix repair` command を持ち、`NixStatus` 分類を入力として状態ごとの修復 action を決定する。repair は SchneeForge 単独で安全に実行できる操作 (stale record の削除・案内表示) のみを行い、破壊的な uninstall / 再 install の自動実行は行わない。
+
+#### Scenario: Broken 状態で stale ownership record を削除する
+
+- **WHEN** ownership record は存在するが installation marker が一切存在しない (Broken) 状態で `schneeforge nix repair` を実行する
+- **THEN** stale ownership record を削除する
+- **AND** 削除後に `schneeforge nix doctor` が `Missing` を表示する状態へ復帰する
+
+#### Scenario: Degraded 状態で receipt 有りは uninstall を案内する
+
+- **WHEN** marker は存在し receipt が読めるが store ping が失敗する (Degraded) 状態で `schneeforge nix repair` を実行する
+- **THEN** `schneeforge nix uninstall` による削除と再 install を案内する
+- **AND** uninstall を自動実行しない
+
+#### Scenario: Degraded 状態で receipt 無しは手動手順を案内する
+
+- **WHEN** marker のみ残存し receipt が読めない (Degraded) 状態で `schneeforge nix repair` を実行する
+- **THEN** upstream が revert できない旨と `sudo schneeforge nix uninstall --force` (build users の手動削除を含む手順) を表示する
+- **AND** `/nix` 配下や build users の削除を自動実行しない
+
+#### Scenario: Healthy / Missing は対応不要を表示して正常終了する
+
+- **WHEN** Healthy または Missing 状態で `schneeforge nix repair` を実行する
+- **THEN** Healthy は「対応不要」、Missing は install 案内を表示する
+- **AND** いずれも file system を変更せず正常終了する
+
+### Requirement: nix repair は dry-run を持つ
+
+`schneeforge nix repair` SHALL は `--dry-run` で実行予定の action を表示するのみで file system を変更しない。
+
+#### Scenario: dry-run は stale record を削除しない
+
+- **WHEN** Broken 状態で `schneeforge nix repair --dry-run` を実行する
+- **THEN** 削除対象の ownership record path と実行内容を表示する
+- **AND** ownership record は削除されず Broken 状態が維持される
+
+### Requirement: upstream repair hooks / sequoia を wrap する
+
+SchneeForge SHALL は upstream `nix-installer repair hooks` (shell profile 修復) と `repair sequoia` (macOS Sequoia の `_nixbld` 回復) を subprocess 呼び出しする option (`--hooks` / `--sequoia`) を持つ。SchneeForge 側で修復 logic を再実装しない (uninstall と同じ委譲方針)。
+
+#### Scenario: repair hooks は upstream を呼び出す
+
+- **WHEN** `schneeforge nix repair --hooks` を実行する
+- **THEN** `nix-installer repair hooks` 相当の upstream command を `/nix/nix-installer` (または cached binary) 経由で subprocess 実行する
+- **AND** upstream の stderr を利用者に表示する
+
+#### Scenario: sequoia は明示指定のみで実行する
+
+- **WHEN** `schneeforge nix repair` を option 無しで実行する
+- **THEN** `repair sequoia` を自動実行しない (Sequoia 乗っ取りの検出・判定は行わない)
+- **AND** macOS 15 環境向けの手順として `--sequoia` の存在を案内に含める場合のみ表示する
+
+### Requirement: doctor の次アクションは repair を案内する
+
+`schneeforge nix doctor` SHALL は Degraded / Broken の次アクション文案として `schneeforge nix repair` を含める。
+
+#### Scenario: Degraded の案内が repair を指す
+
+- **WHEN** Degraded 状態で `schneeforge nix doctor` を実行する
+- **THEN** 次アクションに `schneeforge nix repair` が含まれる
+
+#### Scenario: Broken の案内が repair を指す
+
+- **WHEN** Broken 状態で `schneeforge nix doctor` を実行する
+- **THEN** 次アクションに `schneeforge nix repair` が含まれる

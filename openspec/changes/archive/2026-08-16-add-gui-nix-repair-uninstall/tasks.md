@@ -20,7 +20,7 @@
 
 ## 4. 品質 gate
 
-- [ ] 4.1 `cargo test -p schneeforge-core` / `-p schneeforge-desktop` 全 pass
-- [ ] 4.2 `cargo clippy -- -D warnings` / `cargo fmt --check` pass
-- [ ] 4.3 `openspec validate add-gui-nix-repair-uninstall --strict` pass
-- [ ] 4.4 CI (check.yml) 全 job green
+- [x] 4.1 `cargo test -p schneeforge-core` / `-p schneeforge-desktop` 全 pass
+- [x] 4.2 `cargo clippy -- -D warnings` / `cargo fmt --check` pass
+- [x] 4.3 `openspec validate add-gui-nix-repair-uninstall --strict` pass
+- [x] 4.4 CI (check.yml) 全 job green

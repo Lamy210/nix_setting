@@ -62,10 +62,10 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
 | Managed Nix Bootstrap Phase 1 + install 修正 (PR #13/#18) | **develop merge 済み** (a7d4777)。review 4 巡。CI 18/18 green | `openspec/changes/archive/2026-08-14-add-managed-nix-bootstrap/` |
 | Spike `nix-bootstrap-provider-evaluation` | 完了 (Linux x86_64 実測済み、macOS aarch64 は ADR final acceptance 条件) | `openspec/changes/spike-nix-bootstrap-provider-evaluation/` |
 | NixStatus 状態分類 (issue #15) | **develop merge 済み** (PR #33 / 6c48837)。`NixStatus` 4 状態 model + doctor `[status]` 欄 + GUI `nix_status` 表示・wizard の Managed Nix 案内。`nix repair` は別 change で設計予定 | `openspec/changes/archive/2026-08-16-add-nix-status-classification/` / `2026-08-16-add-gui-managed-nix-status/` |
-| `schneeforge nix repair` (issue #15 残件) | 実装完了 (branch `feat/nix-repair`)。`RepairAction` state-driven 修復 (Broken → stale ownership record 削除のみ自動、Degraded → uninstall/手動 cleanup 案内) + upstream `repair {hooks,sequoia}` wrap。E2E 11/11 pass | `openspec/changes/add-nix-repair/` |
-| GUI Managed Nix install (issue #16) | 実装完了 (branch `feat/gui-managed-nix-install`、PR #36 CI 19/19 green)。privilege escalation helper (osascript / pkexec、昇格先は bundle 同梱の CLI sidecar) + wizard からの 2 段階 install UI (plan preview → 確認 → install) + install progress の event streaming。`NIX_SETTING_DIR` 昇格先渡し・repo 未 clone 時の gate 付き。CLI fallback 案内維持 | `openspec/changes/add-gui-managed-nix-install/` |
-| GUI apply 系の昇格統合 (デグレ #5) | 実装完了 (branch `feat/gui-privileged-apply`)。`run_apply` / `run_rollback` / `run_upgrade` を core 直接呼び出しから CLI sidecar の昇格実行 (osascript / pkexec) へ集約。`EscalatedOp` に Apply/Rollback/Upgrade を追加。lock / state 保存は昇格先 CLI 内。実機 (osascript 昇格での apply) は macOS Final Acceptance で確認 | `openspec/changes/add-gui-privileged-apply/` |
-| GUI nix repair / uninstall (issue #16 残作業) | 実装完了 (branch `feat/gui-nix-repair-uninstall`)。`EscalatedOp` に NixRepair/NixUninstall を追加し、wizard の Degraded/Broken 表示に「修復を試みる」ボタン・Ready 画面に確認付き「Nix を削除」ボタン。`--force` は GUI から渡さない (fail-closed 維持) | `openspec/changes/add-gui-nix-repair-uninstall/` |
+| `schneeforge nix repair` (issue #15 残件) | **develop merge 済み** (PR #35 / 6470700)。`RepairAction` state-driven 修復 (Broken → stale ownership record 削除のみ自動、Degraded → uninstall/手動 cleanup 案内) + upstream `repair {hooks,sequoia}` wrap。E2E 11/11 pass | `openspec/changes/archive/2026-08-16-add-nix-repair/` |
+| GUI Managed Nix install (issue #16) | **develop merge 済み** (PR #36 / f17604a)。privilege escalation helper (osascript / pkexec、昇格先は bundle 同梱の CLI sidecar) + wizard からの 2 段階 install UI (plan preview → 確認 → install) + install progress の event streaming。`NIX_SETTING_DIR` 昇格先渡し・repo 未 clone 時の gate 付き。CLI fallback 案内維持 | `openspec/changes/archive/2026-08-16-add-gui-managed-nix-install/` |
+| GUI apply 系の昇格統合 (デグレ #5) | **develop merge 済み** (PR #37 / 1134a31)。`run_apply` / `run_rollback` / `run_upgrade` を core 直接呼び出しから CLI sidecar の昇格実行 (osascript / pkexec) へ集約。`EscalatedOp` に Apply/Rollback/Upgrade を追加。lock / state 保存は昇格先 CLI 内。実機 (osascript 昇格での apply) は macOS Final Acceptance で確認 | `openspec/changes/archive/2026-08-16-add-gui-privileged-apply/` |
+| GUI nix repair / uninstall (issue #16 残作業) | **develop merge 済み** (PR #40 / 72fbd20。旧 PR #39 は base branch 削除で close → 再提出)。`EscalatedOp` に NixRepair/NixUninstall を追加し、wizard の Degraded/Broken 表示に「修復を試みる」ボタン・Ready 画面に確認付き「Nix を削除」ボタン。`--force` は GUI から渡さない (fail-closed 維持) | `openspec/changes/archive/2026-08-16-add-gui-nix-repair-uninstall/` |
 | DMG offline bundle 法務 ADR (issue #17) | ADR-0002 起票・openspec change 作成 (branch `feat/gui-managed-nix-install` に同梱)。無改変再配布 + LICENSE 同梱 + written offer の方針を固定。**実装 (bundle 同梱・offline 経路) は弁護士確認後の別 change** | `docs/adr/0002-dmg-bundle-lgpl-redistribution.md` / `openspec/changes/add-dmg-offline-bundle-licensing/` |
 
 ## 既知のデグレ・機能漏れ（要対応）
@@ -80,7 +80,7 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
 
 | # | 問題 | 対応 |
 |---|------|------|
-| 12 | install.sh が main 固定（Stable/Edge 分離無し） | **解消** (feat/install-sh-stable-edge): README の Stable ワンライナーを tag 固定 URL に分離 + tag と `SCHNEEFORGE_BOOTSTRAP_VERSION` pin の一致を `tests/install-sh.bats` で回帰保証。RELEASE.md の bump checklist に README URL 差し替えを追加 |
+| 12 | install.sh が main 固定（Stable/Edge 分離無し） | **解消・merge 済み** (PR #38 / e95d899): README の Stable ワンライナーを tag 固定 URL に分離 + tag と `SCHNEEFORGE_BOOTSTRAP_VERSION` pin の一致を `tests/install-sh.bats` で回帰保証。RELEASE.md の bump checklist に README URL 差し替えを追加 |
 | — | Dependabot alert #2: glib 0.18.5 (GHSA-wrw7-89jp-8q8g / RUSTSEC-2024-0429, medium) | Known upstream dependency risk. 現 dependency tree では Tauri v2 Linux → GTK3 0.18 → glib 0.18.5 経由。macOS / Windows distribution には当該 GTK3 dependency は含まれない。app code からの VariantStrIter 直接利用は確認されていないが、transitive dependency 内の到達可能性まで否定する根拠にはしない。**gtk3-rs は 2026-08-13 に maintenance 再開の動き** (gtk-rs/gtk3-rs#857: gtk 0.19.0 + glib 0.22 への更新が進行中)。Tauri v2 / tao / wry 側の追従状況を monitor し、upstream release 後に再評価。**現時点では dismiss (no_plan_to_fix) せず tracking 継続** |
 
 ### 低
@@ -109,7 +109,7 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
    - #17 DMG bundle + LGPL-2.1 法務 ADR: **ADR-0002 起票済み** (Accepted provisionally)。実装は弁護士確認後の別 change
 4. 残デグレ対応:
    - #5 GUI 特権ヘルパー: **完了** (feat/gui-privileged-apply — apply/rollback/upgrade を sidecar 昇格へ集約)
-   - #12 install.sh の Stable/Edge 分離: **完了** (feat/install-sh-stable-edge)
+   - #12 install.sh の Stable/Edge 分離: **完了・merge 済み** (PR #38)
    - glib advisory (Dependabot #2): gtk3-rs#857 と Tauri v2 側の追従を monitor、upstream release 後に再評価
 
 ## 開発フロー

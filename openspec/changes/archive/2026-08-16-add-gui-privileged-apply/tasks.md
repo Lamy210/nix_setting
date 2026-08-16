@@ -24,5 +24,5 @@
 
 ## 5. CI / docs
 
-- [ ] 5.1 `cargo test` / `clippy` / `fmt` / desktop build が green
-- [ ] 5.2 STATUS.md のデグレ #5 を解消済みへ更新 (実機確認は macOS Final Acceptance に統合)
+- [x] 5.1 `cargo test` / `clippy` / `fmt` / desktop build が green
+- [x] 5.2 STATUS.md のデグレ #5 を解消済みへ更新 (実機確認は macOS Final Acceptance に統合)
