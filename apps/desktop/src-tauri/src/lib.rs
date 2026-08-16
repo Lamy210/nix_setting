@@ -352,14 +352,25 @@ fn nix_prepare_plan_blocking() -> CommandOutput {
 /// root なら sidecar CLI を直接、非 root なら escalation helper
 /// (osascript / pkexec) で sidecar CLI の `nix install --yes` を再実行する。
 /// policy / ownership 記録 / post-install gate は CLI 側に集約されている。
+/// stderr の JSON Lines は `nix-install-progress` event として frontend へ
+/// 随時流す (spec: phase が順次表示され UI は応答し続ける)。
 #[tauri::command]
-async fn nix_install_escalated() -> Result<CommandOutput, String> {
-    tauri::async_runtime::spawn_blocking(nix_install_escalated_blocking)
+async fn nix_install_escalated(app: tauri::AppHandle) -> Result<CommandOutput, String> {
+    tauri::async_runtime::spawn_blocking(move || nix_install_escalated_blocking(app))
         .await
         .map_err(|e| format!("task error: {e}"))
 }
 
-fn nix_install_escalated_blocking() -> CommandOutput {
+/// frontend へ流す progress event の payload。
+/// `phase` は CLI 側 ProgressSink と同じ label (download/verify/…)、
+/// `message` は JSON Lines の本文 (無ければ空)。
+#[derive(Clone, serde::Serialize)]
+struct NixInstallProgress {
+    phase: String,
+    message: String,
+}
+
+fn nix_install_escalated_blocking(app: tauri::AppHandle) -> CommandOutput {
     if existing_nix_detected() {
         return CommandOutput {
             success: false,
@@ -432,7 +443,7 @@ fn nix_install_escalated_blocking() -> CommandOutput {
     // 出力するため、片方ずつ順に読むと反対側の pipe buffer (64KB) 満杯で
     // child が block し相互待ちになる (deadlock)
     let stdout_thread = spawn_line_reader(child.stdout.take());
-    let stderr_thread = spawn_line_reader(child.stderr.take());
+    let stderr_thread = spawn_progress_reader(child.stderr.take(), &app);
 
     let status = match child.wait() {
         Ok(s) => s,
@@ -475,6 +486,49 @@ fn spawn_line_reader<S: std::io::Read + Send + 'static>(
             for line in BufReader::new(stream).lines().map_while(Result::ok) {
                 log.push_str(&line);
                 log.push('\n');
+            }
+        }
+        log
+    })
+}
+
+/// CLI の stderr (JSON Lines) を parse し、`nix-install-progress` event を
+/// frontend へ emit しながら行 log も返す reader thread。
+/// phase の判定は CLI 側 ProgressSink と同じ変換を使うため、GUI 表示と
+/// CLI 実行時の表示が一致する。
+fn spawn_progress_reader<S: std::io::Read + Send + 'static>(
+    stream: Option<S>,
+    app: &tauri::AppHandle,
+) -> std::thread::JoinHandle<String> {
+    use std::io::{BufRead, BufReader};
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut log = String::new();
+        let Some(stream) = stream else {
+            return log;
+        };
+        let mut last_phase = String::new();
+        for line in BufReader::new(stream).lines().map_while(Result::ok) {
+            log.push_str(&line);
+            log.push('\n');
+            if let Some(parsed) = schneeforge_core::parse_json_line(&line) {
+                let message = parsed
+                    .fields
+                    .as_ref()
+                    .and_then(|f| f.message.clone())
+                    .unwrap_or_default();
+                // span 名 (Step 等) を phase として流す。message しか無い行は
+                // 直前の phase のまま (phase 遷移行だけが span を持つ)
+                if let Some(span) = parsed.spans.as_ref().and_then(|s| s.last()) {
+                    if span.name != last_phase {
+                        last_phase = span.name.clone();
+                    }
+                }
+                let progress = NixInstallProgress {
+                    phase: last_phase.clone(),
+                    message,
+                };
+                let _ = tauri::Emitter::emit(&app, "nix-install-progress", &progress);
             }
         }
         log
@@ -816,6 +870,29 @@ mod tests {
         assert!(
             core.contains("NIX_SETTING_DIR"),
             "core escalate must pass NIX_SETTING_DIR to the elevated process"
+        );
+    }
+
+    /// install 実行中の progress が event で frontend へ流れる構造になっている
+    /// こと (issue #16 作業項目: stderr JSON Lines parse → phase map の GUI 流用)。
+    /// backend の emit 名と frontend の listen 名が一致しないと progress が
+    /// 表示されず完了後の一括表示に静かに退化するため静的に突合する。
+    #[test]
+    fn install_progress_streams_via_matching_event_names() {
+        let rs = include_str!("lib.rs");
+        let js = include_str!("../../dist/main.js");
+        const EVENT: &str = "nix-install-progress";
+        assert!(
+            rs.contains(&format!("\"{EVENT}\"")),
+            "backend must emit the progress event"
+        );
+        assert!(
+            rs.contains("parse_json_line"),
+            "backend must parse the CLI's JSON Lines stderr"
+        );
+        assert!(
+            js.contains(&format!("listen(\"{EVENT}\"")),
+            "frontend must listen to the progress event"
         );
     }
 }
