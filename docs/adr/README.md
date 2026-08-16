@@ -7,6 +7,7 @@ SchneeForge のアーキテクチャ決定記録。Lightweight ADR (Michael Nyga
 | # | タイトル | Status |
 |---|----------|--------|
 | [0001](./0001-managed-nix-provider.md) | Managed Nix Provider に NixOS/nix-installer を採用 | Accepted provisionally |
+| [0002](./0002-dmg-bundle-lgpl-redistribution.md) | DMG bundle 配布における LGPL-2.1 再配布条件の対応 | Accepted provisionally |
 
 ## 運用
 
