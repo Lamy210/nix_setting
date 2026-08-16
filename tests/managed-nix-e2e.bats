@@ -155,3 +155,22 @@ sf() {
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "sudo schneeforge nix install"
 }
+
+@test "install: stale receipt.json alone is detected (fail-closed regression)" {
+  # issue #14: /nix/receipt.json が残っている状態 (部分的に削除された
+  # degraded install) での再 install が ExistingNixDetected で拒否されること。
+  # PATH / store / var が無くても receipt marker 単独で検出する回帰保証。
+  docker exec "$CT_NAME" bash -c 'mkdir -p /nix && echo "{}" > /nix/receipt.json'
+  # dry-run は info 表示で exit 0 (D8: preview は中止を予告するだけ)
+  run sf nix install --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "既存の Nix が検出されているため install は中止されます"
+  # 実 install は ExistingNixDetected で拒否
+  run sf nix install --yes
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "existing Nix detected"
+  # doctor は Degraded を報告する (marker が残る状態)
+  run sf nix doctor
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "Degraded"
+}
