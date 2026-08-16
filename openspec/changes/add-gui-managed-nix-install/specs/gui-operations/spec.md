@@ -7,8 +7,15 @@ First Run Wizard SHALL は Nix 未導入 (Missing) の場合、ターミナル�
 #### Scenario: Nix 未導入時に install ボタンが表示される
 
 - **WHEN** wizard の前提確認で Nix が未導入 (Missing) と判定される
+- **AND** repository が既に clone 済みである
 - **THEN** Managed Nix を導入する操作 (ボタン) が表示される
 - **AND** CLI の手打ち案内が escalation が利用できない環境向け fallback として表示される
+
+#### Scenario: repository 未 clone 時は install を offering しない
+
+- **WHEN** wizard の前提確認で Nix が未導入かつ repository が未 clone である
+- **THEN** Managed Nix の導入操作は表示されず repository 設定 step への誘導が表示される
+- **AND** install 操作を提供しない理由として repository の clone が必要であることが表示される
 
 #### Scenario: detailed plan 表示から最終確認を経て install する
 
@@ -30,8 +37,9 @@ GUI process SHALL は自身を root にせず、特権が必要な操作を別 p
 #### Scenario: 非 root で install 操作を実行する
 
 - **WHEN** GUI が root 以外で動作しておりユーザーが install を確認した
-- **THEN** SchneeForge 自身の CLI (`schneeforge nix install --yes`) が管理者権限で再実行される
+- **THEN** GUI bundle に同梱された SchneeForge CLI sidecar (`schneeforge nix install --yes`) が管理者権限で再実行される
 - **AND** GUI process 自身は root 権限を取得しない
+- **AND** 昇格先の process に `NIX_SETTING_DIR` (repo 位置) が引き継がれる
 
 #### Scenario: 昇格が拒否された場合は fallback 案内を出す
 

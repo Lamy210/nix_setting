@@ -2,19 +2,21 @@
 
 ### Requirement: GUI 向け privilege escalation helper
 
-SchneeForge SHALL は GUI から特権操作を委譲するための escalation helper を core に持つ。helper は macOS では osascript、Linux では pkexec を使う command を構築し、実行する command は SchneeForge 自身の binary に限定する。
+SchneeForge SHALL は GUI から特権操作を委譲するための escalation helper を core に持つ。helper は macOS では osascript、Linux では pkexec を使う command を構築し、実行する command は SchneeForge の CLI binary (GUI bundle に同梱された sidecar) に限定する。昇格先には `NIX_SETTING_DIR` (repo 位置) を環境変数として明示渡しする — root 環境では HOME が変わり user の repo が解決できなくなるため。
 
 #### Scenario: macOS で osascript 経由の command を構築する
 
 - **WHEN** macOS で SchneeForge CLI を管理者権限で再実行する command を構築する
 - **THEN** `osascript -e 'do shell script "…" with administrator privileges'` 形式の引数列が構築される
 - **AND** 実行する文字列に含まれる quote 等が escape される
+- **AND** 実行する文字列の先頭に `NIX_SETTING_DIR` の export が置かれる
 
 #### Scenario: Linux で pkexec 経由の command を構築する
 
 - **WHEN** Linux で SchneeForge CLI を管理者権限で再実行する command を構築する
 - **THEN** `pkexec env <env-assignments…> <schneeforge-binary> nix install --yes` 形式の引数列が構築される
 - **AND** GUI 表示に必要な環境変数 (DISPLAY / XAUTHORITY / WAYLAND_DISPLAY) が引き継がれる
+- **AND** env-assignments に `NIX_SETTING_DIR` が含まれる
 
 #### Scenario: 任意の command は実行しない
 

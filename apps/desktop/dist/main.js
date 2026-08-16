@@ -159,10 +159,19 @@ async function stepPrereq(box, actions) {
       box.innerHTML += errorBlock(
         "Nix が未導入です。SchneeForge の Managed Nix で導入できます。" + statusNote
       );
-      actions.appendChild(actionBtn("SchneeForge で導入", () => stepNixInstall(box, actions)));
-      // escalation helper が使えない環境向けの fallback 案内
-      box.innerHTML +=
-        '<p class="note">ターミナルから <code>sudo schneeforge nix install</code> でも導入できます</p>';
+      // Managed Nix 導入は repo の bootstrap-manifest.toml を必要とする。
+      // 未 clone のまま install しても backend が fail-closed で拒否するため、
+      // frontend で先に repo step へ誘導する (D: fresh machine での空振り防止)
+      if (status && !status.repo_exists) {
+        box.innerHTML +=
+          '<p class="note">まず repository の clone が必要です。次へ進んでください。</p>';
+        actions.appendChild(actionBtn("次へ (repository 設定)", next));
+      } else {
+        actions.appendChild(actionBtn("SchneeForge で導入", () => stepNixInstall(box, actions)));
+        // escalation helper が使えない環境向けの fallback 案内
+        box.innerHTML +=
+          '<p class="note">ターミナルから <code>sudo schneeforge nix install</code> でも導入できます</p>';
+      }
       actions.appendChild(actionBtn("再確認", () => renderStep()));
     }
   } else {
