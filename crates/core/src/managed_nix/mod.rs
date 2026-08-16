@@ -10,6 +10,7 @@ pub mod manifest;
 pub mod ownership;
 pub mod provider;
 pub mod receipt;
+pub mod status;
 pub mod verify;
 
 pub use download::{cache_path, download, download_text};
@@ -23,6 +24,7 @@ pub use manifest::{BootstrapManifest, ManagedNixSection, Sha256ByArch};
 pub use ownership::{default_ownership_path, OwnershipRecord};
 pub use provider::Provider;
 pub use receipt::{default_receipt_path, Receipt};
+pub use status::{classify, classify_current, NixStatus, StatusProbe, StatusReport};
 pub use verify::{parse_sha256_sums, sha256_hex, verify_file, verify_sha256};
 
 use std::path::{Path, PathBuf};

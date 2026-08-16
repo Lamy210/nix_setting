@@ -2,7 +2,7 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-08-14
+最終更新: 2026-08-16
 
 ## 完成済み
 
@@ -61,6 +61,7 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
 |------|------|------|
 | Managed Nix Bootstrap Phase 1 + install 修正 (PR #13/#18) | **develop merge 済み** (a7d4777)。review 4 巡。CI 18/18 green | `openspec/changes/archive/2026-08-14-add-managed-nix-bootstrap/` |
 | Spike `nix-bootstrap-provider-evaluation` | 完了 (Linux x86_64 実測済み、macOS aarch64 は ADR final acceptance 条件) | `openspec/changes/spike-nix-bootstrap-provider-evaluation/` |
+| NixStatus 状態分類 (issue #15) | 実装済み (feat/nix-status-classification branch): `NixStatus` 4 状態 model + doctor `[status]` 欄。`nix repair` は別 change で設計予定 | `openspec/changes/add-nix-status-classification/` |
 
 ## 既知のデグレ・機能漏れ（要対応）
 
@@ -98,7 +99,7 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
 2. **release/v0.2.0-rc.2**: RELEASE.md checklist に沿って release branch → main → tag。`SCHNEEFORGE_BOOTSTRAP_VERSION` bump (`v0.2.0-rc.2`) + musl asset の実機確認 (Nix-less dry-run)
 3. **Phase 2 残作業** (issue #14-17):
    - #14 acceptance 残り: receipt 冪等性 regression
-   - #15 Nix 状態分類 (Missing/Healthy/Degraded/Broken) + `schneeforge nix repair` 設計
+   - #15 Nix 状態分類 (Missing/Healthy/Degraded/Broken): **分類 model は完了** (`schneeforge nix doctor` の `[status]` 欄)。残りは `schneeforge nix repair` 設計 (別 change)
    - #16 GUI (Tauri) 統合: `prepare_plan()` / `execute_plan()` API + osascript/pkexec 特権昇格
    - #17 DMG bundle + LGPL-2.1 法務 ADR
 4. 残デグレ対応:
