@@ -55,9 +55,23 @@ sudo ./target/release/schneeforge nix install
 
 ### ワンライナー
 
+**Stable** — release tag 時点の install.sh (CLI binary の pin 先と同一 release):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/v0.2.0-rc.5/install.sh | bash
+```
+
+**Edge** — main HEAD の install.sh (開発追従用):
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/main/install.sh | bash
 ```
+
+Stable は script の取得元 tag と `SCHNEEFORGE_BOOTSTRAP_VERSION` (CLI binary /
+config ref の pin 先) が一致する release unit として動く。Edge は script 自体は
+最新だが、download する CLI は install.sh 内の pin 値のまま (release 時に bump
+される)。release 間で main の install.sh が古い pin のままの場合でも、pinned
+release の asset が消えることはないため動作は継続する。
 
 Nix 未導入環境では、この script が GitHub Release から schneeforge CLI binary を
 download し (CHECKSUMS.txt の SHA256 で検証)、**Managed Nix 経路**で Nix を

@@ -80,7 +80,7 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
 
 | # | 問題 | 対応 |
 |---|------|------|
-| 12 | install.sh が main 固定（Stable/Edge 分離無し） | release hardening |
+| 12 | install.sh が main 固定（Stable/Edge 分離無し） | **解消** (feat/install-sh-stable-edge): README の Stable ワンライナーを tag 固定 URL に分離 + tag と `SCHNEEFORGE_BOOTSTRAP_VERSION` pin の一致を `tests/install-sh.bats` で回帰保証。RELEASE.md の bump checklist に README URL 差し替えを追加 |
 | — | Dependabot alert #2: glib 0.18.5 (GHSA-wrw7-89jp-8q8g / RUSTSEC-2024-0429, medium) | Known upstream dependency risk. 現 dependency tree では Tauri v2 Linux → GTK3 0.18 → glib 0.18.5 経由。macOS / Windows distribution には当該 GTK3 dependency は含まれない。app code からの VariantStrIter 直接利用は確認されていないが、transitive dependency 内の到達可能性まで否定する根拠にはしない。**gtk3-rs は 2026-08-13 に maintenance 再開の動き** (gtk-rs/gtk3-rs#857: gtk 0.19.0 + glib 0.22 への更新が進行中)。Tauri v2 / tao / wry 側の追従状況を monitor し、upstream release 後に再評価。**現時点では dismiss (no_plan_to_fix) せず tracking 継続** |
 
 ### 低
@@ -109,7 +109,7 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
    - #17 DMG bundle + LGPL-2.1 法務 ADR: **ADR-0002 起票済み** (Accepted provisionally)。実装は弁護士確認後の別 change
 4. 残デグレ対応:
    - #5 GUI 特権ヘルパー: **完了** (feat/gui-privileged-apply — apply/rollback/upgrade を sidecar 昇格へ集約)
-   - #12 install.sh の Stable/Edge 分離（release 方針の判断）
+   - #12 install.sh の Stable/Edge 分離: **完了** (feat/install-sh-stable-edge)
    - glib advisory (Dependabot #2): gtk3-rs#857 と Tauri v2 側の追従を monitor、upstream release 後に再評価
 
 ## 開発フロー
