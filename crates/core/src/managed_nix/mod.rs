@@ -16,15 +16,18 @@ pub mod verify;
 pub use download::{cache_path, download, download_text};
 pub use error::ManagedNixError;
 pub use installer::{
-    install_args, installed_binary_path, parse_json_line, plan_args, planner_name,
+    install_args, installed_binary_path, parse_json_line, plan_args, planner_name, repair_args,
     run_with_json_logs, run_with_json_logs_capture_stdout, uninstall_args, InstallPhase,
-    JsonLogLine,
+    JsonLogLine, UpstreamRepair,
 };
 pub use manifest::{BootstrapManifest, ManagedNixSection, Sha256ByArch};
 pub use ownership::{default_ownership_path, OwnershipRecord};
 pub use provider::Provider;
 pub use receipt::{default_receipt_path, Receipt};
-pub use status::{classify, classify_current, NixStatus, StatusProbe, StatusReport};
+pub use status::{
+    classify, classify_current, repair_action, repair_action_current, NixStatus, RepairAction,
+    StatusProbe, StatusReport,
+};
 pub use verify::{parse_sha256_sums, sha256_hex, verify_file, verify_sha256};
 
 use std::path::{Path, PathBuf};

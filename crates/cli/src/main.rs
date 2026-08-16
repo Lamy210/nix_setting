@@ -275,5 +275,6 @@ fn run_nix(sub: NixSub, repo: &str) -> Result {
         NixSub::Install(args) => nix_cmd::run_install(repo, args),
         NixSub::Doctor => nix_cmd::run_doctor(Some(&tc)),
         NixSub::Uninstall(args) => nix_cmd::run_uninstall(args),
+        NixSub::Repair(args) => nix_cmd::run_repair(args, Some(&tc)),
     }
 }
