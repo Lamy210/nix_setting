@@ -1,4 +1,5 @@
 const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
 
 const $ = (id) => document.getElementById(id);
 
@@ -214,16 +215,37 @@ async function stepNixInstall(box, actions) {
   actions.innerHTML = "";
   actions.appendChild(
     actionBtn("導入する", async () => {
-      box.textContent = "Managed Nix を導入しています... (数分かかります)";
+      box.innerHTML =
+        '<p id="nix-install-phase">Managed Nix を導入しています...</p>' +
+        '<pre id="nix-install-log" class="nix-log"></pre>';
       actions.innerHTML = "";
+      // backend の stderr JSON Lines を event で受け、phase + 直近 log を随時表示
+      let unlisten = null;
+      try {
+        unlisten = await listen("nix-install-progress", (e) => {
+          const phaseEl = document.getElementById("nix-install-phase");
+          const logEl = document.getElementById("nix-install-log");
+          const { phase, message } = e.payload || {};
+          if (phaseEl && phase) {
+            phaseEl.textContent = `Managed Nix を導入しています... (${phase})`;
+          }
+          if (logEl && message) {
+            logEl.textContent = tailLines(logEl.textContent + message + "\n", 10);
+          }
+        });
+      } catch (_) {
+        // event listener が取得できない環境でも install 自体は続行 (表示は完了後一括)
+      }
       let r;
       try {
         r = await invoke("nix_install_escalated");
       } catch (e) {
+        if (unlisten) unlisten();
         box.innerHTML = errorBlock(`導入に失敗しました: ${e}`) + cliFallbackNote();
         actions.appendChild(actionBtn("再試行", () => stepNixInstall(box, actions)));
         return;
       }
+      if (unlisten) unlisten();
       if (r.success) {
         box.innerHTML =
           "<p>Managed Nix の導入が完了しました。</p><pre>" +

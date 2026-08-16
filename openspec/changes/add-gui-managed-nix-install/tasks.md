@@ -28,3 +28,9 @@
 - [x] 4.5 (E) pkexec / osascript を絶対 path (`/usr/bin/…`) で呼ぶ
 - [x] 4.6 静的回帰 test 追加 (sidecar 参照 / repo gate / NIX_SETTING_DIR) と core・desktop の全 test 再実行
 - [x] 4.7 fmt / clippy / openspec validate --strict
+
+## 5. Progress streaming (issue #16 作業項目 4)
+
+- [x] 5.1 `nix_install_escalated` の stderr reader が CLI の JSON Lines を `parse_json_line` で best-effort parse し、`nix-install-progress` event (phase / message) を frontend へ随時 emit する
+- [x] 5.2 frontend が event を listen し phase 表示と直近 log (10 行) を随時更新。listener 取得失敗時も install 自体は継続 (完了後一括表示へ退化)
+- [x] 5.3 静的回帰 test: backend の emit 名と frontend の listen 名の整合
