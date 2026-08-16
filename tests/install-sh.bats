@@ -401,6 +401,27 @@ EOF
   [ "$status" -ne 0 ]
 }
 
+@test "README stable one-liner URL matches install.sh bootstrap pin (Stable/Edge 分離)" {
+  # デグレ #12: Stable ワンライナーは tag 固定 URL。その tag が install.sh の
+  # SCHNEEFORGE_BOOTSTRAP_VERSION pin と一致することで「script 取得元 ==
+  # download する CLI の release」という release unit の一致が保証される。
+  # bump 忘れ (README だけ古い tag) はここで検知する。
+  local pinned stable_url stable_tag
+  # shellcheck disable=SC2016  # ${SCHNEEFORGE_VERSION:-...} は literal として match させる
+  pinned="$(sed -n 's/^SCHNEEFORGE_BOOTSTRAP_VERSION="\${SCHNEEFORGE_VERSION:-\([^"]*\)}"/\1/p' "$INSTALL_SH")"
+  [ -n "$pinned" ]
+
+  stable_url="$(grep -oE 'https://raw\.githubusercontent\.com/Lamy210/nix_setting/v[^/]+/install\.sh' "$BATS_TEST_DIRNAME/../README.md" | head -1)"
+  [ -n "$stable_url" ]
+  stable_tag="${stable_url%/install.sh}"
+  stable_tag="${stable_tag##*/}"
+
+  [ "$stable_tag" = "$pinned" ]
+
+  # Edge (main HEAD) の案内も残っていること
+  grep -q 'raw\.githubusercontent\.com/Lamy210/nix_setting/main/install\.sh' "$BATS_TEST_DIRNAME/../README.md"
+}
+
 @test "fresh clone uses pinned release ref, not default branch" {
   # source ref pin: binary の pin と同一 release tag を clone すること。
   # default branch (develop) を拾うと「過去の installer 実行時にその時点の
