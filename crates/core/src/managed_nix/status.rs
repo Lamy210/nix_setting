@@ -42,12 +42,11 @@ impl NixStatus {
             NixStatus::Missing => "schneeforge nix install で Managed Nix を導入してください",
             NixStatus::Healthy => "対応不要です",
             NixStatus::Degraded => {
-                "修復が必要です: schneeforge nix uninstall で削除してから再 install するか、\
-                 状態を手動で確認してください (将来の release で nix repair を提供予定)"
+                "修復が必要です: schneeforge nix repair で次の 手順 を確認してください"
             }
             NixStatus::Broken => {
-                "ownership record と /nix の実態が不一致です。どちら側が残っているかを確認し、\
-                 手動での調査を行ってください"
+                "ownership record と /nix の実態が不一致です: schneeforge nix repair で\
+                 stale な ownership record を削除できます"
             }
         }
     }
@@ -57,6 +56,46 @@ impl std::fmt::Display for NixStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.label())
     }
+}
+
+/// `schneeforge nix repair` が状態ごとに取る修復 action。
+/// repair が自動実行するのは stale record 削除のみ。破壊的な uninstall /
+/// 再 install は案内表示に留める (spec: state-driven 修復)。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum RepairAction {
+    /// marker が一切無いのに ownership record が残っている (Broken)。
+    /// Nix 実態が無いため record を削除するだけで Missing へ復帰する
+    RemoveStaleOwnership,
+    /// marker + receipt はあるが runtime 検証に失敗 (Degraded)。
+    /// uninstall + 再 install を案内する (自動実行しない)
+    SuggestUninstall,
+    /// marker のみで receipt が読めない (Degraded)。upstream も revert
+    /// できないため `uninstall --force` と手動手順を案内する
+    SuggestManualCleanup,
+    /// Healthy — 対応不要
+    NoActionNeeded,
+    /// Missing — install を案内
+    SuggestInstall,
+}
+
+/// NixStatus 分類から repair の action を決定する。
+/// `NixStatus` 単体では Degraded の receipt 有無が区別できないため、
+/// 観測結果 (`StatusProbe`) を直接入力にする。
+pub fn repair_action(probe: &StatusProbe) -> RepairAction {
+    if !probe.any_marker() {
+        return if probe.ownership_exists {
+            RepairAction::RemoveStaleOwnership
+        } else {
+            RepairAction::SuggestInstall
+        };
+    }
+    if !probe.receipt_readable {
+        return RepairAction::SuggestManualCleanup;
+    }
+    if !probe.store_ping_ok {
+        return RepairAction::SuggestUninstall;
+    }
+    RepairAction::NoActionNeeded
 }
 
 /// 分類に必要な実環境の観測結果。実 path 群を差し替え可能にすることで
@@ -161,6 +200,11 @@ pub fn classify_current(store_ping_ok: bool) -> StatusReport {
     classify(&StatusProbe::detect(store_ping_ok))
 }
 
+/// 実環境を観測して repair action を決定する (CLI repair 用 helper)
+pub fn repair_action_current(store_ping_ok: bool) -> RepairAction {
+    repair_action(&StatusProbe::detect(store_ping_ok))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,7 +274,10 @@ mod tests {
         write_receipt(&tmp);
         let report = classify(&StatusProbe::detect_at(&tmp, false));
         assert_eq!(report.status, NixStatus::Degraded);
-        assert!(report.status.next_action().contains("uninstall"));
+        assert!(report
+            .status
+            .next_action()
+            .contains("schneeforge nix repair"));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -242,7 +289,10 @@ mod tests {
         assert_eq!(report.status, NixStatus::Broken);
         let mismatch = report.mismatch.expect("broken must explain the mismatch");
         assert!(mismatch.contains("ownership"));
-        assert!(report.status.next_action().contains("手動"));
+        assert!(report
+            .status
+            .next_action()
+            .contains("schneeforge nix repair"));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -273,5 +323,64 @@ mod tests {
         ] {
             assert!(!status.next_action().is_empty());
         }
+    }
+
+    /// doctor の案内 (next_action) は Degraded / Broken で実行可能な
+    /// `nix repair` を指すこと (repair command が実装されたため)
+    #[test]
+    fn next_action_points_to_repair_for_degraded_and_broken() {
+        assert!(NixStatus::Degraded
+            .next_action()
+            .contains("schneeforge nix repair"));
+        assert!(NixStatus::Broken
+            .next_action()
+            .contains("schneeforge nix repair"));
+    }
+
+    #[test]
+    fn repair_action_broken_removes_stale_ownership() {
+        let tmp = temp_root("repair_broken");
+        write_ownership(&tmp);
+        let action = repair_action(&StatusProbe::detect_at(&tmp, false));
+        assert_eq!(action, RepairAction::RemoveStaleOwnership);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn repair_action_missing_suggests_install() {
+        let tmp = temp_root("repair_missing");
+        let action = repair_action(&StatusProbe::detect_at(&tmp, false));
+        assert_eq!(action, RepairAction::SuggestInstall);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Degraded は receipt の有無で案内が分岐する
+    #[test]
+    fn repair_action_degraded_with_receipt_suggests_uninstall() {
+        let tmp = temp_root("repair_deg_receipt");
+        std::fs::create_dir_all(tmp.join("store")).unwrap();
+        write_receipt(&tmp);
+        let action = repair_action(&StatusProbe::detect_at(&tmp, false));
+        assert_eq!(action, RepairAction::SuggestUninstall);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn repair_action_degraded_without_receipt_suggests_manual() {
+        let tmp = temp_root("repair_deg_manual");
+        std::fs::create_dir_all(tmp.join("store")).unwrap();
+        let action = repair_action(&StatusProbe::detect_at(&tmp, true));
+        assert_eq!(action, RepairAction::SuggestManualCleanup);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn repair_action_healthy_is_noop() {
+        let tmp = temp_root("repair_healthy");
+        std::fs::create_dir_all(tmp.join("store")).unwrap();
+        write_receipt(&tmp);
+        let action = repair_action(&StatusProbe::detect_at(&tmp, true));
+        assert_eq!(action, RepairAction::NoActionNeeded);
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

@@ -32,11 +32,12 @@ pub use lock::{OperationGuard, OperationLock};
 pub use managed_nix::{
     cache_path, classify, classify_current, default_ownership_path, default_receipt_path, download,
     download_text, existing_nix_detected, install_args, installed_binary_path, is_root,
-    parse_json_line, parse_sha256_sums, plan_args, planner_name, run_with_json_logs,
-    run_with_json_logs_capture_stdout, secure_plan_dir, sha256_hex, summarize_plan, uninstall_args,
-    verify_file, verify_sha256, BootstrapManifest, InstallPhase, JsonLogLine, ManagedNix,
-    ManagedNixError, ManagedNixSection, NixStatus, NoProgress, OwnershipRecord, PreflightSummary,
-    ProgressSink, Provider, Receipt, Sha256ByArch, StatusProbe, StatusReport,
+    parse_json_line, parse_sha256_sums, plan_args, planner_name, repair_action,
+    repair_action_current, repair_args, run_with_json_logs, run_with_json_logs_capture_stdout,
+    secure_plan_dir, sha256_hex, summarize_plan, uninstall_args, verify_file, verify_sha256,
+    BootstrapManifest, InstallPhase, JsonLogLine, ManagedNix, ManagedNixError, ManagedNixSection,
+    NixStatus, NoProgress, OwnershipRecord, PreflightSummary, ProgressSink, Provider, Receipt,
+    RepairAction, Sha256ByArch, StatusProbe, StatusReport, UpstreamRepair,
 };
 pub use manifest::{Manifest, Validation};
 pub use operations::{
