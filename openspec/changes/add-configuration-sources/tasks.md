@@ -38,6 +38,6 @@
 ## 6. test / CI
 
 - [x] 6.1 `cargo test` 全 green (core / cli)
-- [ ] 6.2 `nix flake check` green (本 change は flake 変更なし)
+- [x] 6.2 `nix flake check` green (本 change は flake 変更なし)
 - [x] 6.3 bats に update dispatch の smoke を追加 (temp repo で GitPinned no-op を確認)
-- [ ] 6.4 PR 作成 (base: develop)。required checks green を確認
+- [x] 6.4 PR 作成 (base: develop)。required checks green を確認
