@@ -272,7 +272,7 @@ mod tests {
     }
 
     fn git_cmd(dir: &std::path::Path, args: &[&str]) {
-        let out = std::process::Command::new("git")
+        let out = std::process::Command::new(&resolved_git().path)
             .arg("-C")
             .arg(dir)
             .args(args)
@@ -288,6 +288,25 @@ mod tests {
             args,
             String::from_utf8_lossy(&out.stderr)
         );
+    }
+
+    fn git_stdout(dir: &std::path::Path, args: &[&str]) -> String {
+        let out = std::process::Command::new(&resolved_git().path)
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .expect("git stdout");
+        assert!(
+            out.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout)
+            .expect("utf8")
+            .trim()
+            .to_string()
     }
 
     fn commit_file(dir: &std::path::Path, name: &str) {
@@ -360,15 +379,7 @@ mod tests {
         let dir = temp_repo("pinned");
         git_cmd(&dir, &["init", "-q", "-b", "main"]);
         commit_file(&dir, "a.txt");
-        let rev = {
-            let out = std::process::Command::new("git")
-                .arg("-C")
-                .arg(&dir)
-                .args(["rev-parse", "HEAD"])
-                .output()
-                .unwrap();
-            String::from_utf8(out.stdout).unwrap().trim().to_string()
-        };
+        let rev = git_stdout(&dir, &["rev-parse", "HEAD"]);
         git_cmd(&dir, &["checkout", "-q", &rev]);
         let state = SourceResolver::new()
             .detect(dir.to_str().unwrap(), &resolved_git())
