@@ -33,15 +33,15 @@
 
 ## 5. CLI / GUI
 
-- [ ] 5.1 CLI: `schneeforge doctor` に MachineFacts 検出結果 (username / home / platform / arch / hostname) を表示
-- [ ] 5.2 CLI: 旧 configuration 名 `macbook-air` 指定時の migration note 表示 (`darwin-aarch64` への rename を案内)
+- [x] 5.1 CLI: `schneeforge doctor` に MachineFacts 検出結果 (username / home / platform / arch / hostname) を表示
+- [x] 5.2 CLI: 旧 configuration 名 `macbook-air` 指定時の migration note 表示 (`darwin-aarch64` への rename を案内)
 - [x] 5.3 GUI wizard: username 入力 step を MachineFacts 検出表示へ置換 (invoke 先は既存 diagnostics command または新 command)
 - [x] 5.4 GUI: 検出結果の型定義 (`MachineFactsSummary`) を frontend に追加
 - [x] 5.5 GUI wizard の regression test (`wizard_reads_preflight_report_fields` 相当) を更新: username 入力が存在しないこと・machine 表示があること
 
 ## 6. test / CI
 
-- [ ] 6.1 `cargo test` 全 green (core / cli / desktop)
+- [x] 6.1 `cargo test` 全 green (core / cli / desktop)
 - [ ] 6.2 `nix flake check` green (placeholder machine.nix で)
-- [ ] 6.3 `tests/install-sh.bats` / `tests/managed-nix-contract.bats` が config.toml 依存の記述を更新して green
+- [x] 6.3 `tests/install-sh.bats` / `tests/managed-nix-contract.bats` が config.toml 依存の記述を更新して green
 - [ ] 6.4 PR 作成 (base: develop)。7 required checks green を確認
