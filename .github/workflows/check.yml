@@ -55,10 +55,10 @@ jobs:
         run: nix flake check --allow-import-from-derivation
 
       - name: build macos home-manager
-        run: nix build .#homeConfigurations.macbook-air.activationPackage
+        run: nix build .#homeConfigurations.darwin-aarch64.activationPackage
 
       - name: build nix-darwin system
-        run: nix build .#darwinConfigurations.macbook-air.system
+        run: nix build .#darwinConfigurations.darwin-aarch64.system
 
       # release artifact 経路の検証は独立 job `release-artifact-check` が担う
       # (同一 script で二重実行しない)
