@@ -2,7 +2,9 @@ mod nix_cmd;
 
 use clap::{Parser, Subcommand};
 use nix_cmd::{NixArgs, NixSub};
-use schneeforge_core::{detect_target, Manifest, StateStore, ToolInventory};
+use schneeforge_core::{
+    detect_target, Manifest, SourceKind, SourceResolver, StateStore, ToolInventory,
+};
 /// Declarative Developer Workstation Manager
 #[derive(Parser)]
 #[command(name = "schneeforge", version, about)]
@@ -31,9 +33,13 @@ enum Cmd {
     Apply,
     /// 前の世代へロールバック
     Rollback,
-    /// 依存 (flake.lock) を更新
+    /// configuration source を更新 (Release: 次 tag / Git: pull / Pinned・Local: no-op)
+    Update,
+    /// source 操作 (status / sync / deps update) — Advanced
+    Source(SourceArgs),
+    /// 依存 (flake.lock) を更新 [非推奨: source deps update]
     Upgrade,
-    /// リモート設定を取得 (git pull)
+    /// リモート設定を取得 (git pull) [非推奨: source sync]
     Sync,
     /// インストール後の環境を検証
     Verify,
@@ -41,6 +47,23 @@ enum Cmd {
     Uninstall,
     /// Managed Nix (nix-installer 統合) の install / doctor / uninstall
     Nix(NixArgs),
+}
+
+/// `schneeforge source` の副コマンド
+#[derive(Subcommand)]
+enum SourceSub {
+    /// 現在の source (kind / ref / channel) を表示
+    Status,
+    /// git tracking source を pull --ff-only (Advanced)
+    Sync,
+    /// 依存 (flake.lock) を更新 — `nix flake update` 相当 (Advanced)
+    DepsUpdate,
+}
+
+#[derive(Parser)]
+struct SourceArgs {
+    #[command(subcommand)]
+    command: SourceSub,
 }
 
 fn main() {
@@ -51,13 +74,15 @@ fn main() {
     // status / uninstall のような info 系コマンドは ToolInventory 無しで動かし、
     // CI の素の Linux runner でもテスト可能にする。
     let result = match cli.command {
-        Cmd::Doctor => with_tool_inventory(doctor, &repo),
+        Cmd::Doctor => with_tool_inventory(|tc| doctor(&repo, tc), &repo),
         Cmd::Scan => with_tool_inventory(|tc| scan(&repo, tc), &repo),
         Cmd::Setup => with_tool_inventory(|tc| setup(&repo, tc), &repo),
         Cmd::Status => status(&repo),
         Cmd::Plan => with_tool_inventory(|tc| plan(&repo, tc), &repo),
         Cmd::Apply => with_tool_inventory(|tc| apply(&repo, tc), &repo),
         Cmd::Rollback => with_tool_inventory(|tc| rollback(&repo, tc), &repo),
+        Cmd::Update => with_tool_inventory(|tc| update(&repo, tc), &repo),
+        Cmd::Source(args) => with_tool_inventory(|tc| run_source(args.command, &repo, tc), &repo),
         Cmd::Upgrade => with_tool_inventory(|tc| upgrade(&repo, tc), &repo),
         Cmd::Sync => with_tool_inventory(|tc| sync(&repo, tc), &repo),
         Cmd::Verify => with_tool_inventory(|tc| verify(&repo, tc), &repo),
@@ -84,7 +109,7 @@ where
     f(&tc)
 }
 
-fn doctor(tc: &ToolInventory) -> Result {
+fn doctor(repo: &str, tc: &ToolInventory) -> Result {
     let r = schneeforge_core::doctor(tc);
     println!("=== doctor ===");
     println!();
@@ -125,6 +150,9 @@ fn doctor(tc: &ToolInventory) -> Result {
     println!();
     println!("[host detection]");
     println!("  host: {}", r.host);
+    if let Some(source) = source_kind_line(repo, tc) {
+        println!("  source: {source}");
+    }
     // v2: machine 情報は repo でなく MachineFacts 検出で管理する
     match schneeforge_core::MachineFacts::detect() {
         Ok(f) => {
@@ -234,15 +262,90 @@ fn rollback(repo: &str, tc: &ToolInventory) -> Result {
 }
 
 fn upgrade(repo: &str, tc: &ToolInventory) -> Result {
+    println!("note: `schneeforge upgrade` is deprecated; use `schneeforge source deps update`");
     println!("updating flake.lock...");
     schneeforge_core::upgrade(repo, tc, false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 fn sync(repo: &str, tc: &ToolInventory) -> Result {
+    println!("note: `schneeforge sync` is deprecated; use `schneeforge source sync`");
     println!("pulling remote config...");
     schneeforge_core::sync(repo, tc, false).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn update(repo: &str, tc: &ToolInventory) -> Result {
+    let store = StateStore::default();
+    let result = schneeforge_core::update(repo, &store, tc, false).map_err(|e| e.to_string())?;
+    if let Some(source) = &result.source {
+        println!("source: {} ({})", source.kind, source.ref_);
+    }
+    println!("state saved");
+    Ok(())
+}
+
+fn run_source(sub: SourceSub, repo: &str, tc: &ToolInventory) -> Result {
+    match sub {
+        SourceSub::Status => source_status(repo, tc),
+        SourceSub::Sync => {
+            schneeforge_core::source_sync(repo, tc, false).map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        SourceSub::DepsUpdate => {
+            schneeforge_core::deps_update(repo, tc, false).map_err(|e| e.to_string())?;
+            Ok(())
+        }
+    }
+}
+
+fn source_status(repo: &str, tc: &ToolInventory) -> Result {
+    println!("=== source status ===");
+    println!();
+    let git = match tc.git.as_ref() {
+        Some(g) => g,
+        None => {
+            let state = StateStore::default().load();
+            println!("  (git not found; showing state only)");
+            print_state_source(state.as_ref());
+            return Ok(());
+        }
+    };
+    let detected = SourceResolver::new()
+        .detect(repo, git)
+        .map_err(|e| e.to_string())?;
+    println!("  kind:    {}", detected.kind);
+    println!("  ref:     {}", detected.ref_);
+    if let Some(channel) = &detected.channel {
+        println!("  channel: {channel}");
+    }
+    let state = StateStore::default().load();
+    print_state_source(state.as_ref());
+    if let Some(s) = &state {
+        if let Some(rev) = &s.applied_revision {
+            println!("  applied: {rev}");
+        }
+    }
+    Ok(())
+}
+
+fn print_state_source(state: Option<&schneeforge_core::State>) {
+    match state.and_then(|s| s.source.as_ref()) {
+        Some(src) => println!(
+            "  state:   {} ({})",
+            src.kind,
+            src.channel.as_deref().unwrap_or(&src.ref_)
+        ),
+        None => println!("  state:   (source not recorded)"),
+    }
+}
+
+/// doctor 用: source kind を 1 行で返す (検出失敗は None)
+fn source_kind_line(repo: &str, tc: &ToolInventory) -> Option<String> {
+    let git = tc.git.as_ref()?;
+    let state = SourceResolver::new().detect(repo, git).ok()?;
+    let _ = SourceKind::Local; // import 確認用 (kind は Display 経由で使用)
+    Some(format!("{} ({})", state.kind, state.ref_))
 }
 
 fn verify(repo: &str, tc: &ToolInventory) -> Result {

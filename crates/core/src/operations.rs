@@ -43,6 +43,7 @@ pub fn applied_state(target: &ConfigurationTarget, revision: Option<String>) -> 
         applied_revision: revision,
         applied_at: Some(now_iso8601()),
         product_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        source: None,
     }
 }
 
@@ -54,6 +55,7 @@ pub fn rolled_back_state(target: &ConfigurationTarget) -> State {
         applied_revision: None,
         applied_at: Some(now_iso8601()),
         product_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        source: None,
     }
 }
 
@@ -114,7 +116,8 @@ pub fn rollback(
     Ok(ApplyResult { output, state })
 }
 
-/// upgrade (`nix flake update --flake <repo>`) をロック付きで実行する
+/// upgrade (`nix flake update --flake <repo>`) をロック付きで実行する。
+/// v0.3 までの alias。本体は [`deps_update`]。
 pub fn upgrade(repo: &str, tc: &ToolInventory, capture: bool) -> Result<Option<String>> {
     let _guard = acquire()?;
     let output = if capture {
@@ -337,6 +340,264 @@ fn git_dirty(repo: &str, git: &crate::tool::ResolvedTool) -> Result<bool> {
     Ok(!out.trim().is_empty())
 }
 
+// ---------------------------------------------------------------------------
+// v2 P1: ConfigurationSource に基づく update 体系 (ADR-0003)
+// ---------------------------------------------------------------------------
+
+/// update の dispatch 先を表す純関数の結果 (test 可能にするため分離)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateAction {
+    /// 同 channel の最新 release tag へ checkout
+    CheckoutLatestTag { channel: String },
+    /// fetch + pull --ff-only
+    FastForward,
+    /// 更新しない (案内表示のみ)
+    NoOp(String),
+}
+
+/// source kind から update の動作を決める純関数
+pub fn dispatch_update(kind: crate::source::SourceKind) -> UpdateAction {
+    use crate::source::SourceKind;
+    match kind {
+        SourceKind::ReleaseStable => UpdateAction::CheckoutLatestTag {
+            channel: "stable".to_string(),
+        },
+        SourceKind::ReleasePreview => UpdateAction::CheckoutLatestTag {
+            channel: "preview".to_string(),
+        },
+        SourceKind::GitTracking => UpdateAction::FastForward,
+        SourceKind::GitPinned => UpdateAction::NoOp(
+            "Source is pinned to a tag/commit. Re-pin manually (git checkout <ref>) to change it."
+                .to_string(),
+        ),
+        SourceKind::Local => {
+            UpdateAction::NoOp("Source is a local directory. Manage updates yourself.".to_string())
+        }
+    }
+}
+
+/// update の結果
+#[derive(Debug, Clone)]
+pub struct UpdateResult {
+    pub output: Option<String>,
+    pub source: Option<crate::source::SourceState>,
+}
+
+/// update: source kind に応じて configuration source を更新する。
+/// flake.lock はどの経路でも更新しない (release 単位の検証を保持)。
+pub fn update(
+    repo: &str,
+    store: &StateStore,
+    tc: &ToolInventory,
+    capture: bool,
+) -> Result<UpdateResult> {
+    let git = tc.require_git()?;
+    let _guard = acquire()?;
+
+    let state = crate::source::SourceResolver::new().detect(repo, git)?;
+    let action = dispatch_update(state.kind);
+
+    let output = match action {
+        UpdateAction::CheckoutLatestTag { channel } => {
+            update_release(repo, git, &channel, capture)?
+        }
+        UpdateAction::FastForward => {
+            // GitTracking: sync と同じ dirty check + pull --ff-only
+            if git_dirty(repo, git)? {
+                return Err(Error::Busy(
+                    "repository has uncommitted changes; commit or stash first".to_string(),
+                ));
+            }
+            let args = sync_args(repo);
+            if capture {
+                Some(run_capture(&git.path, &args)?)
+            } else {
+                run_stream(&git.path, &args)?;
+                None
+            }
+        }
+        UpdateAction::NoOp(note) => {
+            if capture {
+                Some(note)
+            } else {
+                println!("{note}");
+                None
+            }
+        }
+    };
+
+    // 更新後の source 状態を State へ反映 (applied 情報は変えない)
+    let new_source = crate::source::SourceResolver::new().detect(repo, git).ok();
+    let mut saved = store.load().unwrap_or_default();
+    saved.source = new_source.clone();
+    store.save(&saved)?;
+
+    Ok(UpdateResult {
+        output,
+        source: new_source,
+    })
+}
+
+/// release channel 内の最新 tag へ checkout する。
+/// dirty working tree は中止。候補は fetch 済み tag のみ (offline 安全)。
+fn update_release(
+    repo: &str,
+    git: &crate::tool::ResolvedTool,
+    channel: &str,
+    capture: bool,
+) -> Result<Option<String>> {
+    if git_dirty(repo, git)? {
+        return Err(Error::Busy(
+            "repository has uncommitted changes; commit or stash first".to_string(),
+        ));
+    }
+
+    // 新しい tag を取得 (network。失敗したら local tag のみで続行)
+    let fetch_args = vec![
+        "-C".to_string(),
+        repo.to_string(),
+        "fetch".to_string(),
+        "--tags".to_string(),
+        "--quiet".to_string(),
+    ];
+    let _ = run_capture(&git.path, &fetch_args);
+
+    let tags = list_tags(repo, git)?;
+    let current = current_checkout_ref(repo, git);
+    let latest = crate::source::latest_tag_for_channel(&tags, channel);
+
+    let Some(latest) = latest else {
+        let current_display = current.unwrap_or_else(|| "(unknown)".to_string());
+        let note = format!(
+            "No {channel} release tags found; nothing to update (current: {current_display})."
+        );
+        if capture {
+            return Ok(Some(note));
+        }
+        println!("{note}");
+        return Ok(None);
+    };
+
+    if Some(latest.as_str()) == current.as_deref() {
+        let note = format!("Already on the latest {channel} release ({latest}).");
+        if capture {
+            return Ok(Some(note));
+        }
+        println!("{note}");
+        return Ok(None);
+    }
+
+    let checkout_args = vec![
+        "-C".to_string(),
+        repo.to_string(),
+        "checkout".to_string(),
+        "--quiet".to_string(),
+        latest.clone(),
+    ];
+    let output = if capture {
+        Some(run_capture(&git.path, &checkout_args)?)
+    } else {
+        run_stream(&git.path, &checkout_args)?;
+        None
+    };
+    if !capture {
+        println!("updated to {latest}");
+    }
+    Ok(output.map(|_| format!("updated to {latest}")))
+}
+
+/// local の tag 一覧 (`git tag`)
+fn list_tags(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Vec<String>> {
+    let out = run_capture(
+        &git.path,
+        &[
+            "-C".to_string(),
+            repo.to_string(),
+            "tag".to_string(),
+            "--list".to_string(),
+        ],
+    )?;
+    Ok(out
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect())
+}
+
+/// 現在 checkout されている ref (exact tag があれば tag 名)
+fn current_checkout_ref(repo: &str, git: &crate::tool::ResolvedTool) -> Option<String> {
+    let out = run_capture(
+        &git.path,
+        &[
+            "-C".to_string(),
+            repo.to_string(),
+            "describe".to_string(),
+            "--tags".to_string(),
+            "--exact-match".to_string(),
+        ],
+    )
+    .ok()?;
+    let tag = out.trim();
+    if tag.is_empty() {
+        None
+    } else {
+        Some(tag.to_string())
+    }
+}
+
+/// source sync (Advanced): 従来 sync の git pull --ff-only。
+/// Tracking 以外の source では kind を説明する no-op note を返す。
+pub fn source_sync(repo: &str, tc: &ToolInventory, capture: bool) -> Result<Option<String>> {
+    let git = tc.require_git()?;
+    let state = crate::source::SourceResolver::new().detect(repo, git)?;
+    if state.kind != crate::source::SourceKind::GitTracking {
+        let note = format!(
+            "source sync is only meaningful for git-tracking sources (current: {}). \
+             Use `schneeforge update` instead.",
+            state.kind
+        );
+        if capture {
+            return Ok(Some(note));
+        }
+        println!("{note}");
+        return Ok(None);
+    }
+    sync(repo, tc, capture)
+}
+
+/// source deps update (Advanced): `nix flake update`。
+/// Release channel では release 検証単位から外れる警告を先頭に付ける。
+pub fn deps_update(repo: &str, tc: &ToolInventory, capture: bool) -> Result<Option<String>> {
+    let warning = release_lock_warning(repo, tc);
+    let output = upgrade(repo, tc, capture)?;
+    Ok(match (warning, output) {
+        (Some(w), Some(o)) => Some(format!("{w}\n{o}")),
+        (Some(w), None) => {
+            println!("{w}");
+            None
+        }
+        (None, o) => o,
+    })
+}
+
+/// Release source で flake.lock を更新する場合の警告文
+fn release_lock_warning(repo: &str, tc: &ToolInventory) -> Option<String> {
+    let git = tc.git.as_ref()?;
+    let state = crate::source::SourceResolver::new()
+        .detect(repo, git)
+        .ok()?;
+    if state.kind.is_release() {
+        Some(
+            "warning: this source is a release checkout (verified as a unit: source revision \
+             + flake.lock). Updating flake.lock moves it off the verified release. \
+             Prefer `schneeforge update` to move to a newer release."
+                .to_string(),
+        )
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -407,6 +668,45 @@ mod tests {
                 "--ff-only".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn dispatch_update_matches_source_kinds() {
+        use crate::source::SourceKind;
+        assert_eq!(
+            dispatch_update(SourceKind::ReleaseStable),
+            UpdateAction::CheckoutLatestTag {
+                channel: "stable".to_string()
+            }
+        );
+        assert_eq!(
+            dispatch_update(SourceKind::ReleasePreview),
+            UpdateAction::CheckoutLatestTag {
+                channel: "preview".to_string()
+            }
+        );
+        assert_eq!(
+            dispatch_update(SourceKind::GitTracking),
+            UpdateAction::FastForward
+        );
+        assert!(matches!(
+            dispatch_update(SourceKind::GitPinned),
+            UpdateAction::NoOp(_)
+        ));
+        assert!(matches!(
+            dispatch_update(SourceKind::Local),
+            UpdateAction::NoOp(_)
+        ));
+    }
+
+    #[test]
+    fn release_lock_warning_only_for_release_sources() {
+        // Local source (git 管理外) では警告なし
+        let dir = std::env::temp_dir().join(format!("sf-warn-local-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(release_lock_warning(dir.to_str().unwrap(), &dummy_tc()).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

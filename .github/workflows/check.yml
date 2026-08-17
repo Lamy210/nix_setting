@@ -215,6 +215,13 @@ jobs:
       - name: bats test (resolve-tools)
         run: nix run nixpkgs#bats -- tests/resolve-tools.bats
 
+      # v2 P1: schneeforge update の source kind dispatch の実 binary smoke。
+      # binary は rust-check job と同じ release build を local で作る
+      - name: bats test (source update dispatch)
+        run: |
+          nix develop --command cargo build --release -p schneeforge
+          nix run nixpkgs#bats -- tests/source-update.bats
+
       - name: bats test (ci-scripts gate patterns)
         run: nix run nixpkgs#bats -- tests/ci-scripts.bats
 

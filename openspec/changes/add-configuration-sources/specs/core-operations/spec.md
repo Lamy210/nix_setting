@@ -106,6 +106,11 @@ path を明示的に受け取り、CWD に依存しない。
 - **WHEN** 別ディレクトリから update を実行する
 - **THEN** 対象 repo のみを更新し、CWD は変更しない
 
+#### Scenario: upgrade が repo を指定する
+
+- **WHEN** 別ディレクトリから upgrade (alias) を実行する
+- **THEN** `nix flake update --flake <repo>` を実行し、CWD ではなく repo を更新する
+
 #### Scenario: sync が repo を指定する
 
 - **WHEN** 別ディレクトリから sync を実行する

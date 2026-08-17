@@ -10,6 +10,7 @@ pub mod manifest;
 pub mod operations;
 pub(crate) mod process;
 pub mod repo;
+pub mod source;
 pub mod state;
 pub mod time;
 pub mod tool;
@@ -45,10 +46,12 @@ pub use managed_nix::{
 };
 pub use manifest::{Manifest, Validation};
 pub use operations::{
-    apply, plan, plan_target, rollback, sync, upgrade, verify, ApplyResult, PlanResult,
-    VerifyCheck, VerifyReport,
+    apply, deps_update, dispatch_update, plan, plan_target, rollback, source_sync, sync, update,
+    upgrade, verify, ApplyResult, PlanResult, UpdateAction, UpdateResult, VerifyCheck,
+    VerifyReport,
 };
 pub use repo::{current_git_revision, resolve_repo, Repo, RepoResolver};
+pub use source::{latest_tag_for_channel, SourceKind, SourceResolver, SourceState};
 pub use state::{State, StateStore};
 pub use time::{days_to_ymd, format_unix_secs, now_iso8601};
 pub use tool::{
