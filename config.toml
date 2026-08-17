@@ -1,5 +1,0 @@
-# nix_setting manifest (schema version 1)
-schema = 1
-
-[user]
-username = "lamy210"

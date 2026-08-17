@@ -29,7 +29,7 @@ detect_host() {
   Darwin)
     arch="$(uname -m)"
     case "$arch" in
-    arm64 | aarch64) echo "macbook-air" ;;
+    arm64 | aarch64) echo "darwin-aarch64" ;;
     *) echo "unsupported" ;;
     esac
     ;;
@@ -50,7 +50,7 @@ detect_host() {
 HOST="$(detect_host)"
 
 case "$HOST" in
-macbook-air | linux | linux-arm)
+darwin-aarch64 | linux | linux-arm)
   echo "Detected host: $HOST"
   ;;
 *)
@@ -60,23 +60,27 @@ macbook-air | linux | linux-arm)
 esac
 
 echo
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/schneeforge"
+mkdir -p "$STATE_DIR"
 USERNAME="$(whoami)"
 if [ -z "$USERNAME" ]; then
   echo "Could not determine username" >&2
   exit 1
 fi
-if grep -qF "username = \"$USERNAME\"" "config.toml" 2>/dev/null; then
-  echo "config.toml already personalized for $USERNAME"
-else
-  echo "Personalizing config.toml..."
-  cat >"config.toml" <<EOF
-# nix_setting manifest (schema version 1)
-schema = 1
-
-[user]
-username = "$USERNAME"
+case "$(uname -s)" in
+Darwin) USER_HOME="/Users/$USERNAME" ;;
+*) USER_HOME="/home/$USERNAME" ;;
+esac
+MACHINE_INPUT="$STATE_DIR/machine.nix"
+cat >"$MACHINE_INPUT" <<EOF
+{
+  username = "$USERNAME";
+  homeDirectory = "$USER_HOME";
+  hostname = "$(hostname)";
+}
 EOF
-fi
+echo "Generated machine input: $MACHINE_INPUT"
+MACHINE_OVERRIDE=(--override-input machine "$MACHINE_INPUT")
 
 mkdir -p "$HOME/.config/nix"
 
@@ -96,12 +100,12 @@ done
 echo "Backed up to $BACKUP_DIR"
 
 echo
-if [ "$HOST" = "macbook-air" ]; then
+if [ "$HOST" = "darwin-aarch64" ]; then
   echo "Applying nix-darwin + home-manager ($HOST)..."
-  "$NIX_BIN" run --inputs-from . nix-darwin#darwin-rebuild -- switch --flake ".#$HOST"
+  "$NIX_BIN" run --inputs-from . "${MACHINE_OVERRIDE[@]}" nix-darwin#darwin-rebuild -- switch --flake ".#$HOST"
 else
   echo "Building home-manager generation ($HOST)..."
-  "$NIX_BIN" build ".#homeConfigurations.${HOST}.activationPackage" --out-link ./result
+  "$NIX_BIN" build "${MACHINE_OVERRIDE[@]}" ".#homeConfigurations.${HOST}.activationPackage" --out-link ./result
   echo "Activating..."
   ./result/activate
 fi

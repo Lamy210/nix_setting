@@ -144,7 +144,14 @@ fn scan(repo: &str, tc: &ToolInventory) -> Result {
     println!();
     println!("[manifest]");
     match manifest {
-        Some(m) => println!("  schema: {} / user: {}", m.schema, m.user.username),
+        Some(m) => println!(
+            "  schema: {} / user: {}",
+            m.schema,
+            m.user
+                .as_ref()
+                .map(|u| u.username.as_str())
+                .unwrap_or("(machine input)")
+        ),
         None => println!("  config.toml not found"),
     }
     Ok(())
@@ -157,9 +164,9 @@ fn status(repo: &str) -> Result {
     println!("=== status ===");
     println!();
     println!("  host: {target}");
-    match manifest {
-        Some(m) => println!("  user: {}", m.user.username),
-        None => println!("  user: (config.toml not found)"),
+    match manifest.and_then(|m| m.user.map(|u| u.username)) {
+        Some(u) => println!("  user: {u}"),
+        None => println!("  user: (machine input)"),
     }
     match &state {
         Some(s) => {

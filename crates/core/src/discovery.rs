@@ -58,7 +58,7 @@ impl ConfigurationTarget {
         }
     }
 
-    /// flake の configuration 名 (例: "macbook-air", "linux", "linux-arm")
+    /// flake の configuration 名 (例: "darwin-aarch64", "linux", "linux-arm")
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -74,15 +74,6 @@ impl ConfigurationTarget {
     /// 対応プラットフォームか (検出可能な OS / arch か)
     pub fn is_supported(&self) -> bool {
         self.platform != Platform::Unsupported && self.architecture != Architecture::Unsupported
-    }
-
-    /// homeDirectory を username から派生
-    pub fn home_directory(&self, username: &str) -> String {
-        match self.platform {
-            Platform::MacOS => format!("/Users/{username}"),
-            Platform::Linux => format!("/home/{username}"),
-            Platform::Unsupported => String::new(),
-        }
     }
 
     /// apply/switch 用の flake 参照 (`<repo>#darwinConfigurations.<name>` / `#homeConfigurations.<name>`)
@@ -128,7 +119,8 @@ pub fn detect_target_for(os: &str, arch: &str) -> ConfigurationTarget {
 
 fn default_target_name(platform: Platform, architecture: Architecture) -> &'static str {
     match (platform, architecture) {
-        (Platform::MacOS, Architecture::Aarch64) => "macbook-air",
+        (Platform::MacOS, Architecture::Aarch64) => "darwin-aarch64",
+        (Platform::MacOS, Architecture::X86_64) => "darwin-x86_64",
         (Platform::Linux, Architecture::X86_64) => "linux",
         (Platform::Linux, Architecture::Aarch64) => "linux-arm",
         _ => "unsupported",
@@ -216,18 +208,11 @@ mod tests {
     }
 
     #[test]
-    fn home_directory_by_platform() {
-        let target = ConfigurationTarget::new("x", Platform::MacOS, Architecture::Aarch64);
-        assert_eq!(target.home_directory("alice"), "/Users/alice");
-        let target = ConfigurationTarget::new("x", Platform::Linux, Architecture::X86_64);
-        assert_eq!(target.home_directory("alice"), "/home/alice");
-        let target = ConfigurationTarget::new("x", Platform::Unsupported, Architecture::Aarch64);
-        assert_eq!(target.home_directory("alice"), "");
-    }
-
-    #[test]
     fn target_name_matches_flake() {
-        assert_eq!(detect_target_for("macos", "aarch64").name(), "macbook-air");
+        assert_eq!(
+            detect_target_for("macos", "aarch64").name(),
+            "darwin-aarch64"
+        );
         assert_eq!(detect_target_for("linux", "x86_64").name(), "linux");
         assert_eq!(detect_target_for("linux", "aarch64").name(), "linux-arm");
         assert_eq!(detect_target_for("windows", "x86_64").name(), "unsupported");
@@ -238,7 +223,7 @@ mod tests {
         // 同一 platform/arch でも ConfigurationTarget の name は独立した data
         let mac_mini = ConfigurationTarget::new("mac-mini", Platform::MacOS, Architecture::Aarch64);
         let macbook_air =
-            ConfigurationTarget::new("macbook-air", Platform::MacOS, Architecture::Aarch64);
+            ConfigurationTarget::new("darwin-aarch64", Platform::MacOS, Architecture::Aarch64);
         assert_eq!(mac_mini.platform(), macbook_air.platform());
         assert_eq!(mac_mini.architecture(), macbook_air.architecture());
         assert_ne!(mac_mini.name(), macbook_air.name());
@@ -259,8 +244,11 @@ mod tests {
 
     #[test]
     fn detect_target_for_all_platforms() {
-        assert_eq!(detect_target_for("macos", "aarch64").name(), "macbook-air");
-        assert_eq!(detect_target_for("macos", "x86_64").name(), "unsupported");
+        assert_eq!(
+            detect_target_for("macos", "aarch64").name(),
+            "darwin-aarch64"
+        );
+        assert_eq!(detect_target_for("macos", "x86_64").name(), "darwin-x86_64");
         assert_eq!(detect_target_for("linux", "x86_64").name(), "linux");
         assert_eq!(detect_target_for("linux", "aarch64").name(), "linux-arm");
         assert_eq!(detect_target_for("linux", "riscv64").name(), "unsupported");

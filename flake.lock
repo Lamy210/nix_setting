@@ -38,6 +38,19 @@
         "type": "github"
       }
     },
+    "machine": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1,
+        "narHash": "sha256-8al3LlfBR4AuRoGB85sW5prpyYzXfYCbCInaZXXT2W4=",
+        "path": "./defaults/machine.nix",
+        "type": "path"
+      },
+      "original": {
+        "path": "./defaults/machine.nix",
+        "type": "path"
+      }
+    },
     "nix-darwin": {
       "inputs": {
         "nixpkgs": [
@@ -93,6 +106,7 @@
       "inputs": {
         "flake-parts": "flake-parts",
         "home-manager": "home-manager",
+        "machine": "machine",
         "nix-darwin": "nix-darwin",
         "nixpkgs": "nixpkgs",
         "treefmt-nix": "treefmt-nix"

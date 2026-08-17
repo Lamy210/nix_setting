@@ -2,11 +2,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 
-/// nix_setting manifest (config.toml)
+/// nix_setting manifest (config.toml)。
+/// v2 では machine 情報 (`[user]`) を持たない。distribution 情報
+/// (`schneeforge.toml`) への置換は後続 change で行うため、この
+/// change では username 読み込みを廃止した状態のみ。
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Manifest {
     pub schema: u32,
-    pub user: User,
+    /// v1 互換: `[user]` が在れば読むが検証には使わない
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<User>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -35,30 +40,17 @@ impl Manifest {
             .map_err(|e| Error::Manifest(format!("failed to parse config.toml: {e}")))
     }
 
-    /// 実行時検証: schema == 1, username 非空, 実行ユーザー一致 (不一致は警告)
-    pub fn validate(&self, running_user: Option<&str>) -> Validation {
-        let mut errors = Vec::new();
-        let mut warnings = Vec::new();
-
-        if self.schema != 1 {
-            errors.push(format!("unsupported schema version: {}", self.schema));
-        }
-        if self.user.username.is_empty() {
-            errors.push("username is empty".to_string());
-        }
-        if let Some(running) = running_user {
-            if !self.user.username.is_empty() && self.user.username != running {
-                warnings.push(format!(
-                    "config username '{}' differs from running user '{}'",
-                    self.user.username, running
-                ));
-            }
-        }
-
+    /// 実行時検証: schema == 1。machine 情報は検証しない (MachineFacts で管理)
+    pub fn validate(&self) -> Validation {
+        let errors = if self.schema == 1 {
+            Vec::new()
+        } else {
+            vec![format!("unsupported schema version: {}", self.schema)]
+        };
         Validation {
             valid: errors.is_empty(),
             errors,
-            warnings,
+            warnings: Vec::new(),
         }
     }
 }
@@ -68,18 +60,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_manifest() {
-        let m = Manifest::parse(
-            r#"
-schema = 1
-
-[user]
-username = "alice"
-"#,
-        )
-        .unwrap();
+    fn parse_manifest_without_user() {
+        let m = Manifest::parse("schema = 1\n").unwrap();
         assert_eq!(m.schema, 1);
-        assert_eq!(m.user.username, "alice");
+        assert!(m.user.is_none());
+    }
+
+    #[test]
+    fn parse_manifest_with_legacy_user_ignored() {
+        // v1 config.toml (username あり) も parse は通る。値は使わない
+        let m = Manifest::parse("schema = 1\n\n[user]\nusername = \"alice\"\n").unwrap();
+        assert_eq!(m.schema, 1);
+        assert_eq!(m.user.as_ref().unwrap().username, "alice");
+        let v = m.validate();
+        assert!(v.valid);
     }
 
     #[test]
@@ -89,49 +83,17 @@ username = "alice"
     }
 
     #[test]
-    fn parse_rejects_missing_user() {
-        let r = Manifest::parse("schema = 1");
-        assert!(r.is_err());
-    }
-
-    #[test]
-    fn parse_rejects_missing_username() {
-        let r = Manifest::parse("schema = 1\n[user]\n");
-        assert!(r.is_err());
-    }
-
-    #[test]
-    fn parse_allows_empty_username_but_validate_rejects() {
-        let r = Manifest::parse("schema = 1\n[user]\nusername = \"\"\n");
-        assert!(r.is_ok());
-        let m = r.unwrap();
-        let v = m.validate(Some("alice"));
-        assert!(!v.valid);
-        assert!(v.errors.iter().any(|e| e.contains("empty")));
-    }
-
-    #[test]
-    fn validate_accepts_valid_manifest() {
-        let m = Manifest::parse("schema = 1\n[user]\nusername = \"alice\"\n").unwrap();
-        let v = m.validate(Some("alice"));
-        assert!(v.valid);
-        assert!(v.errors.is_empty());
-        assert!(v.warnings.is_empty());
-    }
-
-    #[test]
     fn validate_rejects_wrong_schema() {
-        let m = Manifest::parse("schema = 2\n[user]\nusername = \"alice\"\n").unwrap();
-        let v = m.validate(Some("alice"));
+        let m = Manifest::parse("schema = 2\n").unwrap();
+        let v = m.validate();
         assert!(!v.valid);
         assert!(v.errors.iter().any(|e| e.contains("schema")));
     }
 
     #[test]
-    fn validate_warns_on_username_mismatch() {
-        let m = Manifest::parse("schema = 1\n[user]\nusername = \"alice\"\n").unwrap();
-        let v = m.validate(Some("bob"));
+    fn validate_accepts_schema_only_manifest() {
+        let m = Manifest::parse("schema = 1\n").unwrap();
+        let v = m.validate();
         assert!(v.valid);
-        assert!(v.warnings.iter().any(|w| w.contains("differs")));
     }
 }

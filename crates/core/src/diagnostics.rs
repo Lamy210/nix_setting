@@ -22,7 +22,7 @@ pub struct ToolsSummary {
 /// GUI / CLI が取得する診断 Status
 #[derive(Debug, Clone, Serialize)]
 pub struct Diagnostics {
-    /// ConfigurationTarget 名 (例: "macbook-air")
+    /// ConfigurationTarget 名 (例: "darwin-aarch64")
     pub host: String,
     /// OS (Platform) — ConfigurationTarget とは独立
     pub platform: String,
@@ -275,8 +275,9 @@ fn manifest_diagnostics(
 ) -> (bool, Option<String>, Option<String>, Option<Validation>) {
     match Manifest::load(repo_path) {
         Ok(m) => {
-            let validation = m.validate(current_user().as_deref());
-            (true, None, Some(m.user.username.clone()), Some(validation))
+            let validation = m.validate();
+            let username = m.user.as_ref().map(|u| u.username.clone());
+            (true, None, username, Some(validation))
         }
         Err(e) => (false, Some(e.to_string()), None, None),
     }

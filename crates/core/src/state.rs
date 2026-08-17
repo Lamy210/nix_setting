@@ -108,14 +108,14 @@ mod tests {
     #[test]
     fn roundtrip_state() {
         let s = State {
-            host: Some("macbook-air".to_string()),
+            host: Some("darwin-aarch64".to_string()),
             applied_revision: Some("abc123".to_string()),
             applied_at: Some("2026-08-13".to_string()),
             product_version: Some("0.1.0".to_string()),
         };
         let json = serde_json::to_string(&s).unwrap();
         let back: State = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.host.as_deref(), Some("macbook-air"));
+        assert_eq!(back.host.as_deref(), Some("darwin-aarch64"));
         assert_eq!(back.applied_revision.as_deref(), Some("abc123"));
     }
 
