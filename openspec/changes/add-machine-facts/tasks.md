@@ -42,6 +42,6 @@
 ## 6. test / CI
 
 - [x] 6.1 `cargo test` 全 green (core / cli / desktop)
-- [ ] 6.2 `nix flake check` green (placeholder machine.nix で)
+- [x] 6.2 `nix flake check` green (placeholder machine.nix で)
 - [x] 6.3 `tests/install-sh.bats` / `tests/managed-nix-contract.bats` が config.toml 依存の記述を更新して green
-- [ ] 6.4 PR 作成 (base: develop)。7 required checks green を確認
+- [x] 6.4 PR 作成 (base: develop)。7 required checks green を確認
