@@ -1,5 +1,6 @@
 use schneeforge_core::{
     detect_target, resolve_repo, scan, Diagnostics, PreflightReport, ToolInventory, VerifyReport,
+    DEFAULT_REPO_URL,
 };
 use serde::Serialize;
 use std::sync::Mutex;
@@ -229,6 +230,36 @@ fn run_verify(state: tauri::State<'_, CachedToolInventory>) -> Result<VerifyRepo
 fn load_manifest() -> Option<schneeforge_core::Manifest> {
     let repo = resolve_repo(None);
     schneeforge_core::Manifest::load(&repo).ok()
+}
+
+/// `get_dashboard` (v2 §28): Installed / Available の snapshot を返す。
+/// available 解決 (git ls-remote + release metadata fetch) は network を
+/// 伴うため blocking 実行し、失敗しても command error にせず
+/// `available_error` に理由を載せる (offline でも installed は表示する)。
+#[tauri::command]
+async fn get_dashboard(
+    state: tauri::State<'_, CachedToolInventory>,
+) -> Result<schneeforge_core::DashboardSnapshot, String> {
+    let tc = state.get_or_discover()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo_state = schneeforge_core::StateStore::default().load();
+        let channel = schneeforge_core::channel_of(repo_state.as_ref());
+        let repo_url =
+            std::env::var("SCHNEEFORGE_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string());
+        let available = match tc.git.as_ref() {
+            Some(git) => schneeforge_core::fetch_available(&repo_url, &channel, git)
+                .map_err(|e| e.to_string()),
+            None => Err("git not found; cannot resolve available release".to_string()),
+        };
+        schneeforge_core::snapshot(
+            env!("CARGO_PKG_VERSION"),
+            repo_state.as_ref(),
+            load_manifest().as_ref(),
+            available,
+        )
+    })
+    .await
+    .map_err(|e| format!("task error: {e}"))
 }
 
 // ---------- Managed Nix install (issue #16 / D4 Phase 2, D8 GUI 版) ----------
@@ -625,6 +656,7 @@ pub fn run() {
         .manage(CachedToolInventory::default())
         .invoke_handler(tauri::generate_handler![
             get_status,
+            get_dashboard,
             run_scan,
             run_apply,
             run_rollback,
@@ -831,6 +863,71 @@ mod tests {
             js.contains("s.profile"),
             "frontend should display the effective profile"
         );
+    }
+
+    /// v2 §28: get_dashboard の応答は frontend が参照する key を serialize
+    /// する。rc.3 と同じ「JS の undefined は falsy 化して実行時 error に
+    /// ならない」事故を Dashboard でも防ぐ静的検証。
+    #[test]
+    fn dashboard_snapshot_serializes_frontend_keys() {
+        let snap = schneeforge_core::snapshot("0.2.0", None, None, Err("offline".to_string()));
+        let json = serde_json::to_value(&snap).unwrap();
+        for key in [
+            "installed",
+            "available",
+            "available_error",
+            "update_available",
+        ] {
+            assert!(
+                json.get(key).is_some(),
+                "DashboardSnapshot must serialize {key}"
+            );
+        }
+        let installed = json.get("installed").unwrap();
+        for key in [
+            "version",
+            "profile",
+            "channel",
+            "applied_revision",
+            "applied_at",
+        ] {
+            assert!(
+                installed.get(key).is_some(),
+                "InstalledInfo must serialize {key}"
+            );
+        }
+
+        // frontend はこれらの key を参照する
+        let js = include_str!("../../dist/main.js");
+        for needle in [
+            "d.installed.version",
+            "d.installed.profile",
+            "d.installed.channel",
+            "d.available.version",
+            "d.available.systems",
+            "d.available_error",
+            "d.update_available",
+        ] {
+            assert!(
+                js.contains(needle),
+                "frontend should reference `{needle}` in the dashboard render"
+            );
+        }
+
+        // 参照先の DOM 要素が index.html に存在する (無いと常時 catch に落ちる)
+        let html = include_str!("../../dist/index.html");
+        for id in [
+            "dash-installed",
+            "dash-profile",
+            "dash-channel",
+            "dash-available",
+            "dash-update",
+        ] {
+            assert!(
+                html.contains(&format!("id=\"{id}\"")),
+                "index.html must have #{id} for the dashboard render"
+            );
+        }
     }
 
     /// Managed Nix の GUI install flow (issue #16) は D8 の 2 段階確認を

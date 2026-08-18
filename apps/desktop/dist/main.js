@@ -36,6 +36,32 @@ async function refresh() {
   }
 }
 
+// ---------- dashboard (v2 §28: Installed / Available) ----------
+async function refreshDashboard() {
+  try {
+    const d = await invoke("get_dashboard");
+    $("dash-installed").textContent = `v${d.installed.version}`;
+    $("dash-profile").textContent = d.installed.profile ?? "-";
+    $("dash-channel").textContent = d.installed.channel;
+    if (d.available) {
+      $("dash-available").textContent =
+        `v${d.available.version} (${d.available.channel}) [${d.available.systems.join(", ")}]`;
+    } else {
+      $("dash-available").textContent =
+        `取得できません (${d.available_error ?? "理由不明"})`;
+    }
+    const note = $("dash-update");
+    note.textContent = d.update_available
+      ? `新しいリリース v${d.available.version} があります — GitHub Releases / install.sh で更新できます`
+      : "利用中の版は最新です";
+    note.classList.toggle("update-available", d.update_available);
+  } catch (e) {
+    $("dash-installed").textContent = "-";
+    $("dash-channel").textContent = "-";
+    $("dash-available").textContent = `取得エラー: ${e}`;
+  }
+}
+
 function setRunning(label, active) {
   const bar = $("running");
   bar.classList.toggle("active", active);
@@ -81,6 +107,7 @@ function showReady() {
   $("setup-view").classList.add("hidden");
   $("ready-view").classList.remove("hidden");
   refresh();
+  refreshDashboard();
 }
 
 function next() {
@@ -437,7 +464,10 @@ async function boot() {
   }
 }
 
-$("refresh").addEventListener("click", refresh);
+$("refresh").addEventListener("click", () => {
+  refresh();
+  refreshDashboard();
+});
 $("scan").addEventListener("click", () => run(() => invoke("run_scan"), "scan", "スキャン"));
 $("plan").addEventListener("click", () => run(() => invoke("run_plan"), "plan", "プラン"));
 $("apply").addEventListener("click", () => run(() => invoke("run_apply"), "apply", "適用"));

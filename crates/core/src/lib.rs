@@ -1,5 +1,6 @@
 pub(crate) mod actions;
 pub mod bootstrap;
+pub mod dashboard;
 pub mod diagnostics;
 pub mod discovery;
 pub mod error;
@@ -21,6 +22,10 @@ pub use actions::scan;
 pub use bootstrap::{
     clone_repo, doctor, enable_flakes, generate_config, preflight, setup, DoctorReport,
     PreflightReport, DEFAULT_REPO_URL,
+};
+pub use dashboard::{
+    channel_of, compare_versions, fetch_available, installed_info, latest_tag_from_ls_remote,
+    remote_tags, snapshot, version_is_newer, DashboardSnapshot, InstalledInfo,
 };
 pub use diagnostics::{
     diagnose, nix_health, Diagnostics, NixHealth, ResolvedToolSummary, ToolInventorySummary,
