@@ -803,6 +803,36 @@ mod tests {
         );
     }
 
+    /// v2 §17: get_status は実効 profile (`profile`) と state の明示選択
+    /// (`selected_profile`) を serialize する。frontend は `profile` を
+    /// 表示に使うため、両 field が揃って選択反映が機能する。
+    #[test]
+    fn status_serializes_profile_fields() {
+        let tc = ToolInventory {
+            nix: None,
+            git: None,
+            homebrew: None,
+            nh: None,
+        };
+        let d = schneeforge_core::diagnose(&tc, None);
+        let json = serde_json::to_value(&d).unwrap();
+        assert!(
+            json.get("profile").is_some(),
+            "Diagnostics must serialize profile (effective)"
+        );
+        assert!(
+            json.get("selected_profile").is_some(),
+            "Diagnostics must serialize selected_profile (state selection)"
+        );
+
+        // frontend は実効 profile を表示する
+        let js = include_str!("../../dist/main.js");
+        assert!(
+            js.contains("s.profile"),
+            "frontend should display the effective profile"
+        );
+    }
+
     /// Managed Nix の GUI install flow (issue #16) は D8 の 2 段階確認を
     /// frontend で持つ: nix_prepare_plan (plan preview) を表示してから
     /// nix_install_escalated (確認済みの install) を呼ぶ。逆順や preview 無し

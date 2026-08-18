@@ -1,7 +1,11 @@
-{ machine, ... }:
+{
+  machine,
+  profileModule,
+  ...
+}:
 {
   imports = [
-    ../../profiles/developer.nix
+    profileModule
     ../../modules/default.nix
   ];
 

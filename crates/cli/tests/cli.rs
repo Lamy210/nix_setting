@@ -266,3 +266,110 @@ fn sync_prints_deprecation_note() {
         .stdout(predicate::str::contains("deprecated"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// v2 §17: profile list は manifest の available と default を表示する
+#[test]
+fn profile_list_shows_manifest_profiles() {
+    let dir = std::env::temp_dir().join(format!("sf-cli-profile-list-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("schneeforge.toml"),
+        "schema = 1\n[profiles]\ndefault = \"developer\"\navailable = [\"minimal\", \"developer\"]\n",
+    )
+    .unwrap();
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(&dir)
+        .arg("profile")
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("minimal")
+                .and(predicate::str::contains("developer"))
+                .and(predicate::str::contains("(default)")),
+        );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// v2 §17: profile set は manifest available 内なら state へ保存する
+#[test]
+fn profile_set_saves_selection_to_state() {
+    let dir = std::env::temp_dir().join(format!("sf-cli-profile-set-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("schneeforge.toml"),
+        "schema = 1\n[profiles]\ndefault = \"developer\"\navailable = [\"minimal\", \"developer\"]\n",
+    )
+    .unwrap();
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(&dir)
+        .arg("profile")
+        .arg("set")
+        .arg("minimal")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("minimal"));
+
+    // state.json に保存されている
+    let state = std::fs::read_to_string(dir.join("schneeforge/state.json")).unwrap();
+    assert!(state.contains("\"profile\": \"minimal\""), "state: {state}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// v2 §17: profile set は available 外の name を fail-closed で拒否
+#[test]
+fn profile_set_rejects_unknown_profile() {
+    let dir = std::env::temp_dir().join(format!("sf-cli-profile-bad-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("schneeforge.toml"),
+        "schema = 1\n[profiles]\ndefault = \"developer\"\navailable = [\"minimal\", \"developer\"]\n",
+    )
+    .unwrap();
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(&dir)
+        .arg("profile")
+        .arg("set")
+        .arg("unknown-profile")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not in manifest"));
+
+    // state は作られない
+    assert!(!dir.join("schneeforge/state.json").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// v2 §17: profile show は解決結果と出典を表示する (未選択なら manifest default)
+#[test]
+fn profile_show_reports_resolved_profile() {
+    let dir = std::env::temp_dir().join(format!("sf-cli-profile-show-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("schneeforge.toml"),
+        "schema = 1\n[profiles]\ndefault = \"developer\"\navailable = [\"minimal\", \"developer\"]\n",
+    )
+    .unwrap();
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(&dir)
+        .arg("profile")
+        .arg("show")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("developer").and(predicate::str::contains("manifest default")),
+        );
+    let _ = std::fs::remove_dir_all(&dir);
+}

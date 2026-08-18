@@ -36,8 +36,10 @@ pub struct Diagnostics {
     pub manifest_found: bool,
     /// schneeforge.toml の読み込み・parse エラー原因
     pub manifest_error: Option<String>,
-    /// manifest の既定 profile (読めた場合のみ)
+    /// 実効 profile (state 選択 > manifest default。manifest が読めれば Some)
     pub profile: Option<String>,
+    /// state に保存された明示選択 (manifest default と同じか未選択なら None)
+    pub selected_profile: Option<String>,
     /// 実行 OS ユーザー (manifest の username とは独立)
     pub system_user: Option<String>,
     /// 実行ユーザーの HOME
@@ -138,10 +140,22 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
     let repo_path = resolve_repo(cli_repo);
     let repo_exists = std::path::Path::new(&repo_path).is_dir();
 
-    let (manifest_found, manifest_error, profile, validation) =
+    let (manifest_found, manifest_error, manifest_default, validation) =
         manifest_diagnostics(&repo_path, target.name());
 
     let state = StateStore::default().load();
+    let selected_profile = state.as_ref().and_then(|s| s.profile.clone());
+    // 実効 profile: 明示選択 (manifest available 検証済み) > manifest default
+    let profile = if manifest_found {
+        match crate::profile::resolve(&repo_path) {
+            Ok((name, _)) => Some(name),
+            // 選択が manifest と不整合なら表示は default に fallback
+            // (apply 時は fail-closed で error になる)
+            Err(_) => manifest_default.clone(),
+        }
+    } else {
+        None
+    };
 
     Diagnostics {
         host: target.name().to_string(),
@@ -152,6 +166,7 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
         manifest_found,
         manifest_error,
         profile,
+        selected_profile,
         system_user: current_user(),
         home: std::env::var("HOME").ok(),
         validation,

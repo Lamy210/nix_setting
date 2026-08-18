@@ -1,21 +1,9 @@
 use crate::discovery::ConfigurationTarget;
 use crate::error::{Error, Result};
-use crate::machine;
 use crate::process::{run_capture, run_stream};
+use crate::profile;
 use crate::tool::{ResolvedTool, ToolInventory};
 use std::path::Path;
-
-/// machine input (`machine.nix`) を生成し、`--override-input` 引数を返す。
-/// apply / plan の評価前に必ず呼ばれる (常に上書き)
-fn machine_override_args() -> Result<Vec<String>> {
-    let facts = machine::MachineFacts::detect()?;
-    let path = machine::write_machine_input(&facts)?;
-    Ok(vec![
-        "--override-input".to_string(),
-        "machine".to_string(),
-        path.to_string_lossy().to_string(),
-    ])
-}
 
 /// macOS apply の引数 (`nix run --inputs-from <repo> nix-darwin#darwin-rebuild -- switch --flake <ref>`)
 /// `--inputs-from <repo>` で repo の flake.lock に pin された nix-darwin を使う (registry 非依存)
@@ -25,7 +13,7 @@ fn darwin_switch_args(repo: &str, target: &ConfigurationTarget) -> Result<Vec<St
         "--inputs-from".to_string(),
         repo.to_string(),
     ];
-    args.extend(machine_override_args()?);
+    args.extend(profile::override_args(repo)?);
     args.extend([
         "nix-darwin#darwin-rebuild".to_string(),
         "--".to_string(),
@@ -43,7 +31,7 @@ fn linux_build_args(repo: &str, target: &ConfigurationTarget, link: &str) -> Res
         "--out-link".to_string(),
         link.to_string(),
     ];
-    args.extend(machine_override_args()?);
+    args.extend(profile::override_args(repo)?);
     args.push(target.build_ref(repo));
     Ok(args)
 }
@@ -141,7 +129,7 @@ fn darwin_rollback_args(repo: &str) -> Result<Vec<String>> {
         "--inputs-from".to_string(),
         repo.to_string(),
     ];
-    args.extend(machine_override_args()?);
+    args.extend(profile::override_args(repo)?);
     args.extend([
         "nix-darwin#darwin-rebuild".to_string(),
         "--".to_string(),
@@ -262,6 +250,19 @@ mod tests {
     use crate::tool::{ResolvedTool, ToolSource};
     use std::path::PathBuf;
 
+    /// profile 解決に必要な schneeforge.toml を持つ repo dir を作る
+    fn manifest_repo(name: &str) -> String {
+        let dir = std::env::temp_dir().join(format!("schneeforge-actions-repo-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("schneeforge.toml"),
+            "schema = 1\n[profiles]\ndefault = \"developer\"\navailable = [\"minimal\", \"developer\"]\n",
+        )
+        .unwrap();
+        dir.to_string_lossy().to_string()
+    }
+
     fn dummy_tc() -> ToolInventory {
         ToolInventory {
             nix: Some(ResolvedTool::new(
@@ -373,25 +374,29 @@ mod tests {
     #[test]
     fn rollback_macos_uses_resolved_nix() {
         // macOS rollback は tc.nix.path を使う。ここでは引数組み立てまで検証
-        let args = darwin_rollback_args("/tmp/repo").unwrap();
+        let repo = manifest_repo("rollback-pinned");
+        let args = darwin_rollback_args(&repo).unwrap();
         assert_eq!(args[1], "--inputs-from");
-        assert_eq!(args[2], "/tmp/repo");
+        assert_eq!(args[2], repo);
     }
 
     #[test]
     fn switch_command_macos() {
         let target = detect_target_for("macos", "aarch64");
-        let args = darwin_switch_args("/tmp/repo", &target).unwrap();
+        let repo = manifest_repo("switch-macos");
+        let args = darwin_switch_args(&repo, &target).unwrap();
         assert_eq!(args[0], "run");
         assert_eq!(args[1], "--inputs-from");
-        assert_eq!(args[2], "/tmp/repo");
-        // args[3..6] は machine input の --override-input
+        assert_eq!(args[2], repo);
+        // machine / profile の 2 組の --override-input が並ぶ
         let oi = args.iter().position(|a| a == "--override-input").unwrap();
         assert_eq!(args[oi + 1], "machine");
-        assert_eq!(args[oi + 3], "nix-darwin#darwin-rebuild");
-        assert_eq!(args[oi + 4], "--");
-        assert_eq!(args[oi + 5], "switch");
-        assert_eq!(args[oi + 6], "--flake");
+        let last_oi = args.iter().rposition(|a| a == "--override-input").unwrap();
+        assert_eq!(args[last_oi + 1], "profile");
+        assert_eq!(args[last_oi + 3], "nix-darwin#darwin-rebuild");
+        assert_eq!(args[last_oi + 4], "--");
+        assert_eq!(args[last_oi + 5], "switch");
+        assert_eq!(args[last_oi + 6], "--flake");
         assert!(args
             .last()
             .unwrap()
@@ -401,13 +406,14 @@ mod tests {
     #[test]
     fn switch_command_linux() {
         let target = detect_target_for("linux", "x86_64");
-        let args = linux_build_args("/tmp/repo", &target, "/tmp/link").unwrap();
+        let repo = manifest_repo("switch-linux");
+        let args = linux_build_args(&repo, &target, "/tmp/link").unwrap();
         assert_eq!(args[0], "build");
         assert_eq!(args[1], "--out-link");
         assert_eq!(args[2], "/tmp/link");
         assert!(args
             .iter()
-            .any(|a| a == "/tmp/repo#homeConfigurations.linux.activationPackage"));
+            .any(|a| a == &format!("{repo}#homeConfigurations.linux.activationPackage")));
     }
 
     #[test]
@@ -437,43 +443,83 @@ mod tests {
 
     #[test]
     fn apply_is_nh_free() {
+        let repo = manifest_repo("nh-free");
         let mac = detect_target_for("macos", "aarch64");
-        let mac_args = darwin_switch_args("/tmp/repo", &mac).unwrap();
+        let mac_args = darwin_switch_args(&repo, &mac).unwrap();
         assert!(!mac_args.iter().any(|a| a == "nh"));
         assert!(mac_args.iter().any(|a| a == "nix-darwin#darwin-rebuild"));
 
         let linux = detect_target_for("linux", "x86_64");
-        let linux_args = linux_build_args("/tmp/repo", &linux, "/tmp/link").unwrap();
+        let linux_args = linux_build_args(&repo, &linux, "/tmp/link").unwrap();
         assert!(!linux_args.iter().any(|a| a == "nh"));
     }
 
     #[test]
     fn darwin_rollback_is_pinned_and_repo_aware() {
-        let args = darwin_rollback_args("/tmp/repo").unwrap();
+        let repo = manifest_repo("rollback-pinned");
+        let args = darwin_rollback_args(&repo).unwrap();
         assert_eq!(args[1], "--inputs-from");
-        assert_eq!(args[2], "/tmp/repo");
-        let oi = args.iter().position(|a| a == "--override-input").unwrap();
-        assert_eq!(args[oi + 3], "nix-darwin#darwin-rebuild");
-        assert_eq!(args[oi + 5], "--rollback");
+        assert_eq!(args[2], repo);
+        let last_oi = args.iter().rposition(|a| a == "--override-input").unwrap();
+        assert_eq!(args[last_oi + 1], "profile");
+        assert_eq!(args[last_oi + 3], "nix-darwin#darwin-rebuild");
+        assert_eq!(args[last_oi + 5], "--rollback");
     }
 
     #[test]
-    fn machine_override_args_point_at_state_dir() {
-        let args = machine_override_args().unwrap();
+    fn override_args_point_at_state_dir() {
+        // profile 解決は manifest を要求するため repo を用意する
+        let dir = std::env::temp_dir().join("schneeforge-actions-override-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("schneeforge.toml"),
+            "schema = 1\n[profiles]\ndefault = \"minimal\"\navailable = [\"minimal\"]\n",
+        )
+        .unwrap();
+        let args = profile::override_args(dir.to_string_lossy().as_ref()).unwrap();
         let machine_idx = args
             .iter()
             .position(|a| a == "machine")
             .expect("machine input name present");
         assert_eq!(args[machine_idx - 1], "--override-input");
-        let path = &args[machine_idx + 1];
-        assert!(path.contains("schneeforge"), "path: {path}");
-        assert!(path.ends_with("machine.nix"));
+        let machine_path = &args[machine_idx + 1];
+        // file 指す path input は path: URL 形式であること (nix 2.35 の要件)
+        assert!(
+            machine_path.starts_with("path:"),
+            "must use path: URL form: {machine_path}"
+        );
+        assert!(machine_path.ends_with("machine.nix"));
+        let profile_idx = args
+            .iter()
+            .position(|a| a == "profile")
+            .expect("profile input name present");
+        assert_eq!(args[profile_idx - 1], "--override-input");
+        let profile_path = &args[profile_idx + 1];
+        assert!(profile_path.starts_with("path:"));
+        assert!(profile_path.ends_with("profile.nix"));
+        let file = machine_path.trim_start_matches("path:");
+        assert!(std::path::Path::new(file).is_file(), "exists: {file}");
+        let profile_file = profile_path.trim_start_matches("path:");
+        assert!(std::fs::read_to_string(profile_file)
+            .unwrap()
+            .contains("minimal"));
     }
 
     #[test]
     fn switch_and_build_args_carry_machine_override() {
+        let dir = std::env::temp_dir().join("schneeforge-actions-args-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("schneeforge.toml"),
+            "schema = 1\n[profiles]\ndefault = \"minimal\"\navailable = [\"minimal\"]\n",
+        )
+        .unwrap();
+        let repo = dir.to_string_lossy().to_string();
+
         let mac = detect_target_for("macos", "aarch64");
-        let mac_args = darwin_switch_args("/tmp/repo", &mac).unwrap();
+        let mac_args = darwin_switch_args(&repo, &mac).unwrap();
         let oi = mac_args
             .iter()
             .position(|a| a == "--override-input")
@@ -481,9 +527,9 @@ mod tests {
         assert_eq!(mac_args[oi + 1], "machine");
 
         let linux = detect_target_for("linux", "x86_64");
-        let linux_args = linux_build_args("/tmp/repo", &linux, "/tmp/link").unwrap();
+        let linux_args = linux_build_args(&repo, &linux, "/tmp/link").unwrap();
         assert!(linux_args.iter().any(|a| a == "--override-input"));
         // flake ref は最後のまま
-        assert!(linux_args.last().unwrap().starts_with("/tmp/repo#"));
+        assert!(linux_args.last().unwrap().starts_with(&format!("{repo}#")));
     }
 }

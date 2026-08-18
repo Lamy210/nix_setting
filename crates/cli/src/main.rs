@@ -27,6 +27,8 @@ enum Cmd {
     Setup,
     /// 現在の状態を表示
     Status,
+    /// profile の選択管理 (list / set / show)
+    Profile(ProfileArgs),
     /// 適用内容を dry-run で確認
     Plan,
     /// ホストを検出して設定を適用 (switch)
@@ -60,6 +62,25 @@ enum SourceSub {
     DepsUpdate,
 }
 
+/// `schneeforge profile` の副コマンド
+#[derive(Subcommand)]
+enum ProfileSub {
+    /// 利用可能な profile と現在の選択を表示
+    List,
+    /// profile を選択 (state へ保存。manifest の available 検証あり)
+    Set { name: String },
+    /// 選択を manifest default へ戻す
+    Clear,
+    /// 現在解決される profile を表示
+    Show,
+}
+
+#[derive(Parser)]
+struct ProfileArgs {
+    #[command(subcommand)]
+    command: ProfileSub,
+}
+
 #[derive(Parser)]
 struct SourceArgs {
     #[command(subcommand)]
@@ -78,6 +99,7 @@ fn main() {
         Cmd::Scan => with_tool_inventory(|tc| scan(&repo, tc), &repo),
         Cmd::Setup => with_tool_inventory(|tc| setup(&repo, tc), &repo),
         Cmd::Status => status(&repo),
+        Cmd::Profile(args) => run_profile(args.command, &repo),
         Cmd::Plan => with_tool_inventory(|tc| plan(&repo, tc), &repo),
         Cmd::Apply => with_tool_inventory(|tc| apply(&repo, tc), &repo),
         Cmd::Rollback => with_tool_inventory(|tc| rollback(&repo, tc), &repo),
@@ -199,14 +221,20 @@ fn scan(repo: &str, tc: &ToolInventory) -> Result {
 
 fn status(repo: &str) -> Result {
     let target = detect_target();
-    let manifest = load_manifest(repo);
     let state = StateStore::default().load();
     println!("=== status ===");
     println!();
     println!("  host: {target}");
-    match manifest.and_then(|m| m.profiles.default) {
-        Some(p) => println!("  profile: {p}"),
-        None => println!("  profile: (manifest not found)"),
+    // 実効 profile: state 選択 > manifest default
+    match schneeforge_core::resolve_profile(repo) {
+        Ok((p, from_state)) => {
+            let origin = if from_state { "selected" } else { "default" };
+            println!("  profile: {p} ({origin})");
+        }
+        Err(_) if !std::path::Path::new(&format!("{repo}/schneeforge.toml")).exists() => {
+            println!("  profile: (manifest not found)");
+        }
+        Err(e) => println!("  profile: (error: {e})"),
     }
     match &state {
         Some(s) => {
@@ -280,6 +308,62 @@ fn update(repo: &str, tc: &ToolInventory) -> Result {
     }
     println!("state saved");
     Ok(())
+}
+
+fn run_profile(sub: ProfileSub, repo: &str) -> Result {
+    match sub {
+        ProfileSub::List => {
+            let manifest = Manifest::load(repo).map_err(|e| e.to_string())?;
+            let default = manifest.profiles.default.as_deref().unwrap_or("(unset)");
+            let selected = StateStore::default().load().and_then(|s| s.profile);
+            println!("=== profiles ===");
+            println!();
+            for name in &manifest.profiles.available {
+                let marker = if Some(name.as_str()) == selected.as_deref() {
+                    "*"
+                } else if name == default {
+                    "(default)"
+                } else {
+                    ""
+                };
+                println!("  {name} {marker}");
+            }
+            println!();
+            println!("  * = current selection, (default) = manifest default");
+            if selected.is_none() {
+                println!("  (no selection; manifest default '{default}' is used)");
+            }
+            Ok(())
+        }
+        ProfileSub::Set { name } => {
+            let manifest = Manifest::load(repo).map_err(|e| e.to_string())?;
+            if !manifest.profiles.available.contains(&name) {
+                return Err(format!(
+                    "profile '{name}' is not in manifest profiles.available: {:?}",
+                    manifest.profiles.available
+                ));
+            }
+            schneeforge_core::save_selection(&name).map_err(|e| e.to_string())?;
+            println!("profile set to '{name}' (applies from next `schneeforge apply`)");
+            Ok(())
+        }
+        ProfileSub::Clear => {
+            schneeforge_core::clear_selection().map_err(|e| e.to_string())?;
+            println!("profile selection cleared (manifest default will be used)");
+            Ok(())
+        }
+        ProfileSub::Show => {
+            let (name, from_state) =
+                schneeforge_core::resolve_profile(repo).map_err(|e| e.to_string())?;
+            let origin = if from_state {
+                "state"
+            } else {
+                "manifest default"
+            };
+            println!("profile: {name} (from {origin})");
+            Ok(())
+        }
+    }
 }
 
 fn run_source(sub: SourceSub, repo: &str, tc: &ToolInventory) -> Result {
