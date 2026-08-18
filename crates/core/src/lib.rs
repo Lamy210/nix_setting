@@ -10,6 +10,7 @@ pub mod manifest;
 pub mod operations;
 pub(crate) mod process;
 pub mod profile;
+pub mod release_metadata;
 pub mod repo;
 pub mod source;
 pub mod state;
@@ -55,6 +56,7 @@ pub use profile::{
     clear_selection, default_profile_nix_path, override_args, resolve as resolve_profile,
     save_selection, write_profile_input,
 };
+pub use release_metadata::{channel_for_version, ReleaseMetadata};
 pub use repo::{current_git_revision, resolve_repo, Repo, RepoResolver};
 pub use source::{latest_tag_for_channel, SourceKind, SourceResolver, SourceState};
 pub use state::{State, StateStore};

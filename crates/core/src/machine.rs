@@ -6,7 +6,7 @@
 //! ため `builtins.getEnv` は使わない (Rust 側で明示管理)。
 
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::discovery::{detect_arch_for, detect_platform_for, Architecture, Platform};
 use crate::error::{Error, Result};
@@ -121,16 +121,47 @@ pub fn state_dir() -> PathBuf {
     base.join("schneeforge")
 }
 
-/// facts を machine.nix として state dir へ生成する。常に上書き
+/// facts を machine.nix として state dir へ生成する。常に上書き。
+/// temp file + rename で atomic に置き換える (truncate 中の読み取りで
+/// 空の file が観測されるのを防ぐ)
 pub fn write_machine_input(facts: &MachineFacts) -> Result<PathBuf> {
-    let path = default_machine_nix_path();
+    write_machine_input_at(&default_machine_nix_path(), facts)
+}
+
+/// [`write_machine_input`] の書き込み先指定版 (test 用)
+pub fn write_machine_input_at(path: &Path, facts: &MachineFacts) -> Result<PathBuf> {
+    atomic_write(path, &facts.to_machine_nix())
+        .map_err(|e| Error::Io(format!("write machine input ({e})")))?;
+    Ok(path.to_path_buf())
+}
+
+/// temp file (random suffix) + rename による atomic 置換。
+/// 固定の tmp 名だと同一 file への並列書き込みで rename が ENOENT になる
+/// ため、download.rs と同じ random suffix 方式を使う
+pub(crate) fn atomic_write(path: &Path, content: &str) -> std::io::Result<()> {
+    use std::io::Write;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| Error::Io(format!("create machine input dir: {e}")))?;
+        std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&path, facts.to_machine_nix())
-        .map_err(|e| Error::Io(format!("write machine input: {e}")))?;
-    Ok(path)
+    let rnd = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    let tmp = path.with_extension(format!("nix.{rnd:08x}.tmp"));
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)?;
+    f.write_all(content.as_bytes())?;
+    f.sync_all().ok();
+    drop(f);
+    match std::fs::rename(&tmp, path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
 }
 
 fn hostname() -> String {
@@ -202,8 +233,12 @@ mod tests {
 
     #[test]
     fn write_machine_input_creates_file_in_state_dir() {
+        // XDG_STATE_HOME を設定すると並列 test の書き込み先まで変わって
+        // 競合するため、env は操作せず test 固有 path へ書く
+        // (既定 path の検証は default_machine_nix_path_is_in_state_dir)
         let dir = std::env::temp_dir().join(format!("sf-machine-test-{}", std::process::id()));
-        std::env::set_var("XDG_STATE_HOME", &dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
         let facts = MachineFacts {
             username: "alice".to_string(),
             home_directory: PathBuf::from("/Users/alice"),
@@ -211,12 +246,18 @@ mod tests {
             architecture: Architecture::Aarch64,
             hostname: "alice-macbook".to_string(),
         };
-        let path = write_machine_input(&facts).unwrap();
+        let path = write_machine_input_at(&dir.join("schneeforge/machine.nix"), &facts).unwrap();
         assert!(path.starts_with(&dir));
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("username = \"alice\";"));
         std::fs::remove_dir_all(&dir).ok();
-        std::env::remove_var("XDG_STATE_HOME");
+    }
+
+    #[test]
+    fn default_machine_nix_path_is_in_state_dir() {
+        let path = default_machine_nix_path();
+        assert!(path.starts_with(crate::machine::state_dir()));
+        assert!(path.ends_with("machine.nix"));
     }
 
     #[test]

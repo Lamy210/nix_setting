@@ -69,15 +69,12 @@ pub fn clear_selection() -> Result<()> {
     store.save(&state)
 }
 
-/// profile input (`profile.nix`) を生成する。常に上書き
+/// profile input (`profile.nix`) を生成する。常に上書き。
+/// atomic write により truncate 中の読み取りで空の file が観測されない
 pub fn write_profile_input(name: &str) -> Result<std::path::PathBuf> {
     let path = default_profile_nix_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| Error::Io(format!("create profile input dir: {e}")))?;
-    }
-    std::fs::write(&path, format!("{{ profile = \"{name}\"; }}\n"))
-        .map_err(|e| Error::Io(format!("write profile input: {e}")))?;
+    crate::machine::atomic_write(&path, &format!("{{ profile = \"{name}\"; }}\n"))
+        .map_err(|e| Error::Io(format!("write profile input ({e})")))?;
     Ok(path)
 }
 
@@ -88,9 +85,14 @@ pub fn write_profile_input(name: &str) -> Result<std::path::PathBuf> {
 /// (nix 2.35 は bare の絶対 path を flake ref として解釈し
 /// "not a flake (because it's not a directory)" で拒否する)
 pub fn override_args(repo: &str) -> Result<Vec<String>> {
+    override_args_with(repo, &StateStore::default())
+}
+
+/// [`override_args`] の state store 注入版 (test 用。env の state に左右されない)
+pub fn override_args_with(repo: &str, store: &StateStore) -> Result<Vec<String>> {
     let facts = crate::machine::MachineFacts::detect()?;
     let machine_path = crate::machine::write_machine_input(&facts)?;
-    let (profile, _) = resolve(repo)?;
+    let (profile, _) = resolve_with(repo, store)?;
     let profile_path = write_profile_input(&profile)?;
     Ok(vec![
         "--override-input".to_string(),
@@ -183,8 +185,8 @@ x86_64-linux = true
 
     #[test]
     fn write_profile_input_contains_name() {
-        let path = write_profile_input("minimal").unwrap();
+        let path = write_profile_input("developer").unwrap();
         let content = std::fs::read_to_string(path).unwrap();
-        assert_eq!(content, "{ profile = \"minimal\"; }\n");
+        assert_eq!(content, "{ profile = \"developer\"; }\n");
     }
 }

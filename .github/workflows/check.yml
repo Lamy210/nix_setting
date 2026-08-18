@@ -85,6 +85,14 @@ jobs:
       - name: build DMG + mounted-app portability gate (same script as release workflow)
         run: ./scripts/ci/build-release-macos-dmg.sh
 
+      # Release Metadata (v2 §27): 生成 script を dummy tag (stable/preview
+      # 両方) で実行し、生成と自己検証が通ることを PR 時点で保証する
+      # (release workflow と同一 script)
+      - name: verify release metadata generator (same script as release workflow)
+        run: |
+          ./scripts/ci/generate-release-metadata.sh v9.9.9-rc.9 0123456789abcdef0123456789abcdef01234567 /tmp/rel-meta-preview.json
+          ./scripts/ci/generate-release-metadata.sh v9.9.9 0123456789abcdef0123456789abcdef01234567 /tmp/rel-meta-stable.json
+
   docker-check:
     runs-on: ubuntu-latest
     steps:
