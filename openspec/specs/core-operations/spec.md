@@ -4,13 +4,22 @@
 core ライブラリが提供する apply / rollback / upgrade / plan / sync / verify 操作の契約を定義する。全操作は排他ロックで直列化され、解決済み `Toolchain` を経由してツールを呼び出し、成功時に `State` を永続化する。CLI / desktop はこの core を thin に呼び出す only。
 ## Requirements
 ### Requirement: repo-aware 操作
-全操作（plan/apply/verify/rollback/upgrade/sync）SHALL は repository path を明示的に受け取り、CWD に依存しない。
+
+全操作（plan/apply/verify/rollback/update/sync）SHALL は repository
+path を明示的に受け取り、CWD に依存しない。
+
+#### Scenario: update が repo を指定する
+
+- **WHEN** 別ディレクトリから update を実行する
+- **THEN** 対象 repo のみを更新し、CWD は変更しない
 
 #### Scenario: upgrade が repo を指定する
-- **WHEN** 別ディレクトリから upgrade を実行する
+
+- **WHEN** 別ディレクトリから upgrade (alias) を実行する
 - **THEN** `nix flake update --flake <repo>` を実行し、CWD ではなく repo を更新する
 
 #### Scenario: sync が repo を指定する
+
 - **WHEN** 別ディレクトリから sync を実行する
 - **THEN** `git -C <repo>` で操作する
 
@@ -50,13 +59,155 @@ apply 成功後 SHALL は State（host/revision/applied_at）を core 内で保�
 - **THEN** エラーを返し、成功と偽らない
 
 ### Requirement: 同期の安全性
+
 sync SHALL は dirty working tree を検出して競合を防ぐ。
+`schneeforge sync` は `source sync` への alias として v0.3 まで
+動作し、deprecation note を表示する。
 
 #### Scenario: dirty な repo
+
 - **WHEN** repo に未コミット変更がある状態で sync する
 - **THEN** 処理を中止し、先にローカル変更の解決を促す
 
 #### Scenario: 更新の反映
+
 - **WHEN** リモートに更新がある
 - **THEN** `--ff-only` で fast-forward のみ反映する
+
+#### Scenario: 旧 command の deprecation 案内
+
+- **WHEN** `schneeforge upgrade` または `schneeforge sync` を
+  実行する
+- **THEN** 実行はするが、`source deps update` / `source sync` への
+  移行を促す note を表示する
+
+### Requirement: MachineFacts の自動検出
+
+SchneeForge core SHALL は machine 固有情報 (username / home directory / OS / architecture / hostname) を `MachineFacts` として実行環境から自動検出する。利用者に入力させず、configuration repo から読まない。
+
+#### Scenario: 検出は実行環境から行う
+
+- **WHEN** core が MachineFacts を検出する
+- **THEN** username は実行 user、home directory は実効 HOME、OS / architecture は実行環境の値を返す
+- **AND** configuration repo 内の file から username を読まない
+
+#### Scenario: 検出不能な項目は error にする
+
+- **WHEN** username または home directory が検出できない
+- **THEN** error を返し、空文字のまま処理を続けない
+
+### Requirement: machine input の生成と注入
+
+SchneeForge core SHALL は apply / plan の評価時に MachineFacts から `machine.nix` を生成し、flake の `machine` input へ `--override-input` で注入する。評価は pure (builtins.getEnv 不使用) を維持する。
+
+#### Scenario: apply 時に machine input が注入される
+
+- **WHEN** apply が flake 評価を実行する
+- **THEN** state dir に生成した machine.nix が `--override-input machine <path>` で渡される
+- **AND** flake 内の `inputs.machine` は hosts が参照する username / homeDirectory をその machine の値で解決する
+
+#### Scenario: repo は書き換えられない
+
+- **WHEN** apply / plan が実行される
+- **THEN** configuration repo 内の file (config.toml 含む) は作成・変更されない
+- **AND** machine.nix は repo 外の state dir に生成される
+
+#### Scenario: clone 直後の repo も評価できる
+
+- **WHEN** machine.nix 未生成の状態で `nix flake check` 等が repo で実行される
+- **THEN** repo 同梱の placeholder (`defaults/machine.nix`) により評価が失敗しない
+
+### Requirement: source 種別の解決
+
+core SHALL は repository checkout の実態から `SourceKind`
+(`ReleaseStable` / `ReleasePreview` / `GitTracking` / `GitPinned` /
+`Local`) を検出する。検出は git の状態のみから行い、network access
+を必要としない。
+
+#### Scenario: release tag への pinned checkout
+
+- **WHEN** checkout が detached HEAD であり HEAD が `vX.Y.Z` 形式の
+  release tag を指している
+- **THEN** `ReleaseStable` として解決する
+
+#### Scenario: prerelease tag への pinned checkout
+
+- **WHEN** HEAD が `vX.Y.Z-rc.N` 等 prerelease suffix を持つ tag を
+  指している
+- **THEN** `ReleasePreview` として解決する
+
+#### Scenario: branch への checkout
+
+- **WHEN** checkout が branch に紐付いている
+- **THEN** `GitTracking` として解決する
+
+#### Scenario: tag / commit への固定 (release 形式以外)
+
+- **WHEN** detached HEAD だが `v` prefix の release tag が無い
+- **THEN** `GitPinned` として解決する
+
+#### Scenario: git 管理外の directory
+
+- **WHEN** repo path に `.git` が存在しない
+- **THEN** `Local` として解決する
+
+### Requirement: update の source kind dispatch
+
+`schneeforge update` SHALL は解決された source kind に応じて
+更新挙動を切り替える。flake.lock はいずれの経路でも更新しない。
+
+#### Scenario: Release Stable の更新
+
+- **WHEN** `ReleaseStable` の checkout で update を実行する
+- **THEN** 同 channel (prerelease を含まない) の最新 tag へ
+  checkout する
+- **AND** flake.lock は変更しない
+
+#### Scenario: Release Preview の更新
+
+- **WHEN** `ReleasePreview` の checkout で update を実行する
+- **THEN** prerelease tag のみを候補に最新へ checkout する
+
+#### Scenario: Git Tracking の更新
+
+- **WHEN** `GitTracking` の checkout で update を実行する
+- **THEN** `git fetch` の後 `git pull --ff-only` する
+- **AND** dirty working tree は処理を中止する
+
+#### Scenario: Git Pinned / Local は no-op
+
+- **WHEN** `GitPinned` または `Local` の checkout で update を実行する
+- **THEN** エラーにせず、更新方法の案内を表示して終了する
+
+### Requirement: State への source 情報の記録
+
+State SHALL は source の現在状態 (`kind` / `ref` / `channel`) を
+applied 情報とは独立した field として保持する。従来の state.json
+(当該 field 無し) は欠損 field を空として読み込める。
+
+#### Scenario: update 後の source 記録
+
+- **WHEN** update が checkout を新しい tag へ移動させる
+- **THEN** State の source.ref が新 tag を指す
+
+#### Scenario: 従来 state との互換
+
+- **WHEN** source 情報を含まない state.json を読み込む
+- **THEN** エラーにせず source は None として扱う
+
+### Requirement: dependency 更新の分離
+
+`nix flake update` 相当の操作 SHALL は `schneeforge source deps
+update` として update 操作から分離される。Release channel で
+実行した場合は release 検証単位から外れる警告を表示する。
+
+#### Scenario: Stable での dependency 更新
+
+- **WHEN** `ReleaseStable` で `source deps update` を実行する
+- **THEN** 警告を表示した上で `nix flake update` を実行する
+
+#### Scenario: Local での dependency 更新
+
+- **WHEN** `Local` で `source deps update` を実行する
+- **THEN** 警告なしで `nix flake update` を実行する
 
