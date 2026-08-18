@@ -25,7 +25,7 @@ async function refresh() {
   try {
     const s = await invoke("get_status");
     $("host").textContent = s.host;
-    $("user").textContent = s.username ?? "-";
+    $("profile").textContent = s.profile ?? "-";
     $("nix").textContent = s.tools.nix.available ? "yes" : "no";
     $("homebrew").textContent = s.tools.homebrew.available ? "yes" : "no";
     $("applied").textContent = s.applied_revision ?? "(never)";

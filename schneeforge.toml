@@ -1,0 +1,20 @@
+# Distribution manifest (v2 §14/§15)。
+# この repository が「何を提供するか」を記述する。
+# 「誰が使うか」(username / hostname 等) は MachineFacts が実行環境から
+# 検出し machine input として注入するため、ここには書かない。
+schema = 1
+
+[distribution]
+name = "SchneeForge Developer Environment"
+
+[profiles]
+default = "developer"
+available = [
+  "minimal",
+  "developer",
+]
+
+[systems]
+aarch64-darwin = true
+x86_64-linux = true
+aarch64-linux = true

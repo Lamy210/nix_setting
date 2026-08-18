@@ -188,14 +188,11 @@ fn scan(repo: &str, tc: &ToolInventory) -> Result {
     println!("[manifest]");
     match manifest {
         Some(m) => println!(
-            "  schema: {} / user: {}",
+            "  schema: {} / profile: {}",
             m.schema,
-            m.user
-                .as_ref()
-                .map(|u| u.username.as_str())
-                .unwrap_or("(machine input)")
+            m.profiles.default.as_deref().unwrap_or("(unset)")
         ),
-        None => println!("  config.toml not found"),
+        None => println!("  schneeforge.toml not found"),
     }
     Ok(())
 }
@@ -207,9 +204,9 @@ fn status(repo: &str) -> Result {
     println!("=== status ===");
     println!();
     println!("  host: {target}");
-    match manifest.and_then(|m| m.user.map(|u| u.username)) {
-        Some(u) => println!("  user: {u}"),
-        None => println!("  user: (machine input)"),
+    match manifest.and_then(|m| m.profiles.default) {
+        Some(p) => println!("  profile: {p}"),
+        None => println!("  profile: (manifest not found)"),
     }
     match &state {
         Some(s) => {
