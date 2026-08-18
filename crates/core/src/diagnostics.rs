@@ -32,12 +32,12 @@ pub struct Diagnostics {
     pub repo_path: String,
     /// repository が存在するか
     pub repo_exists: bool,
-    /// config.toml が読み込めたか
+    /// schneeforge.toml (distribution manifest) が読み込めたか
     pub manifest_found: bool,
-    /// config.toml の読み込み・parse エラー原因
+    /// schneeforge.toml の読み込み・parse エラー原因
     pub manifest_error: Option<String>,
-    /// manifest の username (読めた場合のみ)
-    pub username: Option<String>,
+    /// manifest の既定 profile (読めた場合のみ)
+    pub profile: Option<String>,
     /// 実行 OS ユーザー (manifest の username とは独立)
     pub system_user: Option<String>,
     /// 実行ユーザーの HOME
@@ -138,7 +138,8 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
     let repo_path = resolve_repo(cli_repo);
     let repo_exists = std::path::Path::new(&repo_path).is_dir();
 
-    let (manifest_found, manifest_error, username, validation) = manifest_diagnostics(&repo_path);
+    let (manifest_found, manifest_error, profile, validation) =
+        manifest_diagnostics(&repo_path, target.name());
 
     let state = StateStore::default().load();
 
@@ -150,7 +151,7 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
         repo_exists,
         manifest_found,
         manifest_error,
-        username,
+        profile,
         system_user: current_user(),
         home: std::env::var("HOME").ok(),
         validation,
@@ -272,12 +273,13 @@ fn xdg_state_profile_dir() -> Option<std::path::PathBuf> {
 
 fn manifest_diagnostics(
     repo_path: &str,
+    system: &str,
 ) -> (bool, Option<String>, Option<String>, Option<Validation>) {
     match Manifest::load(repo_path) {
         Ok(m) => {
-            let validation = m.validate();
-            let username = m.user.as_ref().map(|u| u.username.clone());
-            (true, None, username, Some(validation))
+            let validation = m.validate(system);
+            let profile = m.profiles.default.clone();
+            (true, None, profile, Some(validation))
         }
         Err(e) => (false, Some(e.to_string()), None, None),
     }
@@ -312,7 +314,7 @@ mod tests {
         assert!(!d.repo_exists);
         assert!(!d.manifest_found);
         assert!(d.manifest_error.is_some());
-        assert_eq!(d.username, None);
+        assert_eq!(d.profile, None);
         assert_eq!(d.validation, None);
     }
 

@@ -2,21 +2,37 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 
-/// nix_setting manifest (config.toml)。
-/// v2 では machine 情報 (`[user]`) を持たない。distribution 情報
-/// (`schneeforge.toml`) への置換は後続 change で行うため、この
-/// change では username 読み込みを廃止した状態のみ。
+/// Distribution manifest (`schneeforge.toml`)。
+/// repository が「何を提供するか」(distribution 名 / profiles / 対応
+/// systems) を記述する。machine 情報 (username 等) は持たない
+/// (MachineFacts + machine input で管理)。
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Manifest {
     pub schema: u32,
-    /// v1 互換: `[user]` が在れば読むが検証には使わない
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub user: Option<User>,
+    #[serde(default)]
+    pub distribution: Distribution,
+    #[serde(default)]
+    pub profiles: Profiles,
+    /// 対応 system 名 -> 有効か の map (例: `aarch64-darwin = true`)
+    #[serde(default)]
+    pub systems: std::collections::BTreeMap<String, bool>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct User {
-    pub username: String,
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct Distribution {
+    /// distribution の表示名
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct Profiles {
+    /// available の中から既定で選択される profile
+    #[serde(default)]
+    pub default: Option<String>,
+    /// 提供する profile の一覧
+    #[serde(default)]
+    pub available: Vec<String>,
 }
 
 /// Manifest の実行時検証結果
@@ -32,21 +48,43 @@ impl Manifest {
         toml::from_str(content)
     }
 
-    /// repository の config.toml を読み込み・parse する (構造化エラーを返す)
+    /// repository の schneeforge.toml を読み込み・parse する (構造化エラーを返す)
     pub fn load(repo: &str) -> Result<Self> {
-        let content = std::fs::read_to_string(format!("{repo}/config.toml"))
-            .map_err(|e| Error::Manifest(format!("failed to read {repo}/config.toml: {e}")))?;
+        let content = std::fs::read_to_string(format!("{repo}/schneeforge.toml"))
+            .map_err(|e| Error::Manifest(format!("failed to read {repo}/schneeforge.toml: {e}")))?;
         Self::parse(&content)
-            .map_err(|e| Error::Manifest(format!("failed to parse config.toml: {e}")))
+            .map_err(|e| Error::Manifest(format!("failed to parse schneeforge.toml: {e}")))
     }
 
-    /// 実行時検証: schema == 1。machine 情報は検証しない (MachineFacts で管理)
-    pub fn validate(&self) -> Validation {
-        let errors = if self.schema == 1 {
-            Vec::new()
-        } else {
-            vec![format!("unsupported schema version: {}", self.schema)]
-        };
+    /// 実行時検証。`system` は実行環境の system (例: "aarch64-darwin")。
+    pub fn validate(&self, system: &str) -> Validation {
+        let mut errors = Vec::new();
+        if self.schema != 1 {
+            errors.push(format!("unsupported schema version: {}", self.schema));
+        }
+        match (&self.profiles.default, &self.profiles.available) {
+            (Some(default), available) if !available.is_empty() => {
+                if !available.contains(default) {
+                    errors.push(format!(
+                        "default profile '{default}' is not in available profiles"
+                    ));
+                }
+            }
+            (Some(_), _) => {
+                errors.push("profiles.available must not be empty when default is set".to_string());
+            }
+            (None, _) => {
+                errors.push("profiles.default is required".to_string());
+            }
+        }
+        if !self.systems.values().any(|v| *v) {
+            errors.push("no supported systems are enabled in [systems]".to_string());
+        }
+        match self.systems.get(system) {
+            Some(true) => {}
+            Some(false) => errors.push(format!("system '{system}' is disabled in [systems]")),
+            None => errors.push(format!("system '{system}' is not declared in [systems]")),
+        }
         Validation {
             valid: errors.is_empty(),
             errors,
@@ -59,41 +97,106 @@ impl Manifest {
 mod tests {
     use super::*;
 
+    const VALID: &str = r#"
+schema = 1
+
+[distribution]
+name = "SchneeForge Developer Environment"
+
+[profiles]
+default = "developer"
+available = ["minimal", "developer"]
+
+[systems]
+aarch64-darwin = true
+x86_64-linux = true
+aarch64-linux = true
+"#;
+
     #[test]
-    fn parse_manifest_without_user() {
-        let m = Manifest::parse("schema = 1\n").unwrap();
+    fn parse_full_manifest() {
+        let m = Manifest::parse(VALID).unwrap();
         assert_eq!(m.schema, 1);
-        assert!(m.user.is_none());
+        assert_eq!(
+            m.distribution.name.as_deref(),
+            Some("SchneeForge Developer Environment")
+        );
+        assert_eq!(m.profiles.default.as_deref(), Some("developer"));
+        assert_eq!(m.profiles.available, vec!["minimal", "developer"]);
+        assert!(m.systems.get("aarch64-darwin").copied().unwrap_or(false));
     }
 
     #[test]
-    fn parse_manifest_with_legacy_user_ignored() {
-        // v1 config.toml (username あり) も parse は通る。値は使わない
-        let m = Manifest::parse("schema = 1\n\n[user]\nusername = \"alice\"\n").unwrap();
-        assert_eq!(m.schema, 1);
-        assert_eq!(m.user.as_ref().unwrap().username, "alice");
-        let v = m.validate();
-        assert!(v.valid);
-    }
-
-    #[test]
-    fn parse_rejects_bad_schema() {
-        let r = Manifest::parse("schema = \"not-an-int\"");
-        assert!(r.is_err());
+    fn validate_accepts_supported_system() {
+        let m = Manifest::parse(VALID).unwrap();
+        assert!(m.validate("aarch64-darwin").valid);
+        assert!(m.validate("x86_64-linux").valid);
     }
 
     #[test]
     fn validate_rejects_wrong_schema() {
         let m = Manifest::parse("schema = 2\n").unwrap();
-        let v = m.validate();
+        let v = m.validate("aarch64-darwin");
         assert!(!v.valid);
         assert!(v.errors.iter().any(|e| e.contains("schema")));
     }
 
     #[test]
-    fn validate_accepts_schema_only_manifest() {
+    fn validate_rejects_default_not_in_available() {
+        let m = Manifest::parse(
+            r#"
+schema = 1
+[profiles]
+default = "developer"
+available = ["minimal"]
+"#,
+        )
+        .unwrap();
+        let v = m.validate("aarch64-darwin");
+        assert!(!v.valid);
+        assert!(v.errors.iter().any(|e| e.contains("default profile")));
+    }
+
+    #[test]
+    fn validate_requires_default_profile() {
         let m = Manifest::parse("schema = 1\n").unwrap();
-        let v = m.validate();
-        assert!(v.valid);
+        let v = m.validate("aarch64-darwin");
+        assert!(!v.valid);
+        assert!(v.errors.iter().any(|e| e.contains("profiles.default")));
+    }
+
+    #[test]
+    fn validate_rejects_undeclared_system() {
+        let m = Manifest::parse(VALID).unwrap();
+        let v = m.validate("x86_64-darwin");
+        assert!(!v.valid);
+        assert!(v.errors.iter().any(|e| e.contains("x86_64-darwin")));
+    }
+
+    #[test]
+    fn validate_rejects_disabled_system() {
+        let m = Manifest::parse(
+            r#"
+schema = 1
+[profiles]
+default = "minimal"
+available = ["minimal"]
+[systems]
+aarch64-darwin = false
+"#,
+        )
+        .unwrap();
+        let v = m.validate("aarch64-darwin");
+        assert!(!v.valid);
+        assert!(v.errors.iter().any(|e| e.contains("disabled")));
+    }
+
+    #[test]
+    fn manifest_has_no_user_field() {
+        // v1 config.toml の [user] は unknown field として error になる
+        // (deny_unknown_fields ではなく default 動作: 余剰 field は無視)。
+        // そのため「読み込まない」ことは load 先の file 名で保証する
+        let m = Manifest::parse("schema = 1\n[user]\nusername = \"alice\"\n").unwrap();
+        assert!(m.profiles.default.is_none());
     }
 }
