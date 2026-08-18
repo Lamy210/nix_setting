@@ -20,7 +20,7 @@
 
 ## 4. test / CI
 
-- [ ] 4.1 `cargo test` 全 green (core / cli は local で green。desktop は GTK system deps が無いため CI の rust-check で検証)
-- [ ] 4.2 `cargo fmt` / `cargo clippy -D warnings` green (workspace は local green。desktop は CI)
-- [ ] 4.3 `nix flake check` green (CI)
-- [ ] 4.4 openspec validate green / PR 作成 (base: develop)
+- [x] 4.1 `cargo test` 全 green (core 261 / cli 25 は local、desktop は CI rust-check で green — PR #52)
+- [x] 4.2 `cargo fmt` / `cargo clippy -D warnings` green (workspace local / desktop は CI で green)
+- [x] 4.3 `nix flake check` green (CI green — PR #52)
+- [x] 4.4 openspec validate green / PR 作成 (base: develop) — PR #52 を squash merge 済み
