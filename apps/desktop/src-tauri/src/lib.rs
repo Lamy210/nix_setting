@@ -46,10 +46,10 @@ fn run_scan(state: tauri::State<'_, CachedToolInventory>) -> Result<CommandOutpu
     let tc = state.get_or_discover()?;
     let target = detect_target();
     let mut out = scan(&target, &tc);
-    if let Some(m) = load_manifest() {
-        out.push_str(&format!("user: {}\n", m.user.username));
-    } else {
-        out.push_str("user: (config.toml not found)\n");
+    // v2: machine 情報は MachineFacts 検出 (repo の config.toml は読まない)
+    match schneeforge_core::MachineFacts::detect() {
+        Ok(facts) => out.push_str(&format!("user: {}\n", facts.username)),
+        Err(e) => out.push_str(&format!("user: (detection failed: {e})\n")),
     }
     Ok(CommandOutput {
         success: true,
@@ -156,19 +156,24 @@ async fn run_preflight(
 }
 
 #[tauri::command]
-async fn run_generate_config(username: String) -> Result<CommandOutput, String> {
-    let repo = resolve_repo(None);
-    tauri::async_runtime::spawn_blocking(move || {
-        match schneeforge_core::generate_config(&repo, &username) {
-            Ok(()) => CommandOutput {
-                success: true,
-                output: "config.toml を生成しました".to_string(),
-            },
-            Err(e) => CommandOutput {
-                success: false,
-                output: e.to_string(),
-            },
-        }
+async fn machine_facts() -> Result<CommandOutput, String> {
+    // v2: machine 情報は repo へ書かず machine input (state dir) で管理する。
+    // wizard は検出結果の表示のみ行う (repo は書き換えない)
+    tauri::async_runtime::spawn_blocking(|| match schneeforge_core::MachineFacts::detect() {
+        Ok(facts) => CommandOutput {
+            success: true,
+            output: format!(
+                "user={} home={} system={} hostname={}",
+                facts.username,
+                facts.home_directory.display(),
+                facts.nix_system_string(),
+                facts.hostname
+            ),
+        },
+        Err(e) => CommandOutput {
+            success: false,
+            output: e.to_string(),
+        },
     })
     .await
     .map_err(|e| format!("task error: {e}"))
@@ -625,7 +630,7 @@ pub fn run() {
             run_rollback,
             run_upgrade,
             run_preflight,
-            run_generate_config,
+            machine_facts,
             run_clone_repo,
             run_plan,
             run_verify,
@@ -832,6 +837,36 @@ mod tests {
         assert!(
             js.contains("cliFallbackNote"),
             "failure paths should render the CLI fallback note"
+        );
+    }
+
+    /// wizard (stepUser) は username を入力させず machine 情報の検出結果を
+    /// 表示する。v2 では machine 情報は MachineFacts (state dir の machine
+    /// input) で管理され、repo への書き込み (config.toml 生成) は行わない。
+    /// 入力 field が復活すると repo を書き換える旧 flow への regress になる。
+    #[test]
+    fn wizard_user_step_is_detection_only() {
+        let js = include_str!("../../dist/main.js");
+        let step = js
+            .split("async function stepUser")
+            .nth(1)
+            .expect("stepUser must exist");
+        let body = step.split("\n}").next().unwrap_or(step);
+        assert!(
+            !body.contains("id=\"username\""),
+            "stepUser must not render a username input (MachineFacts detection only)"
+        );
+        assert!(
+            !body.contains("run_generate_config"),
+            "stepUser must not generate config.toml in the repo"
+        );
+        assert!(
+            !js.contains("run_generate_config"),
+            "no frontend path should invoke run_generate_config anymore"
+        );
+        assert!(
+            body.contains("machine_facts"),
+            "stepUser should display the detected machine facts"
         );
     }
 

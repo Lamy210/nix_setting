@@ -4,7 +4,6 @@ use serde::Serialize;
 
 use crate::discovery::detect_target;
 use crate::error::{Error, Result};
-use crate::manifest::{Manifest, User};
 use crate::operations::{apply, ApplyResult};
 use crate::process::{command_succeeds, run_capture};
 use crate::state::StateStore;
@@ -153,21 +152,14 @@ pub fn setup(repo: &str, store: &StateStore, tc: &ToolInventory) -> Result<Apply
     apply(&target, repo, store, tc, false)
 }
 
-/// config.toml を生成する (schema=1, user.username=<username>)
-pub fn generate_config(repo: &str, username: &str) -> Result<()> {
+/// config.toml を生成する (旧 API・v2 では machine input へ移行済み)。
+/// 後方互換のため残すが username は machine.nix 生成に置き換わる
+pub fn generate_config(_repo: &str, username: &str) -> Result<()> {
     if username.trim().is_empty() || username.chars().any(|c| c.is_control()) {
         return Err(Error::Precondition("invalid username".to_string()));
     }
-    let manifest = Manifest {
-        schema: 1,
-        user: User {
-            username: username.to_string(),
-        },
-    };
-    let content =
-        toml::to_string(&manifest).map_err(|e| Error::Io(format!("serialize config.toml: {e}")))?;
-    let path = std::path::Path::new(repo).join("config.toml");
-    std::fs::write(&path, content).map_err(|e| Error::Io(format!("write {}: {e}", path.display())))
+    // machine 情報は repo へ書かない (v2)。machine input は apply 時に生成される
+    Ok(())
 }
 
 /// repository を clone する。clone 出力を返す
@@ -266,18 +258,16 @@ mod tests {
     }
 
     #[test]
-    fn generate_config_writes_parseable_toml() {
-        let dir = std::env::temp_dir().join("schneeforge-config-gen");
+    fn generate_config_no_longer_writes_repo() {
+        // v2: machine 情報は repo へ書かない。file は作成されない
+        let dir = std::env::temp_dir().join("schneeforge-config-gen-v2");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let repo = dir.to_string_lossy().to_string();
 
         generate_config(&repo, "alice").unwrap();
 
-        let content = std::fs::read_to_string(format!("{repo}/config.toml")).unwrap();
-        let manifest = Manifest::parse(&content).unwrap();
-        assert_eq!(manifest.schema, 1);
-        assert_eq!(manifest.user.username, "alice");
+        assert!(!dir.join("config.toml").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

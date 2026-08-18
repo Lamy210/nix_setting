@@ -125,6 +125,21 @@ fn doctor(tc: &ToolInventory) -> Result {
     println!();
     println!("[host detection]");
     println!("  host: {}", r.host);
+    // v2: machine 情報は repo でなく MachineFacts 検出で管理する
+    match schneeforge_core::MachineFacts::detect() {
+        Ok(f) => {
+            println!("  user: {}", f.username);
+            println!("  home: {}", f.home_directory.display());
+            println!("  system: {}", f.nix_system_string());
+            println!("  hostname: {}", f.hostname);
+        }
+        Err(e) => println!("  machine facts: (detection failed: {e})"),
+    }
+    if r.host == "darwin-aarch64" {
+        println!();
+        println!("  note: host name was renamed from 'macbook-air' to");
+        println!("        'darwin-aarch64' (machine model と platform の分離)");
+    }
     println!();
     println!("[managed nix]");
     // D7: schneeforge doctor から schneeforge nix doctor を呼び出して nix 関連 section を埋める
@@ -144,7 +159,14 @@ fn scan(repo: &str, tc: &ToolInventory) -> Result {
     println!();
     println!("[manifest]");
     match manifest {
-        Some(m) => println!("  schema: {} / user: {}", m.schema, m.user.username),
+        Some(m) => println!(
+            "  schema: {} / user: {}",
+            m.schema,
+            m.user
+                .as_ref()
+                .map(|u| u.username.as_str())
+                .unwrap_or("(machine input)")
+        ),
         None => println!("  config.toml not found"),
     }
     Ok(())
@@ -157,9 +179,9 @@ fn status(repo: &str) -> Result {
     println!("=== status ===");
     println!();
     println!("  host: {target}");
-    match manifest {
-        Some(m) => println!("  user: {}", m.user.username),
-        None => println!("  user: (config.toml not found)"),
+    match manifest.and_then(|m| m.user.map(|u| u.username)) {
+        Some(u) => println!("  user: {u}"),
+        None => println!("  user: (machine input)"),
     }
     match &state {
         Some(s) => {

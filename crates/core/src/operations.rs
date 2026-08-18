@@ -2,12 +2,24 @@ use crate::actions;
 use crate::discovery::{detect_target, ConfigurationTarget};
 use crate::error::{Error, Result};
 use crate::lock::{OperationGuard, OperationLock};
+use crate::machine;
 use crate::process::{run_capture, run_stream};
 use crate::repo::current_git_revision;
 use crate::state::{State, StateStore};
 use crate::time::now_iso8601;
 use crate::tool::ToolInventory;
 use serde::Serialize;
+
+/// machine input の `--override-input` 引数 (actions と同じものを plan でも使う)
+fn machine_override_args() -> Result<Vec<String>> {
+    let facts = machine::MachineFacts::detect()?;
+    let path = machine::write_machine_input(&facts)?;
+    Ok(vec![
+        "--override-input".to_string(),
+        "machine".to_string(),
+        path.to_string_lossy().to_string(),
+    ])
+}
 
 /// apply / rollback の結果。output は capture 時のみ Some
 #[derive(Debug, Clone)]
@@ -142,11 +154,9 @@ pub fn plan_target(repo: &str) -> Result<PlanResult> {
 pub fn plan(repo: &str, tc: &ToolInventory, capture: bool) -> Result<PlanResult> {
     let mut result = plan_target(repo)?;
     let nix = tc.require_nix()?;
-    let args = [
-        "build".to_string(),
-        "--dry-run".to_string(),
-        result.flake_target.clone(),
-    ];
+    let mut args = vec!["build".to_string(), "--dry-run".to_string()];
+    args.extend(machine_override_args()?);
+    args.push(result.flake_target.clone());
     result.output = if capture {
         Some(run_capture(&nix.path, &args)?)
     } else {
@@ -219,8 +229,8 @@ pub fn verify(repo: &str, tc: &ToolInventory) -> VerifyReport {
         ok: std::path::Path::new(repo).is_dir(),
     });
     checks.push(VerifyCheck {
-        name: "manifest".to_string(),
-        ok: std::path::Path::new(&format!("{repo}/config.toml")).is_file(),
+        name: "machine input".to_string(),
+        ok: machine::default_machine_nix_path().is_file(),
     });
     checks.push(VerifyCheck {
         name: "state".to_string(),
@@ -353,7 +363,7 @@ mod tests {
     fn applied_state_contains_host_and_revision() {
         let target = detect_target_for("macos", "aarch64");
         let state = applied_state(&target, Some("abc123".to_string()));
-        assert_eq!(state.host.as_deref(), Some("macbook-air"));
+        assert_eq!(state.host.as_deref(), Some("darwin-aarch64"));
         assert_eq!(state.applied_revision.as_deref(), Some("abc123"));
         assert!(state.applied_at.is_some());
         assert!(state.product_version.is_some());
@@ -373,7 +383,7 @@ mod tests {
         let target = detect_target_for("macos", "aarch64");
         assert_eq!(
             target.build_ref("/tmp/repo"),
-            "/tmp/repo#darwinConfigurations.macbook-air.system"
+            "/tmp/repo#darwinConfigurations.darwin-aarch64.system"
         );
     }
 

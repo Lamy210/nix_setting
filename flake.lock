@@ -38,6 +38,18 @@
         "type": "github"
       }
     },
+    "machine": {
+      "flake": false,
+      "locked": {
+        "path": "./defaults/machine.nix",
+        "type": "path"
+      },
+      "original": {
+        "path": "./defaults/machine.nix",
+        "type": "path"
+      },
+      "parent": []
+    },
     "nix-darwin": {
       "inputs": {
         "nixpkgs": [
@@ -93,6 +105,7 @@
       "inputs": {
         "flake-parts": "flake-parts",
         "home-manager": "home-manager",
+        "machine": "machine",
         "nix-darwin": "nix-darwin",
         "nixpkgs": "nixpkgs",
         "treefmt-nix": "treefmt-nix"

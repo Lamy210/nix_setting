@@ -4,6 +4,7 @@ pub mod diagnostics;
 pub mod discovery;
 pub mod error;
 pub mod lock;
+pub mod machine;
 pub mod managed_nix;
 pub mod manifest;
 pub mod operations;
@@ -29,6 +30,9 @@ pub use discovery::{
 };
 pub use error::{Error, Result};
 pub use lock::{OperationGuard, OperationLock};
+pub use machine::{
+    default_machine_nix_path, state_dir, write_machine_input, MachineFacts, OperatingSystem,
+};
 pub use managed_nix::{
     cache_path, classify, classify_current, default_ownership_path, default_receipt_path, download,
     download_text, escalate_command, existing_nix_detected, install_args, installed_binary_path,

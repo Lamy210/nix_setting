@@ -1,24 +1,33 @@
+# machine input (defaults/machine.nix) の unit test。
+# v2 P0: config.toml は廃止され、machine 情報は flake input として注入される。
+# 実際の適用時は Rust 側が MachineFacts から生成した machine.nix で
+# --override-input されるため、ここでは placeholder の構造を検証する。
 let
-  manifest = builtins.fromTOML (builtins.readFile ../config.toml);
+  machine = import ../defaults/machine.nix;
 in
 {
-  testUsername = {
-    expr = manifest.user.username;
-    expected = "lamy210";
+  testMachineUsername = {
+    expr = machine.username;
+    expected = "schneeforge-user";
   };
 
-  testMacbookAirHome = {
-    expr = "/Users/" + manifest.user.username;
-    expected = "/Users/lamy210";
+  testMachineHome = {
+    expr = machine.homeDirectory;
+    expected = "/Users/schneeforge-user";
   };
 
-  testLinuxHome = {
-    expr = "/home/" + manifest.user.username;
-    expected = "/home/lamy210";
+  testMachineSystem = {
+    expr = machine.system;
+    expected = "aarch64-darwin";
   };
 
-  testSchemaVersion = {
-    expr = manifest.schema;
-    expected = 1;
+  testMachineHostname = {
+    expr = machine.hostname;
+    expected = "schneeforge-placeholder";
+  };
+
+  testMachineIsAttributeSet = {
+    expr = builtins.isAttrs machine;
+    expected = true;
   };
 }

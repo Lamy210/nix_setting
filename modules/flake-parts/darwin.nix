@@ -1,24 +1,24 @@
 { inputs, ... }:
 let
-  manifest = builtins.fromTOML (builtins.readFile ../../config.toml);
-  username = manifest.user.username;
+  machine = import inputs.machine;
 in
 {
   flake = {
     darwinConfigurations = {
-      macbook-air = inputs.nix-darwin.lib.darwinSystem {
+      darwin-aarch64 = inputs.nix-darwin.lib.darwinSystem {
         system = "aarch64-darwin";
         modules = [
           ../../nix-darwin/default.nix
           inputs.home-manager.darwinModules.home-manager
           {
-            system.primaryUser = username;
-            users.users.${username}.home = "/Users/${username}";
+            system.primaryUser = machine.username;
+            users.users.${machine.username}.home = machine.homeDirectory;
             nixpkgs.config.allowUnfree = true;
             home-manager = {
               useGlobalPkgs = true;
               useUserPackages = true;
-              users.${username} = import ../../hosts/macbook-air;
+              extraSpecialArgs = { inherit machine; };
+              users.${machine.username} = import ../../hosts/darwin-aarch64;
             };
           }
         ];

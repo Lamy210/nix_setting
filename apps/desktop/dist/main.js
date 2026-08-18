@@ -342,37 +342,33 @@ function stepRepo(box, actions) {
 }
 
 async function stepUser(box, actions) {
-  let status = null;
+  box.textContent = "machine 情報を検出中...";
+  let r = null;
   try {
-    status = await invoke("get_status");
-  } catch (_) {}
-  const detected = (status && status.system_user) || "";
-  const escaped = detected
+    r = await invoke("machine_facts");
+  } catch (e) {
+    r = { success: false, output: String(e) };
+  }
+  if (!r.success) {
+    box.innerHTML = errorBlock(
+      `machine 情報を検出できませんでした: ${r.output}`
+    );
+    actions.innerHTML = "";
+    actions.appendChild(actionBtn("再検出", () => renderStep()));
+    return;
+  }
+  const display = r.output
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+  // v2: machine 情報は自動検出のみ。repo へ書き込まない (machine input は
+  // apply 時に state dir へ生成される)
   box.innerHTML =
-    '<p>ユーザー名を確認してください。</p>' +
-    `<input id="username" type="text" value="${escaped}" />`;
-  actions.appendChild(
-    actionBtn("config.toml を生成", async () => {
-      const username = $("username").value.trim();
-      if (!username) {
-        box.innerHTML += errorBlock("ユーザー名を入力してください。");
-        return;
-      }
-      box.textContent = "config.toml を生成中...";
-      const r = await invoke("run_generate_config", { username });
-      if (r.success) {
-        next();
-      } else {
-        box.innerHTML = errorBlock(`生成失敗: ${r.output}`);
-        actions.innerHTML = "";
-        actions.appendChild(actionBtn("再試行", () => renderStep()));
-      }
-    })
-  );
+    "<p>machine 情報を検出しました:</p>" +
+    `<pre>${display}</pre>` +
+    "<p>この内容で proceed します (repo は書き換えられません)。</p>";
+  actions.appendChild(actionBtn("次へ", next));
 }
 
 function stepPlan(box, actions) {
