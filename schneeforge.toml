@@ -9,10 +9,7 @@ name = "SchneeForge Developer Environment"
 
 [profiles]
 default = "developer"
-available = [
-  "minimal",
-  "developer",
-]
+available = ["minimal", "developer"]
 
 [systems]
 aarch64-darwin = true

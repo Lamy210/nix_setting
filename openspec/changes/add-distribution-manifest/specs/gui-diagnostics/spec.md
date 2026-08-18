@@ -18,10 +18,22 @@ GUI は host/repo/manifest/tool の存在・パス・バージョン・エラー
 - **THEN** Status は manifest の `[profiles]` default を `profile` として返す
 
 ### Requirement: manifest の実行時検証
-Status SHALL は manifest の parse だけでなく、schema / profiles / systems の実行時検証結果も返す。
+Status SHALL は manifest の parse だけでなく、schema / profiles / systems の実行時検証結果も返す。username の検証は MachineFacts 移行により廃止された (旧 scenario「空 username」「実行ユーザーとの不一致」は削除)。
 
 #### Scenario: schema 不一致
 - **WHEN** `schneeforge.toml` の schema が未対応の版数
+- **THEN** Status は validation error を返し、有効とみなさない
+
+#### Scenario: 空 username
+- **WHEN** (廃止) username は manifest に存在しなくなったため本 scenario は適用されない
+- **THEN** username 起因の validation error は発生しない
+
+#### Scenario: 実行ユーザーとの不一致
+- **WHEN** (廃止) username は manifest に存在しなくなったため本 scenario は適用されない
+- **THEN** username 不一致の警告は発生しない
+
+#### Scenario: default profile が未定義
+- **WHEN** `schneeforge.toml` の `[profiles]` に `default` が無い
 - **THEN** Status は validation error を返し、有効とみなさない
 
 #### Scenario: 未対応 system
