@@ -204,3 +204,65 @@ fn nix_uninstall_without_receipt_errors() {
         .failure()
         .stderr(predicate::str::contains("receipt not found"));
 }
+
+/// v2 P1: update / source subcommand が定義されている (task 5.1 / 5.2)
+#[test]
+fn help_lists_update_and_source_commands() {
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--help").assert().success().stdout(
+        predicate::str::contains("update")
+            .and(predicate::str::contains("source"))
+            .and(predicate::str::contains("deps update")),
+    );
+}
+
+/// v2 P1: `source status` は kind / ref を表示する。repo (git 管理外) は local
+#[test]
+fn source_status_reports_local_for_non_git_repo() {
+    let dir = std::env::temp_dir().join(format!("sf-cli-local-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(&dir)
+        .arg("source")
+        .arg("status")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("kind:").and(predicate::str::contains("local")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// v2 P1: `update` は Local source で no-op 案内を出して成功する
+#[test]
+fn update_on_local_source_is_noop() {
+    let dir = std::env::temp_dir().join(format!("sf-cli-update-local-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(&dir)
+        .arg("update")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("local"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// v2 P1: 旧 sync command は deprecation note を出す (task 5.3)
+#[test]
+fn sync_prints_deprecation_note() {
+    let dir = std::env::temp_dir().join(format!("sf-cli-sync-dep-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    // Local source では note を出した上で pinned no-op note で成功する
+    cmd.arg("--repo")
+        .arg(&dir)
+        .arg("sync")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .stdout(predicate::str::contains("deprecated"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
