@@ -1,7 +1,7 @@
 # ADR-0003: ConfigurationSource モデル (Release / Git / Local)
 
 Date: 2026-08-17
-Status: Proposed (OpenSpec change `add-configuration-sources` とともに審議)
+Status: Accepted (2026-08-18, PR #44 にて実装とともに承認)
 
 ## Context
 

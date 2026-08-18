@@ -59,18 +59,6 @@ rollback SHALL は何を戻すかを明確にする（Generation Rollback / Conf
 - **WHEN** SchneeForge 導入前の状態へ戻す
 - **THEN** 導入前にバックアップした dotfiles を復元する（generation rollback とは別操作）
 
-### Requirement: install 時の username 個人化
-bootstrap SHALL は apply 前に、committed された username ではなく OS の実行ユーザー名から config.toml を生成する。
-
-#### Scenario: 別のユーザーが install する
-- **WHEN** 別のユーザー（username が committed 値と異なる）が install.sh / bootstrap.sh を実行する
-- **THEN** config.toml の `username` がその実行ユーザー名になる
-- **AND** 適用後の homeDirectory が実行ユーザーの HOME に一致する
-
-#### Scenario: 所有者が再適用する
-- **WHEN** committed username と一致するユーザーが install.sh / bootstrap.sh を実行する
-- **THEN** config.toml を上書きせず、既存の username を維持する
-
 ### Requirement: uninstall は副作用を持たない
 uninstall コマンド SHALL は削除レベルと手順を表示するのみで、state や設定を変更しない。
 
@@ -78,18 +66,6 @@ uninstall コマンド SHALL は削除レベルと手順を表示するのみで
 - **WHEN** ユーザーが uninstall コマンドを実行する
 - **THEN** 削除レベルと手順が表示される
 - **AND** state ファイルは削除されない
-
-### Requirement: config.toml 生成の冪等性
-bootstrap の config.toml 生成 SHALL は、既に現在ユーザーで個人化済みなら上書きしない（冪等）。
-
-#### Scenario: 個人化済みの config.toml を保持する
-- **WHEN** config.toml が既に現在ユーザーの username で個人化されている
-- **THEN** bootstrap は config.toml を上書きしない
-- **AND** 手動編集された内容が保持される
-
-#### Scenario: username が確定できない
-- **WHEN** OS から username を取得できない（空）
-- **THEN** bootstrap はエラーで停止する
 
 ### Requirement: shell installer のツール解決共通化
 `install.sh` / `bootstrap.sh` SHALL は `scripts/resolve-tools.sh` の `resolve_nix` / `resolve_git` / `resolve_brew` 関数を経由し、Rust 側 `ToolResolver` と同じ探索優先度を使う。
@@ -138,4 +114,25 @@ bootstrap の config.toml 生成 SHALL は、既に現在ユーザーで個人�
 - **WHEN** `install.sh` 実行時に既に repository が存在する
 - **THEN** checkout や clone を行わず、現状の checkout をそのまま使う
 - **AND** release tag と一致する保証が無い旨を warning 表示する
+
+### Requirement: 初回設定は machine 情報を repo へ書き込まない
+
+First Run Wizard SHALL は machine 情報 (username 等) の入力を利用者に求めず、MachineFacts の自動検出結果を表示する。repo 内の file を生成・変更しない。
+
+#### Scenario: username 入力 step が存在しない
+
+- **WHEN** wizard の初回設定を開始する
+- **THEN** username の入力 field は表示されず、検出された machine 情報の確認表示になる
+
+#### Scenario: repo が書き換えられない
+
+- **WHEN** wizard の初回設定を完了する
+- **THEN** configuration repo 内に file は作成されない
+- **AND** machine 情報は state dir の machine.nix として管理される
+
+#### Scenario: 検出結果の確認と再検出
+
+- **WHEN** wizard が machine 情報を表示する
+- **THEN** username / home directory / OS / architecture を表示する
+- **AND** 検出に失敗した場合は error を表示し、先へ進めない
 
