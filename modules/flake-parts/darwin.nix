@@ -1,4 +1,8 @@
-{ inputs, ... }:
+{
+  config,
+  inputs,
+  ...
+}:
 let
   machine = import inputs.machine;
 in
@@ -17,7 +21,10 @@ in
             home-manager = {
               useGlobalPkgs = true;
               useUserPackages = true;
-              extraSpecialArgs = { inherit machine; };
+              extraSpecialArgs = {
+                inherit machine;
+                profileModule = config.flake.profileModules.module;
+              };
               users.${machine.username} = import ../../hosts/darwin-aarch64;
             };
           }

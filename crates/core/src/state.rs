@@ -18,6 +18,9 @@ pub struct State {
     /// source の現在状態 (v2 P1)。source 情報を含まない従来 JSON も読める
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<SourceState>,
+    /// 選択 profile (v2 §17)。未選択 (None) は manifest の default
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 
 impl State {
@@ -117,6 +120,7 @@ mod tests {
             applied_at: Some("2026-08-13".to_string()),
             product_version: Some("0.1.0".to_string()),
             source: None,
+            profile: None,
         };
         let json = serde_json::to_string(&s).unwrap();
         let back: State = serde_json::from_str(&json).unwrap();
@@ -149,10 +153,12 @@ mod tests {
                 ref_: "v0.2.0".to_string(),
                 channel: Some("stable".to_string()),
             }),
+            profile: Some("minimal".to_string()),
         };
         let json = serde_json::to_string(&s).unwrap();
         let back: State = serde_json::from_str(&json).unwrap();
         assert_eq!(back.source, s.source);
+        assert_eq!(back.profile.as_deref(), Some("minimal"));
     }
 
     #[test]
@@ -164,6 +170,7 @@ mod tests {
             applied_at: None,
             product_version: Some("0.1.0".to_string()),
             source: None,
+            profile: None,
         };
         store.save(&s).unwrap();
         let loaded = store.load().unwrap();

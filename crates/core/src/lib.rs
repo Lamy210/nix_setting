@@ -9,6 +9,7 @@ pub mod managed_nix;
 pub mod manifest;
 pub mod operations;
 pub(crate) mod process;
+pub mod profile;
 pub mod repo;
 pub mod source;
 pub mod state;
@@ -49,6 +50,10 @@ pub use operations::{
     apply, deps_update, dispatch_update, plan, plan_target, rollback, source_sync, sync, update,
     upgrade, verify, ApplyResult, PlanResult, UpdateAction, UpdateResult, VerifyCheck,
     VerifyReport,
+};
+pub use profile::{
+    clear_selection, default_profile_nix_path, override_args, resolve as resolve_profile,
+    save_selection, write_profile_input,
 };
 pub use repo::{current_git_revision, resolve_repo, Repo, RepoResolver};
 pub use source::{latest_tag_for_channel, SourceKind, SourceResolver, SourceState};

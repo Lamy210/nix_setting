@@ -4,22 +4,12 @@ use crate::error::{Error, Result};
 use crate::lock::{OperationGuard, OperationLock};
 use crate::machine;
 use crate::process::{run_capture, run_stream};
+use crate::profile;
 use crate::repo::current_git_revision;
 use crate::state::{State, StateStore};
 use crate::time::now_iso8601;
 use crate::tool::ToolInventory;
 use serde::Serialize;
-
-/// machine input の `--override-input` 引数 (actions と同じものを plan でも使う)
-fn machine_override_args() -> Result<Vec<String>> {
-    let facts = machine::MachineFacts::detect()?;
-    let path = machine::write_machine_input(&facts)?;
-    Ok(vec![
-        "--override-input".to_string(),
-        "machine".to_string(),
-        path.to_string_lossy().to_string(),
-    ])
-}
 
 /// apply / rollback の結果。output は capture 時のみ Some
 #[derive(Debug, Clone)]
@@ -44,6 +34,7 @@ pub fn applied_state(target: &ConfigurationTarget, revision: Option<String>) -> 
         applied_at: Some(now_iso8601()),
         product_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         source: None,
+        profile: None,
     }
 }
 
@@ -56,6 +47,7 @@ pub fn rolled_back_state(target: &ConfigurationTarget) -> State {
         applied_at: Some(now_iso8601()),
         product_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         source: None,
+        profile: None,
     }
 }
 
@@ -80,12 +72,14 @@ pub fn apply(
         None
     };
 
-    let state = applied_state(
+    let mut state = applied_state(
         target,
         tc.git
             .as_ref()
             .and_then(|g| current_git_revision(repo, &g.path)),
     );
+    // profile 選択は user の恒久的な選択のため apply を跨いで保持する
+    state.profile = store.load().and_then(|s| s.profile);
     store.save(&state)?;
 
     Ok(ApplyResult { output, state })
@@ -110,7 +104,9 @@ pub fn rollback(
         None
     };
 
-    let state = rolled_back_state(target);
+    let mut state = rolled_back_state(target);
+    // profile 選択は rollback を跨いでも保持する
+    state.profile = store.load().and_then(|s| s.profile);
     store.save(&state)?;
 
     Ok(ApplyResult { output, state })
@@ -158,7 +154,7 @@ pub fn plan(repo: &str, tc: &ToolInventory, capture: bool) -> Result<PlanResult>
     let mut result = plan_target(repo)?;
     let nix = tc.require_nix()?;
     let mut args = vec!["build".to_string(), "--dry-run".to_string()];
-    args.extend(machine_override_args()?);
+    args.extend(profile::override_args(repo)?);
     args.push(result.flake_target.clone());
     result.output = if capture {
         Some(run_capture(&nix.path, &args)?)

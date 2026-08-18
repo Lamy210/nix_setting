@@ -13,6 +13,14 @@
       flake = false;
     };
 
+    # 選択 profile (manifest [profiles] のいずれか)。placeholder は
+    # null で、apply 時に SchneeForge が生成した profile input へ
+    # --override-input で差し替える
+    profile = {
+      url = "path:./defaults/profile.nix";
+      flake = false;
+    };
+
     flake-parts.url = "github:hercules-ci/flake-parts";
 
     home-manager = {

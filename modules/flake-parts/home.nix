@@ -1,6 +1,11 @@
-{ inputs, ... }:
+{
+  config,
+  inputs,
+  ...
+}:
 let
   machine = import inputs.machine;
+  profileModule = config.flake.profileModules.module;
 in
 {
   flake = {
@@ -10,7 +15,9 @@ in
           system = "aarch64-darwin";
           config.allowUnfree = true;
         };
-        extraSpecialArgs = { inherit machine; };
+        extraSpecialArgs = {
+          inherit machine profileModule;
+        };
         modules = [ ../../hosts/darwin-aarch64 ];
       };
 
@@ -19,7 +26,9 @@ in
           system = "x86_64-linux";
           config.allowUnfree = true;
         };
-        extraSpecialArgs = { inherit machine; };
+        extraSpecialArgs = {
+          inherit machine profileModule;
+        };
         modules = [ ../../hosts/linux-generic ];
       };
 
@@ -28,7 +37,9 @@ in
           system = "aarch64-linux";
           config.allowUnfree = true;
         };
-        extraSpecialArgs = { inherit machine; };
+        extraSpecialArgs = {
+          inherit machine profileModule;
+        };
         modules = [ ../../hosts/linux-generic ];
       };
     };
