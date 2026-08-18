@@ -374,7 +374,8 @@ mod tests {
     #[test]
     fn rollback_macos_uses_resolved_nix() {
         // macOS rollback は tc.nix.path を使う。ここでは引数組み立てまで検証
-        let repo = manifest_repo("rollback-pinned");
+        // (dir 名は test 毎に一意にしないと並列 test の setup で消し合う)
+        let repo = manifest_repo("rollback-resolved");
         let args = darwin_rollback_args(&repo).unwrap();
         assert_eq!(args[1], "--inputs-from");
         assert_eq!(args[2], repo);
@@ -474,10 +475,14 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("schneeforge.toml"),
-            "schema = 1\n[profiles]\ndefault = \"minimal\"\navailable = [\"minimal\"]\n",
+            "schema = 1\n[profiles]\ndefault = \"developer\"\navailable = [\"minimal\", \"developer\"]\n",
         )
         .unwrap();
-        let args = profile::override_args(dir.to_string_lossy().as_ref()).unwrap();
+        let args = profile::override_args_with(
+            dir.to_string_lossy().as_ref(),
+            &crate::state::StateStore::new(dir.join("isolated-state.json")),
+        )
+        .unwrap();
         let machine_idx = args
             .iter()
             .position(|a| a == "machine")
@@ -501,9 +506,11 @@ mod tests {
         let file = machine_path.trim_start_matches("path:");
         assert!(std::path::Path::new(file).is_file(), "exists: {file}");
         let profile_file = profile_path.trim_start_matches("path:");
-        assert!(std::fs::read_to_string(profile_file)
-            .unwrap()
-            .contains("minimal"));
+        let content = std::fs::read_to_string(profile_file)
+            .unwrap_or_else(|e| panic!("read profile input {profile_file}: {e}"));
+        if !content.contains("developer") {
+            panic!("profile input content: {content:?} (path: {profile_file})");
+        }
     }
 
     #[test]
@@ -513,7 +520,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("schneeforge.toml"),
-            "schema = 1\n[profiles]\ndefault = \"minimal\"\navailable = [\"minimal\"]\n",
+            "schema = 1\n[profiles]\ndefault = \"developer\"\navailable = [\"minimal\", \"developer\"]\n",
         )
         .unwrap();
         let repo = dir.to_string_lossy().to_string();

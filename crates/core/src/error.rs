@@ -10,6 +10,8 @@ pub enum Error {
     UnsupportedPlatform { os: String, arch: String },
     /// manifest (config.toml) の読み込み・parse・検証エラー
     Manifest(String),
+    /// release metadata (schneeforge-release.json) の parse・検証エラー
+    ReleaseMetadata(String),
     /// コマンド実行エラー
     Command { command: String, detail: String },
     /// ファイル入出力エラー (state 保存等)
@@ -29,6 +31,7 @@ impl fmt::Display for Error {
                 write!(f, "unsupported platform: {os} {arch}")
             }
             Error::Manifest(msg) => write!(f, "manifest error: {msg}"),
+            Error::ReleaseMetadata(msg) => write!(f, "release metadata error: {msg}"),
             Error::Command { command, detail } => write!(f, "{command}: {detail}"),
             Error::Io(msg) => write!(f, "io error: {msg}"),
             Error::Busy(msg) => write!(f, "busy: {msg}"),

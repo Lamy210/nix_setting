@@ -373,3 +373,28 @@ fn profile_show_reports_resolved_profile() {
         );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// v2 §27: 存在しない tag の metadata は fail-closed に error。
+/// network 依存は error path のみ (成功 path の fetch は release 前提のため CI では検証しない)
+#[test]
+fn source_metadata_unknown_tag_fails_closed() {
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("source")
+        .arg("metadata")
+        .arg("v0.0.0-does-not-exist.999999")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("error:"));
+}
+
+/// v2 §27: v prefix 無しの tag は asset 取得前に検証 error になる
+#[test]
+fn source_metadata_rejects_tag_without_v_prefix() {
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("source")
+        .arg("metadata")
+        .arg("0.2.0")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("must start with 'v'"));
+}

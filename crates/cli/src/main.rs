@@ -3,7 +3,7 @@ mod nix_cmd;
 use clap::{Parser, Subcommand};
 use nix_cmd::{NixArgs, NixSub};
 use schneeforge_core::{
-    detect_target, Manifest, SourceKind, SourceResolver, StateStore, ToolInventory,
+    detect_target, Manifest, ReleaseMetadata, SourceKind, SourceResolver, StateStore, ToolInventory,
 };
 /// Declarative Developer Workstation Manager
 #[derive(Parser)]
@@ -56,6 +56,11 @@ enum Cmd {
 enum SourceSub {
     /// 現在の source (kind / ref / channel) を表示
     Status,
+    /// release tag の metadata (schneeforge-release.json) を表示
+    Metadata {
+        /// release tag (例: v0.2.0-rc.5)
+        tag: String,
+    },
     /// git tracking source を pull --ff-only (Advanced)
     Sync,
     /// 依存 (flake.lock) を更新 — `nix flake update` 相当 (Advanced)
@@ -369,6 +374,7 @@ fn run_profile(sub: ProfileSub, repo: &str) -> Result {
 fn run_source(sub: SourceSub, repo: &str, tc: &ToolInventory) -> Result {
     match sub {
         SourceSub::Status => source_status(repo, tc),
+        SourceSub::Metadata { tag } => source_metadata(&tag),
         SourceSub::Sync => {
             schneeforge_core::source_sync(repo, tc, false).map_err(|e| e.to_string())?;
             Ok(())
@@ -378,6 +384,22 @@ fn run_source(sub: SourceSub, repo: &str, tc: &ToolInventory) -> Result {
             Ok(())
         }
     }
+}
+
+fn source_metadata(tag: &str) -> Result {
+    let m = ReleaseMetadata::fetch(tag).map_err(|e| e.to_string())?;
+    println!("=== release metadata: {tag} ===");
+    println!();
+    println!("  version:                    {}", m.version);
+    println!("  channel:                    {}", m.channel);
+    println!("  source revision:            {}", m.source_revision);
+    println!(
+        "  minimum schneeforge:        {}",
+        m.minimum_schneeforge_version
+    );
+    println!("  configuration schema:       {}", m.configuration_schema);
+    println!("  systems:                    {}", m.systems.join(", "));
+    Ok(())
 }
 
 fn source_status(repo: &str, tc: &ToolInventory) -> Result {

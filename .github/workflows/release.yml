@@ -124,6 +124,9 @@ jobs:
           target="$(nix path-info .#homeConfigurations.linux.activationPackage)"
           nix run nixpkgs#sbomnix -- "$target" --cdx sbom.cdx.json
 
+      - name: generate release metadata (v2 §27)
+        run: ./scripts/ci/generate-release-metadata.sh "${{ github.ref_name }}" "${{ github.sha }}"
+
       - name: generate checksums
         run: |
           {
@@ -134,6 +137,9 @@ jobs:
             echo
             echo "## SBOM"
             sha256sum sbom.cdx.json
+            echo
+            echo "## Release metadata"
+            sha256sum schneeforge-release.json
             echo
             echo "## flake.lock"
             sha256sum flake.lock
@@ -148,6 +154,7 @@ jobs:
           files: |
             dist/*/*
             sbom.cdx.json
+            schneeforge-release.json
             CHECKSUMS.txt
           generate_release_notes: true
           # -rc / -beta tag は prerelease 扱いにし releases/latest API が
