@@ -203,6 +203,66 @@ async fn run_clone_repo(
     .map_err(|e| format!("task error: {e}"))
 }
 
+/// `run_source_init`: managed source を state に設定する (wizard の
+/// source 設定 step から呼ばれる)。CLI `source init` と同一の core 経路
+/// (channel 既定 stable の最新 tag 解決 + ReleaseMetadata 検証) を使い、
+/// state 保存も core 側で行われる。git clone は行わない。
+#[tauri::command]
+async fn run_source_init(
+    channel: Option<String>,
+    tag: Option<String>,
+    state: tauri::State<'_, CachedToolInventory>,
+) -> Result<CommandOutput, String> {
+    let tc = state.get_or_discover()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(git) = tc.git.as_ref() else {
+            return CommandOutput {
+                success: false,
+                output: "git not found; managed source requires git to resolve tags".to_string(),
+            };
+        };
+        let repo = resolve_repo(None);
+        match schneeforge_core::source_init(
+            &repo,
+            &schneeforge_core::StateStore::default(),
+            git,
+            channel,
+            tag,
+        ) {
+            Ok(result) => {
+                let src = &result.source;
+                let mut out = format!(
+                    "managed source set: {} ({})\n",
+                    src.flake_ref().as_deref().unwrap_or(&src.ref_),
+                    src.channel.as_deref().unwrap_or("-")
+                );
+                match &src.revision {
+                    Some(rev) => out.push_str(&format!("revision verified: {rev}\n")),
+                    None => out.push_str("revision: (not verified; no release metadata)\n"),
+                }
+                if result.migrated_from_checkout {
+                    out.push_str(&format!(
+                        "migrated from the existing checkout (tag {}); \
+                         the checkout directory is left in place\n",
+                        src.ref_
+                    ));
+                }
+                out.push_str("state saved");
+                CommandOutput {
+                    success: true,
+                    output: out,
+                }
+            }
+            Err(e) => CommandOutput {
+                success: false,
+                output: e.to_string(),
+            },
+        }
+    })
+    .await
+    .map_err(|e| format!("task error: {e}"))
+}
+
 #[tauri::command]
 async fn run_plan(state: tauri::State<'_, CachedToolInventory>) -> Result<CommandOutput, String> {
     let tc = state.get_or_discover()?;
@@ -710,6 +770,7 @@ pub fn run() {
             run_preflight,
             machine_facts,
             run_clone_repo,
+            run_source_init,
             run_plan,
             run_verify,
             nix_prepare_plan,
@@ -1092,26 +1153,82 @@ mod tests {
         );
     }
 
-    /// wizard (stepPrereq) は Managed Nix 導入の案内を `status.repo_exists` で
-    /// gate する。repo 未 clone では install が manifest 解決に失敗するため
-    /// (backend も fail-closed で拒否する)、frontend は先に repo step へ
-    /// 誘導しなければならない。
+    /// wizard (stepPrereq) は Managed Nix 導入を repo clone 有無に依存せず
+    /// offering する。escalated 先の CLI sidecar は embedded manifest で
+    /// 動作するため (bootstrap-manifest の repo 依存は解消済み)、fresh
+    /// machine でも clone 前にそのまま導入できる。
     #[test]
-    fn wizard_gates_nix_install_on_repo_exists() {
+    fn wizard_nix_install_is_repo_independent() {
         let js = include_str!("../../dist/main.js");
+        let step = js
+            .split("async function stepPrereq")
+            .nth(1)
+            .expect("stepPrereq must exist");
+        let body = step.split("\n}").next().unwrap_or(step);
         assert!(
-            js.contains("status.repo_exists"),
-            "stepPrereq must check status.repo_exists before offering the Managed Nix install"
+            !body.contains("repo_exists"),
+            "stepPrereq must not gate the Managed Nix install on repo_exists"
         );
-        // gate の分岐よりも install flow の呼び出しが後になっている
-        // (gate が dead code 化していないことの静的確認)
-        let gate = js.find("status.repo_exists").expect("repo gate");
-        let install = js
-            .find("stepNixInstall(box, actions)")
-            .expect("install flow");
         assert!(
-            gate < install,
-            "repo_exists gate must come before invoking the install flow"
+            js.contains("stepNixInstall(box, actions)"),
+            "the Managed Nix install flow must still be offered"
+        );
+    }
+
+    /// wizard (stepRepo) は managed source (clone 不要) を提供し、git clone は
+    /// fork / 開発者向けの選択肢として残る。managed は clone 無しの machine で
+    /// 既定 (`checked`) になる。
+    #[test]
+    fn wizard_source_step_offers_managed_init() {
+        let js = include_str!("../../dist/main.js");
+        let step = js
+            .split("async function stepRepo")
+            .nth(1)
+            .expect("stepRepo must exist");
+        let body = step.split("\n}").next().unwrap_or(step);
+        assert!(
+            body.contains('invoke("run_source_init"'),
+            "stepRepo must invoke run_source_init for the managed source"
+        );
+        assert!(
+            body.contains('invoke("run_clone_repo"'),
+            "stepRepo must keep run_clone_repo for forks / developers"
+        );
+        // clone 未選択では git clone が走らないこと (managed 既定の確認)
+        assert!(
+            body.contains('value="managed"') && body.contains("mode === \"clone\""),
+            "source selection must dispatch on the chosen mode (managed default)"
+        );
+    }
+
+    /// boot の setup gate は「source が未初期化」(checkout 無し かつ managed
+    /// source 無し) の場合のみ setup を表示する。managed source だけで
+    /// 初期化済みの machine (repo 無し) が毎回 wizard に回らないことの検証。
+    #[test]
+    fn boot_gate_accepts_managed_source() {
+        let js = include_str!("../../dist/main.js");
+        let boot = js
+            .split("async function boot")
+            .nth(1)
+            .expect("boot must exist");
+        let body = boot.split("\n}").next().unwrap_or(boot);
+        assert!(
+            body.contains("!s.repo_exists") && body.contains("!s.managed_source"),
+            "boot gate must require both !repo_exists and !managed_source to show setup"
+        );
+        // Diagnostics は managed_source を serialize する (JS の undefined は
+        // falsy 化するため、backend 側 key 欠落は静かに常に setup 化する)
+        let tc = ToolInventory {
+            nix: None,
+            git: None,
+            homebrew: None,
+            nh: None,
+        };
+        let d = schneeforge_core::diagnose(&tc, None);
+        let json = serde_json::to_value(&d).unwrap();
+        assert!(
+            json.get("managed_source").is_some(),
+            "Diagnostics must serialize managed_source"
         );
     }
 
