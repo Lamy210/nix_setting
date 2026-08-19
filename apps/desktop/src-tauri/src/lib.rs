@@ -275,7 +275,7 @@ async fn get_profiles() -> Result<schneeforge_core::ProfileList, String> {
         schneeforge_core::list_profiles(&repo).map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| format!("task error: {e}"))
+    .map_err(|e| format!("task error: {e}"))?
 }
 
 /// `set_profile`: manifest の available 検証を行ってから state へ保存する
