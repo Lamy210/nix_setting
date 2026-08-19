@@ -56,6 +56,15 @@ enum Cmd {
 enum SourceSub {
     /// 現在の source (kind / ref / channel) を表示
     Status,
+    /// managed source (working tree-less) を state に設定 (v2 §7)
+    Init {
+        /// Release channel (tag 未指定時はこの channel の最新を解決)
+        #[arg(long)]
+        channel: Option<String>,
+        /// release tag (例: v0.2.0)。未指定なら channel の最新
+        #[arg(long)]
+        tag: Option<String>,
+    },
     /// release tag の metadata (schneeforge-release.json) を表示
     Metadata {
         /// release tag (例: v0.2.0-rc.5)
@@ -237,7 +246,17 @@ fn status(repo: &str) -> Result {
             println!("  profile: {p} ({origin})");
         }
         Err(_) if !std::path::Path::new(&format!("{repo}/schneeforge.toml")).exists() => {
-            println!("  profile: (manifest not found)");
+            // managed source は local に manifest file が無くても cache/fetch で
+            // 読めるため、実態に応じた表示にする
+            let managed = state
+                .as_ref()
+                .and_then(|s| s.source.as_ref())
+                .is_some_and(|s| s.is_managed_release());
+            if managed {
+                println!("  profile: (manifest fetch failed)");
+            } else {
+                println!("  profile: (manifest not found)");
+            }
         }
         Err(e) => println!("  profile: (error: {e})"),
     }
@@ -318,7 +337,8 @@ fn update(repo: &str, tc: &ToolInventory) -> Result {
 fn run_profile(sub: ProfileSub, repo: &str) -> Result {
     match sub {
         ProfileSub::List => {
-            let manifest = Manifest::load(repo).map_err(|e| e.to_string())?;
+            let manifest =
+                load_manifest(repo).ok_or_else(|| "failed to load schneeforge.toml".to_string())?;
             let default = manifest.profiles.default.as_deref().unwrap_or("(unset)");
             let selected = StateStore::default().load().and_then(|s| s.profile);
             println!("=== profiles ===");
@@ -341,7 +361,8 @@ fn run_profile(sub: ProfileSub, repo: &str) -> Result {
             Ok(())
         }
         ProfileSub::Set { name } => {
-            let manifest = Manifest::load(repo).map_err(|e| e.to_string())?;
+            let manifest =
+                load_manifest(repo).ok_or_else(|| "failed to load schneeforge.toml".to_string())?;
             if !manifest.profiles.available.contains(&name) {
                 return Err(format!(
                     "profile '{name}' is not in manifest profiles.available: {:?}",
@@ -374,6 +395,7 @@ fn run_profile(sub: ProfileSub, repo: &str) -> Result {
 fn run_source(sub: SourceSub, repo: &str, tc: &ToolInventory) -> Result {
     match sub {
         SourceSub::Status => source_status(repo, tc),
+        SourceSub::Init { channel, tag } => source_init(repo, tc, channel, tag),
         SourceSub::Metadata { tag } => source_metadata(&tag),
         SourceSub::Sync => {
             schneeforge_core::source_sync(repo, tc, false).map_err(|e| e.to_string())?;
@@ -384,6 +406,40 @@ fn run_source(sub: SourceSub, repo: &str, tc: &ToolInventory) -> Result {
             Ok(())
         }
     }
+}
+
+/// `schneeforge source init`: managed source を state に設定する
+fn source_init(
+    repo: &str,
+    tc: &ToolInventory,
+    channel: Option<String>,
+    tag: Option<String>,
+) -> Result {
+    let git = tc
+        .git
+        .as_ref()
+        .ok_or_else(|| "git not found; managed source requires git to resolve tags".to_string())?;
+    let result = schneeforge_core::source_init(repo, &StateStore::default(), git, channel, tag)
+        .map_err(|e| e.to_string())?;
+    let src = &result.source;
+    println!(
+        "managed source set: {} ({})",
+        src.flake_ref().as_deref().unwrap_or(&src.ref_),
+        src.channel.as_deref().unwrap_or("-")
+    );
+    match &src.revision {
+        Some(rev) => println!("  revision verified: {rev}"),
+        None => println!("  revision: (not verified; no release metadata for this tag)"),
+    }
+    if result.migrated_from_checkout {
+        println!(
+            "  migrated from the existing checkout (tag {}); \
+             the checkout directory is left in place",
+            src.ref_
+        );
+    }
+    println!("state saved");
+    Ok(())
 }
 
 fn source_metadata(tag: &str) -> Result {
@@ -405,10 +461,46 @@ fn source_metadata(tag: &str) -> Result {
 fn source_status(repo: &str, tc: &ToolInventory) -> Result {
     println!("=== source status ===");
     println!();
+    let state = StateStore::default().load();
+    // managed source は checkout 実態を持たないため state から表示する
+    if let Some(src) = state
+        .as_ref()
+        .and_then(|s| s.source.as_ref())
+        .filter(|s| s.is_managed_release())
+    {
+        println!("  kind:      {} (managed)", src.kind);
+        println!(
+            "  ref:       {}",
+            src.flake_ref().as_deref().unwrap_or(&src.ref_)
+        );
+        if let Some(channel) = &src.channel {
+            println!("  channel:   {channel}");
+        }
+        match &src.revision {
+            Some(rev) => println!("  revision:  {rev} (verified)"),
+            None => println!("  revision:  (not verified; no release metadata)"),
+        }
+        let cached =
+            schneeforge_core::source_files::has_cached_files(src, &schneeforge_core::state_dir());
+        println!(
+            "  file cache: {}",
+            if cached {
+                "present (offline readable)"
+            } else {
+                "none (fetch on next read)"
+            }
+        );
+        print_state_source(state.as_ref());
+        if let Some(s) = &state {
+            if let Some(rev) = &s.applied_revision {
+                println!("  applied:   {rev}");
+            }
+        }
+        return Ok(());
+    }
     let git = match tc.git.as_ref() {
         Some(g) => g,
         None => {
-            let state = StateStore::default().load();
             println!("  (git not found; showing state only)");
             print_state_source(state.as_ref());
             return Ok(());
@@ -422,7 +514,6 @@ fn source_status(repo: &str, tc: &ToolInventory) -> Result {
     if let Some(channel) = &detected.channel {
         println!("  channel: {channel}");
     }
-    let state = StateStore::default().load();
     print_state_source(state.as_ref());
     if let Some(s) = &state {
         if let Some(rev) = &s.applied_revision {
@@ -443,12 +534,19 @@ fn print_state_source(state: Option<&schneeforge_core::State>) {
     }
 }
 
-/// doctor 用: source kind を 1 行で返す (検出失敗は None)
+/// doctor 用: source kind を 1 行で返す (検出失敗は None)。
+/// state が managed source を示す場合は checkout を見ずにそれを表示する
 fn source_kind_line(repo: &str, tc: &ToolInventory) -> Option<String> {
-    let git = tc.git.as_ref()?;
-    let state = SourceResolver::new().detect(repo, git).ok()?;
+    let stored = StateStore::default().load().and_then(|s| s.source);
+    let state = if let Some(src) = stored.as_ref().filter(|s| s.is_managed_release()) {
+        src.clone()
+    } else {
+        let git = tc.git.as_ref()?;
+        SourceResolver::new().detect(repo, git).ok()?
+    };
     let _ = SourceKind::Local; // import 確認用 (kind は Display 経由で使用)
-    Some(format!("{} ({})", state.kind, state.ref_))
+    let display_ref = state.flake_ref().unwrap_or_else(|| state.ref_.clone());
+    Some(format!("{} ({})", state.kind, display_ref))
 }
 
 fn verify(repo: &str, tc: &ToolInventory) -> Result {
@@ -493,8 +591,10 @@ fn uninstall() -> Result {
     Ok(())
 }
 
+/// manifest 読み取りは source 解決経由: managed なら tag-pinned 取得、
+/// それ以外は local filesystem
 fn load_manifest(repo: &str) -> Option<Manifest> {
-    Manifest::load(repo).ok()
+    schneeforge_core::load_manifest_for(repo, &StateStore::default()).ok()
 }
 
 fn run_nix(sub: NixSub, repo: &str) -> Result {

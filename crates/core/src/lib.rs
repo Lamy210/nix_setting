@@ -14,6 +14,7 @@ pub mod profile;
 pub mod release_metadata;
 pub mod repo;
 pub mod source;
+pub mod source_files;
 pub mod state;
 pub mod time;
 pub mod tool;
@@ -53,9 +54,9 @@ pub use managed_nix::{
 };
 pub use manifest::{Manifest, Validation};
 pub use operations::{
-    apply, deps_update, dispatch_update, plan, plan_target, rollback, source_sync, sync, update,
-    upgrade, verify, ApplyResult, PlanResult, UpdateAction, UpdateResult, VerifyCheck,
-    VerifyReport,
+    apply, deps_update, dispatch_update, plan, plan_target, rollback, source_init, source_sync,
+    sync, update, upgrade, verify, ApplyResult, PlanResult, UpdateAction, UpdateResult,
+    VerifyCheck, VerifyReport,
 };
 pub use profile::{
     clear_selection, default_profile_nix_path, override_args, resolve as resolve_profile,
@@ -63,7 +64,11 @@ pub use profile::{
 };
 pub use release_metadata::{channel_for_version, ReleaseMetadata};
 pub use repo::{current_git_revision, resolve_repo, Repo, RepoResolver};
-pub use source::{latest_tag_for_channel, SourceKind, SourceResolver, SourceState};
+pub use source::{
+    classify_release_tag, effective_ref, github_slug, latest_tag_for_channel, repo_url, SourceKind,
+    SourceResolver, SourceState,
+};
+pub use source_files::load_manifest_for;
 pub use state::{State, StateStore};
 pub use time::{days_to_ymd, format_unix_secs, now_iso8601};
 pub use tool::{

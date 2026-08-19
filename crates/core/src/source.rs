@@ -53,6 +53,91 @@ pub struct SourceState {
     /// Release source の channel ("stable" / "preview")。それ以外は None
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel: Option<String>,
+    /// managed (working tree-less) 表現か (v2 §7)。true なら source の
+    /// 実体は flake ref `github:<owner>/<repo>/<tag>` で、nix が直接
+    /// 取得・cache する。旧 state.json は false (checkout 表現) として
+    /// 読み込める
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub managed: bool,
+    /// managed source の取得元 repository URL。fork で差し替えられた
+    /// 場合の特定のため state に記録する
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<String>,
+    /// ReleaseMetadata (§27) の source_revision。tag → commit SHA の
+    /// 不変性の検証記録。metadata asset を持たない tag は None
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+}
+
+impl SourceState {
+    /// managed な Release source か (detect / dispatch の分岐条件)
+    pub fn is_managed_release(&self) -> bool {
+        self.managed && self.kind.is_release()
+    }
+
+    /// managed source の取得元 repository URL
+    /// (未記録なら `SCHNEEFORGE_REPO_URL` / 既定 URL)
+    pub fn remote_url(&self) -> String {
+        self.remote.clone().unwrap_or_else(repo_url)
+    }
+
+    /// managed source の flake ref (`github:<owner>/<repo>/<tag>`)。
+    /// managed でない Release や URL から owner/repo が解決できない
+    /// 場合は None
+    pub fn flake_ref(&self) -> Option<String> {
+        if !self.is_managed_release() {
+            return None;
+        }
+        let (owner, repo) = github_slug(&self.remote_url())?;
+        Some(format!("github:{owner}/{repo}/{}", self.ref_))
+    }
+}
+
+/// 既定の repository URL (`SCHNEEFORGE_REPO_URL` > `DEFAULT_REPO_URL`)。
+/// install.sh の `REPO_URL="${SCHNEEFORGE_REPO_URL:-...}"` と同じ規約
+pub fn repo_url() -> String {
+    std::env::var("SCHNEEFORGE_REPO_URL")
+        .unwrap_or_else(|_| crate::bootstrap::DEFAULT_REPO_URL.to_string())
+}
+
+/// repository URL から github の owner / repo を解決する。
+/// `https://github.com/<owner>/<repo>[.git]` と
+/// `git@github.com:<owner>/<repo>[.git]` 形式を受け付ける
+pub fn github_slug(url: &str) -> Option<(String, String)> {
+    let path = url
+        .strip_prefix("https://github.com/")
+        .or_else(|| url.strip_prefix("ssh://git@github.com/"))
+        .or_else(|| url.strip_prefix("git@github.com:"))?;
+    let path = path.trim_end_matches(".git").trim_end_matches('/');
+    let mut parts = path.split('/');
+    let owner = parts.next()?;
+    let repo = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    if !is_slug_component(owner) || !is_slug_component(repo) {
+        return None;
+    }
+    Some((owner.to_string(), repo.to_string()))
+}
+
+/// owner / repo 名として安全な文字列か (URL 構築の前に検証する)
+fn is_slug_component(s: &str) -> bool {
+    !s.is_empty()
+        && s != "."
+        && s != ".."
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+/// nix 引数に渡す repository 参照。state が managed Release を示す場合は
+/// flake ref (`github:<owner>/<repo>/<tag>`)、それ以外は path をそのまま返す
+pub fn effective_ref(repo: &str, store: &crate::state::StateStore) -> String {
+    store
+        .load()
+        .and_then(|s| s.source)
+        .and_then(|src| src.flake_ref())
+        .unwrap_or_else(|| repo.to_string())
 }
 
 /// checkout の実態から SourceKind を解決する
@@ -74,6 +159,9 @@ impl SourceResolver {
                 kind: SourceKind::Local,
                 ref_: "-".to_string(),
                 channel: None,
+                managed: false,
+                remote: None,
+                revision: None,
             });
         }
 
@@ -82,6 +170,9 @@ impl SourceResolver {
                 kind: SourceKind::GitTracking,
                 ref_: branch,
                 channel: None,
+                managed: false,
+                remote: None,
+                revision: None,
             }),
             None => {
                 // detached HEAD: exact tag を持つか
@@ -92,12 +183,18 @@ impl SourceResolver {
                             kind,
                             ref_: tag,
                             channel: Some(channel.to_string()),
+                            managed: false,
+                            remote: None,
+                            revision: None,
                         }),
                         // v prefix 以外の tag や semver 形式でない tag は固定扱い
                         None => Ok(SourceState {
                             kind: SourceKind::GitPinned,
                             ref_: tag,
                             channel: None,
+                            managed: false,
+                            remote: None,
+                            revision: None,
                         }),
                     },
                     None => {
@@ -106,11 +203,31 @@ impl SourceResolver {
                             kind: SourceKind::GitPinned,
                             ref_: rev,
                             channel: None,
+                            managed: false,
+                            remote: None,
+                            revision: None,
                         })
                     }
                 }
             }
         }
+    }
+
+    /// state に記録された managed source を優先する解決 (v2 §7)。
+    /// state が managed な Release を示す場合は checkout の実態を見ずに
+    /// それを返す。それ以外 (managed 無しを含む) は checkout から検出する。
+    pub fn resolve(
+        &self,
+        repo: &str,
+        git: &ResolvedTool,
+        stored: Option<&SourceState>,
+    ) -> Result<SourceState> {
+        if let Some(state) = stored {
+            if state.is_managed_release() {
+                return Ok(state.clone());
+            }
+        }
+        self.detect(repo, git)
     }
 }
 
@@ -161,7 +278,8 @@ fn git_output(repo: &str, git: &ResolvedTool, args: &[&str]) -> Result<String> {
 
 /// release tag 名を分類する。`v` prefix + semver なら
 /// prerelease suffix の有無で Stable/Preview を返す。
-fn classify_release_tag(tag: &str) -> Option<(SourceKind, &'static str)> {
+/// managed source の設定時に tag から channel を導出するため public
+pub fn classify_release_tag(tag: &str) -> Option<(SourceKind, &'static str)> {
     let version = tag.strip_prefix('v')?;
     if !is_semverish(version) {
         return None;
@@ -425,11 +543,190 @@ mod tests {
             kind: SourceKind::ReleaseStable,
             ref_: "v0.2.0".to_string(),
             channel: Some("stable".to_string()),
+            managed: false,
+            remote: None,
+            revision: None,
         };
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains("\"release-stable\""));
         assert!(json.contains("\"ref\""));
         let back: SourceState = serde_json::from_str(&json).unwrap();
         assert_eq!(back, s);
+    }
+
+    // -------------------------------------------------------------------------
+    // managed source (v2 §7)
+    // -------------------------------------------------------------------------
+
+    fn managed_state(kind: SourceKind, tag: &str, channel: &str) -> SourceState {
+        SourceState {
+            kind,
+            ref_: tag.to_string(),
+            channel: Some(channel.to_string()),
+            managed: true,
+            remote: Some("https://github.com/Lamy210/nix_setting.git".to_string()),
+            revision: Some("0123456789abcdef0123456789abcdef01234567".to_string()),
+        }
+    }
+
+    #[test]
+    fn legacy_state_without_managed_loads_as_checkout() {
+        // managed field を持たない旧 state.json は managed=false として読める
+        let json = r#"{"kind":"release-stable","ref":"v0.2.0","channel":"stable"}"#;
+        let s: SourceState = serde_json::from_str(json).unwrap();
+        assert_eq!(s.kind, SourceKind::ReleaseStable);
+        assert!(!s.managed);
+        assert!(s.remote.is_none());
+        assert!(s.revision.is_none());
+    }
+
+    #[test]
+    fn managed_state_roundtrips_new_fields() {
+        let s = managed_state(SourceKind::ReleasePreview, "v0.3.0-rc.1", "preview");
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"managed\":true"));
+        assert!(json.contains("\"remote\""));
+        assert!(json.contains("\"revision\""));
+        let back: SourceState = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, s);
+    }
+
+    #[test]
+    fn managed_fields_are_omitted_when_default() {
+        // checkout 表現の state.json は旧形式と同じ key 構成のまま
+        let s = SourceState {
+            kind: SourceKind::ReleaseStable,
+            ref_: "v0.2.0".to_string(),
+            channel: Some("stable".to_string()),
+            managed: false,
+            remote: None,
+            revision: None,
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(!json.contains("\"managed\""));
+        assert!(!json.contains("\"remote\""));
+        assert!(!json.contains("\"revision\""));
+    }
+
+    #[test]
+    fn flake_ref_formats_github_tag_ref() {
+        let s = managed_state(SourceKind::ReleaseStable, "v0.2.0", "stable");
+        assert_eq!(
+            s.flake_ref().as_deref(),
+            Some("github:Lamy210/nix_setting/v0.2.0")
+        );
+        // ssh 形式の fork URL でも owner/repo は解決できる
+        let fork = SourceState {
+            remote: Some("git@github.com:alice/nix_setting.git".to_string()),
+            ..managed_state(SourceKind::ReleaseStable, "v0.2.0", "stable")
+        };
+        assert_eq!(
+            fork.flake_ref().as_deref(),
+            Some("github:alice/nix_setting/v0.2.0")
+        );
+    }
+
+    #[test]
+    fn flake_ref_is_none_for_non_managed_or_non_release() {
+        let mut s = managed_state(SourceKind::ReleaseStable, "v0.2.0", "stable");
+        s.managed = false;
+        assert_eq!(s.flake_ref(), None);
+        let pinned = SourceState {
+            kind: SourceKind::GitPinned,
+            ref_: "v0.2.0".to_string(),
+            channel: None,
+            managed: true,
+            remote: None,
+            revision: None,
+        };
+        assert_eq!(pinned.flake_ref(), None);
+    }
+
+    #[test]
+    fn github_slug_parses_supported_url_forms() {
+        assert_eq!(
+            github_slug("https://github.com/Lamy210/nix_setting.git"),
+            Some(("Lamy210".to_string(), "nix_setting".to_string()))
+        );
+        assert_eq!(
+            github_slug("https://github.com/Lamy210/nix_setting"),
+            Some(("Lamy210".to_string(), "nix_setting".to_string()))
+        );
+        assert_eq!(
+            github_slug("git@github.com:alice/nix_setting.git"),
+            Some(("alice".to_string(), "nix_setting".to_string()))
+        );
+        assert_eq!(
+            github_slug("ssh://git@github.com/alice/nix_setting.git"),
+            Some(("alice".to_string(), "nix_setting".to_string()))
+        );
+        assert_eq!(github_slug("https://gitlab.com/a/b.git"), None);
+        assert_eq!(github_slug("https://github.com/a/b/c"), None);
+        assert_eq!(github_slug("https://github.com/../nix_setting"), None);
+    }
+
+    #[test]
+    fn effective_ref_uses_flake_ref_only_for_managed_release() {
+        let dir = std::env::temp_dir().join(format!("sf-effective-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = crate::state::StateStore::new(dir.join("state.json"));
+
+        // managed でない場合は path をそのまま返す
+        assert_eq!(effective_ref("/tmp/repo", &store), "/tmp/repo");
+
+        let mut state = crate::state::State {
+            source: Some(managed_state(SourceKind::ReleaseStable, "v0.2.0", "stable")),
+            ..crate::state::State::default()
+        };
+        store.save(&state).unwrap();
+        assert_eq!(
+            effective_ref("/tmp/repo", &store),
+            "github:Lamy210/nix_setting/v0.2.0"
+        );
+
+        // checkout 表現の source が記録されていても path のまま
+        state.source = Some(SourceState {
+            kind: SourceKind::ReleaseStable,
+            ref_: "v0.2.0".to_string(),
+            channel: Some("stable".to_string()),
+            managed: false,
+            remote: None,
+            revision: None,
+        });
+        store.save(&state).unwrap();
+        assert_eq!(effective_ref("/tmp/repo", &store), "/tmp/repo");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_prefers_managed_state_over_checkout() {
+        // managed state は checkout 実態 (Local な空 dir) によらず返される
+        let dir = temp_repo("managed-resolve");
+        let stored = managed_state(SourceKind::ReleaseStable, "v0.2.0", "stable");
+        let resolved = SourceResolver::new()
+            .resolve(dir.to_str().unwrap(), &resolved_git(), Some(&stored))
+            .unwrap();
+        assert_eq!(resolved, stored);
+
+        // managed でない state (旧 state.json 相当) は checkout 検出に fallthrough
+        let checkout_state = SourceState {
+            kind: SourceKind::ReleaseStable,
+            ref_: "v0.2.0".to_string(),
+            channel: Some("stable".to_string()),
+            managed: false,
+            remote: None,
+            revision: None,
+        };
+        let resolved = SourceResolver::new()
+            .resolve(
+                dir.to_str().unwrap(),
+                &resolved_git(),
+                Some(&checkout_state),
+            )
+            .unwrap();
+        assert_eq!(resolved.kind, SourceKind::Local);
+        assert!(!resolved.managed);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -6,14 +6,19 @@ use crate::tool::{ResolvedTool, ToolInventory};
 use std::path::Path;
 
 /// macOS apply の引数 (`nix run --inputs-from <repo> nix-darwin#darwin-rebuild -- switch --flake <ref>`)
-/// `--inputs-from <repo>` で repo の flake.lock に pin された nix-darwin を使う (registry 非依存)
-fn darwin_switch_args(repo: &str, target: &ConfigurationTarget) -> Result<Vec<String>> {
+/// `--inputs-from <repo>` で repo の flake.lock に pin された nix-darwin を使う (registry 非依存)。
+/// `repo` は path / `github:` flake ref どちらの文字列もそのまま受け付ける
+fn darwin_switch_args(
+    repo: &str,
+    target: &ConfigurationTarget,
+    overrides: &[String],
+) -> Vec<String> {
     let mut args = vec![
         "run".to_string(),
         "--inputs-from".to_string(),
         repo.to_string(),
     ];
-    args.extend(profile::override_args(repo)?);
+    args.extend_from_slice(overrides);
     args.extend([
         "nix-darwin#darwin-rebuild".to_string(),
         "--".to_string(),
@@ -21,19 +26,24 @@ fn darwin_switch_args(repo: &str, target: &ConfigurationTarget) -> Result<Vec<St
         "--flake".to_string(),
         target.switch_ref(repo),
     ]);
-    Ok(args)
+    args
 }
 
 /// Linux apply の build 引数 (`nix build --out-link <link> <ref>`)
-fn linux_build_args(repo: &str, target: &ConfigurationTarget, link: &str) -> Result<Vec<String>> {
+fn linux_build_args(
+    repo: &str,
+    target: &ConfigurationTarget,
+    link: &str,
+    overrides: &[String],
+) -> Vec<String> {
     let mut args = vec![
         "build".to_string(),
         "--out-link".to_string(),
         link.to_string(),
     ];
-    args.extend(profile::override_args(repo)?);
+    args.extend_from_slice(overrides);
     args.push(target.build_ref(repo));
-    Ok(args)
+    args
 }
 
 /// activationPackage を build する際の一時 symlink パス
@@ -77,7 +87,8 @@ pub(crate) fn apply(target: &ConfigurationTarget, repo: &str, tc: &ToolInventory
     }
     let nix = tc.require_nix()?;
     if target.platform() == crate::discovery::Platform::MacOS {
-        run_stream(&nix.path, &darwin_switch_args(repo, target)?)
+        let args = darwin_switch_args(repo, target, &profile::override_args(repo)?);
+        run_stream(&nix.path, &args)
     } else {
         apply_linux(target, repo, nix)
     }
@@ -94,7 +105,8 @@ pub(crate) fn apply_captured(
     }
     let nix = tc.require_nix()?;
     if target.platform() == crate::discovery::Platform::MacOS {
-        run_capture(&nix.path, &darwin_switch_args(repo, target)?)
+        let args = darwin_switch_args(repo, target, &profile::override_args(repo)?);
+        run_capture(&nix.path, &args)
     } else {
         apply_linux_captured(target, repo, nix)
     }
@@ -103,7 +115,9 @@ pub(crate) fn apply_captured(
 /// Linux: activationPackage を build して activate する (nh 非依存)
 fn apply_linux(target: &ConfigurationTarget, repo: &str, nix: &ResolvedTool) -> Result<()> {
     let link = ActivationLink::new();
-    run_stream(&nix.path, &linux_build_args(repo, target, &link.path)?)?;
+    let overrides = profile::override_args(repo)?;
+    let args = linux_build_args(repo, target, &link.path, &overrides);
+    run_stream(&nix.path, &args)?;
     run_stream(Path::new(&format!("{}/activate", link.path)), &[])
 }
 
@@ -113,7 +127,9 @@ fn apply_linux_captured(
     nix: &ResolvedTool,
 ) -> Result<String> {
     let link = ActivationLink::new();
-    let mut out = run_capture(&nix.path, &linux_build_args(repo, target, &link.path)?)?;
+    let overrides = profile::override_args(repo)?;
+    let args = linux_build_args(repo, target, &link.path, &overrides);
+    let mut out = run_capture(&nix.path, &args)?;
     let activate = run_capture(Path::new(&format!("{}/activate", link.path)), &[])?;
     if !activate.is_empty() {
         out.push('\n');
@@ -123,19 +139,19 @@ fn apply_linux_captured(
 }
 
 /// macOS rollback の引数 (`nix run --inputs-from <repo> nix-darwin#darwin-rebuild -- --rollback`)
-fn darwin_rollback_args(repo: &str) -> Result<Vec<String>> {
+fn darwin_rollback_args(repo: &str, overrides: &[String]) -> Vec<String> {
     let mut args = vec![
         "run".to_string(),
         "--inputs-from".to_string(),
         repo.to_string(),
     ];
-    args.extend(profile::override_args(repo)?);
+    args.extend_from_slice(overrides);
     args.extend([
         "nix-darwin#darwin-rebuild".to_string(),
         "--".to_string(),
         "--rollback".to_string(),
     ]);
-    Ok(args)
+    args
 }
 
 /// Linux rollback の引数 (`nh home switch --rollback`)
@@ -155,7 +171,8 @@ pub(crate) fn rollback(target: &ConfigurationTarget, repo: &str, tc: &ToolInvent
     }
     if target.platform() == crate::discovery::Platform::MacOS {
         let nix = tc.require_nix()?;
-        run_stream(&nix.path, &darwin_rollback_args(repo)?)
+        let args = darwin_rollback_args(repo, &profile::override_args(repo)?);
+        run_stream(&nix.path, &args)
     } else {
         let nh = tc
             .nh
@@ -176,7 +193,8 @@ pub(crate) fn rollback_captured(
     }
     if target.platform() == crate::discovery::Platform::MacOS {
         let nix = tc.require_nix()?;
-        run_capture(&nix.path, &darwin_rollback_args(repo)?)
+        let args = darwin_rollback_args(repo, &profile::override_args(repo)?);
+        run_capture(&nix.path, &args)
     } else {
         let nh = tc
             .nh
@@ -376,7 +394,7 @@ mod tests {
         // macOS rollback は tc.nix.path を使う。ここでは引数組み立てまで検証
         // (dir 名は test 毎に一意にしないと並列 test の setup で消し合う)
         let repo = manifest_repo("rollback-resolved");
-        let args = darwin_rollback_args(&repo).unwrap();
+        let args = darwin_rollback_args(&repo, &[]);
         assert_eq!(args[1], "--inputs-from");
         assert_eq!(args[2], repo);
     }
@@ -385,7 +403,7 @@ mod tests {
     fn switch_command_macos() {
         let target = detect_target_for("macos", "aarch64");
         let repo = manifest_repo("switch-macos");
-        let args = darwin_switch_args(&repo, &target).unwrap();
+        let args = darwin_switch_args(&repo, &target, &profile::override_args(&repo).unwrap());
         assert_eq!(args[0], "run");
         assert_eq!(args[1], "--inputs-from");
         assert_eq!(args[2], repo);
@@ -408,7 +426,7 @@ mod tests {
     fn switch_command_linux() {
         let target = detect_target_for("linux", "x86_64");
         let repo = manifest_repo("switch-linux");
-        let args = linux_build_args(&repo, &target, "/tmp/link").unwrap();
+        let args = linux_build_args(&repo, &target, "/tmp/link", &[]);
         assert_eq!(args[0], "build");
         assert_eq!(args[1], "--out-link");
         assert_eq!(args[2], "/tmp/link");
@@ -446,19 +464,19 @@ mod tests {
     fn apply_is_nh_free() {
         let repo = manifest_repo("nh-free");
         let mac = detect_target_for("macos", "aarch64");
-        let mac_args = darwin_switch_args(&repo, &mac).unwrap();
+        let mac_args = darwin_switch_args(&repo, &mac, &[]);
         assert!(!mac_args.iter().any(|a| a == "nh"));
         assert!(mac_args.iter().any(|a| a == "nix-darwin#darwin-rebuild"));
 
         let linux = detect_target_for("linux", "x86_64");
-        let linux_args = linux_build_args(&repo, &linux, "/tmp/link").unwrap();
+        let linux_args = linux_build_args(&repo, &linux, "/tmp/link", &[]);
         assert!(!linux_args.iter().any(|a| a == "nh"));
     }
 
     #[test]
     fn darwin_rollback_is_pinned_and_repo_aware() {
         let repo = manifest_repo("rollback-pinned");
-        let args = darwin_rollback_args(&repo).unwrap();
+        let args = darwin_rollback_args(&repo, &profile::override_args(&repo).unwrap());
         assert_eq!(args[1], "--inputs-from");
         assert_eq!(args[2], repo);
         let last_oi = args.iter().rposition(|a| a == "--override-input").unwrap();
@@ -526,7 +544,7 @@ mod tests {
         let repo = dir.to_string_lossy().to_string();
 
         let mac = detect_target_for("macos", "aarch64");
-        let mac_args = darwin_switch_args(&repo, &mac).unwrap();
+        let mac_args = darwin_switch_args(&repo, &mac, &profile::override_args(&repo).unwrap());
         let oi = mac_args
             .iter()
             .position(|a| a == "--override-input")
@@ -534,9 +552,65 @@ mod tests {
         assert_eq!(mac_args[oi + 1], "machine");
 
         let linux = detect_target_for("linux", "x86_64");
-        let linux_args = linux_build_args(&repo, &linux, "/tmp/link").unwrap();
+        let linux_args = linux_build_args(
+            &repo,
+            &linux,
+            "/tmp/link",
+            &profile::override_args(&repo).unwrap(),
+        );
         assert!(linux_args.iter().any(|a| a == "--override-input"));
         // flake ref は最後のまま
         assert!(linux_args.last().unwrap().starts_with(&format!("{repo}#")));
+    }
+
+    #[test]
+    fn switch_and_build_args_accept_github_flake_ref() {
+        // managed source (v2 §7): repo 文字列が `github:<owner>/<repo>/<tag>`
+        // flake ref でも引数構成は不変 (--inputs-from / --flake / build ref が
+        // 文字列をそのまま受け、override は並ぶ位置も形式も変わらない)
+        let ref_ = "github:Lamy210/nix_setting/v0.2.0";
+        let overrides = vec![
+            "--override-input".to_string(),
+            "machine".to_string(),
+            "path:/state/machine.nix".to_string(),
+            "--override-input".to_string(),
+            "profile".to_string(),
+            "path:/state/profile.nix".to_string(),
+        ];
+
+        let mac = detect_target_for("macos", "aarch64");
+        let mac_args = darwin_switch_args(ref_, &mac, &overrides);
+        assert_eq!(args_at(&mac_args, 1), "--inputs-from");
+        assert_eq!(args_at(&mac_args, 2), ref_);
+        assert_eq!(
+            mac_args.last().unwrap(),
+            &format!("{ref_}#darwinConfigurations.darwin-aarch64")
+        );
+        // override 引数は --inputs-from と nix-darwin# の間にそのまま並ぶ
+        let start = mac_args
+            .iter()
+            .position(|a| a == "--override-input")
+            .expect("override present");
+        assert_eq!(&mac_args[start..start + overrides.len()], &overrides[..]);
+
+        let linux = detect_target_for("linux", "x86_64");
+        let linux_args = linux_build_args(ref_, &linux, "/tmp/link", &overrides);
+        assert_eq!(
+            linux_args.last().unwrap(),
+            &format!("{ref_}#homeConfigurations.linux.activationPackage")
+        );
+        let start = linux_args
+            .iter()
+            .position(|a| a == "--override-input")
+            .expect("override present");
+        assert_eq!(&linux_args[start..start + overrides.len()], &overrides[..]);
+
+        let rollback_args = darwin_rollback_args(ref_, &overrides);
+        assert_eq!(args_at(&rollback_args, 2), ref_);
+        assert_eq!(rollback_args.last().unwrap(), "--rollback");
+    }
+
+    fn args_at(args: &[String], i: usize) -> &str {
+        &args[i]
     }
 }
