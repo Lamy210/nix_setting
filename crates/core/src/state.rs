@@ -152,6 +152,9 @@ mod tests {
                 kind: crate::source::SourceKind::ReleaseStable,
                 ref_: "v0.2.0".to_string(),
                 channel: Some("stable".to_string()),
+                managed: false,
+                remote: None,
+                revision: None,
             }),
             profile: Some("minimal".to_string()),
         };

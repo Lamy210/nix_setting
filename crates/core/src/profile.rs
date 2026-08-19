@@ -8,7 +8,6 @@
 //! (modules/profile-input.nix) が行う。
 
 use crate::error::{Error, Result};
-use crate::manifest::Manifest;
 use crate::state::{State, StateStore};
 
 /// profile input (`profile.nix`) の既定 path
@@ -27,7 +26,7 @@ pub fn resolve(repo: &str) -> Result<(String, bool)> {
 
 /// [`resolve`] の state store 注入版 (test 用)
 pub fn resolve_with(repo: &str, store: &StateStore) -> Result<(String, bool)> {
-    let manifest = Manifest::load(repo)?;
+    let manifest = crate::source_files::load_manifest_for(repo, store)?;
     let default = manifest
         .profiles
         .default

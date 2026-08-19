@@ -398,3 +398,281 @@ fn source_metadata_rejects_tag_without_v_prefix() {
         .failure()
         .stderr(predicate::str::contains("must start with 'v'"));
 }
+
+// -------------------------------------------------------------------------
+// v2 §7: managed release source (working tree-less)
+// -------------------------------------------------------------------------
+
+fn git_available() -> bool {
+    schneeforge_core::ToolInventory::discover().git.is_some()
+}
+
+/// test 内で直接 git を実行する (crates/cli/tests は raw spawn 許可対象)
+fn git(dir: &std::path::Path, args: &[&str]) {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@t")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@t")
+        .output()
+        .expect("run git");
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+fn cli_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "sf-cli-managed-{name}-{}-{}",
+        std::process::id(),
+        line!()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// tag を持つ local の origin repo (network 不要の ls-remote 先)
+fn origin_repo(dir: &std::path::Path, tags: &[&str]) -> std::path::PathBuf {
+    let origin = dir.join("origin");
+    std::fs::create_dir_all(&origin).unwrap();
+    git(&origin, &["init", "-q", "-b", "main"]);
+    std::fs::write(origin.join("README.md"), "# test\n").unwrap();
+    git(&origin, &["add", "."]);
+    git(&origin, &["commit", "-q", "-m", "init"]);
+    for tag in tags {
+        git(&origin, &["tag", tag]);
+    }
+    origin
+}
+
+/// state.json に source を直接書き込む (XDG_STATE_HOME 配下)
+fn write_source_state(dir: &std::path::Path, source_json: &str) {
+    let state_dir = dir.join("schneeforge");
+    std::fs::create_dir_all(&state_dir).unwrap();
+    std::fs::write(
+        state_dir.join("state.json"),
+        format!("{{\"source\": {source_json}}}"),
+    )
+    .unwrap();
+}
+
+/// v2 §7: `source init --tag` は managed source を state に設定する。
+/// metadata asset が無い tag は警告付き skip のため offline でも成功する
+#[test]
+fn source_init_with_tag_sets_managed_state() {
+    let dir = cli_dir("init-tag");
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("source")
+        .arg("init")
+        .arg("--tag")
+        .arg("v0.0.1")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("managed source set"));
+    let state = std::fs::read_to_string(dir.join("schneeforge/state.json")).unwrap();
+    assert!(state.contains("\"managed\": true"), "state: {state}");
+    assert!(state.contains("\"ref\": \"v0.0.1\""), "state: {state}");
+    assert!(state.contains("\"channel\": \"stable\""), "state: {state}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// v2 §7: `source init` の tag と channel の不整合は fail-closed。
+/// tag 解決の ls-remote は local origin を向けるため network 不要
+#[test]
+fn source_init_rejects_tag_channel_mismatch() {
+    if !git_available() {
+        eprintln!("skipping: git not available");
+        return;
+    }
+    let dir = cli_dir("init-mismatch");
+    let origin = origin_repo(&dir, &["v0.2.0"]);
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("source")
+        .arg("init")
+        .arg("--channel")
+        .arg("stable")
+        .arg("--tag")
+        .arg("v0.3.0-rc.1")
+        .env("XDG_STATE_HOME", &dir)
+        .env("SCHNEEFORGE_REPO_URL", &origin)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("is preview"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// v2 §7: managed state で `source status` は state 由来の情報を表示する
+/// (表現 / channel / rev 検証 / cache 有無)
+#[test]
+fn source_status_shows_managed_state() {
+    let dir = cli_dir("status-managed");
+    write_source_state(
+        &dir,
+        r#"{"kind":"release-stable","ref":"v0.2.0","channel":"stable","managed":true,"remote":"https://github.com/Lamy210/nix_setting.git","revision":"0123456789abcdef0123456789abcdef01234567"}"#,
+    );
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("source")
+        .arg("status")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("(managed)")
+                .and(predicate::str::contains(
+                    "github:Lamy210/nix_setting/v0.2.0",
+                ))
+                .and(predicate::str::contains("channel:   stable"))
+                .and(predicate::str::contains("(verified)"))
+                .and(predicate::str::contains("file cache:")),
+        );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// v2 §7: managed field を持たない旧 state.json は checkout 表現として
+/// 扱われる (managed short-circuit しない)
+#[test]
+fn legacy_state_without_managed_is_checkout_representation() {
+    if !git_available() {
+        eprintln!("skipping: git not available");
+        return;
+    }
+    let dir = cli_dir("legacy-state");
+    // 旧形式: managed / remote / revision 無し
+    write_source_state(
+        &dir,
+        r#"{"kind":"release-stable","ref":"v0.2.0","channel":"stable"}"#,
+    );
+    // repo は git 管理外 → detect が走り local になる (state の kind を使わない)
+    std::fs::create_dir_all(dir.join("repo")).unwrap();
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(dir.join("repo"))
+        .arg("source")
+        .arg("status")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("kind:    local"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// v2 §7: managed source の update は state の tag 更新のみ行う
+/// (checkout は操作しない)。tag 解決は local origin の ls-remote
+/// (network 不要)。metadata は警告付き skip。
+#[test]
+fn managed_update_moves_state_without_touching_checkout() {
+    if !git_available() {
+        eprintln!("skipping: git not available");
+        return;
+    }
+    let dir = cli_dir("update-managed");
+    let origin = origin_repo(&dir, &["v0.2.0", "v0.3.0"]);
+
+    // install.sh 相当の pinned checkout (v0.2.0) を用意する
+    let checkout = dir.join("nix_setting");
+    let out = std::process::Command::new("git")
+        .arg("clone")
+        .arg("--branch")
+        .arg("v0.2.0")
+        .arg("--depth")
+        .arg("1")
+        .arg(&origin)
+        .arg(&checkout)
+        .output()
+        .expect("git clone");
+    assert!(
+        out.status.success(),
+        "clone failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // state は managed v0.2.0 (remote = local origin)
+    write_source_state(
+        &dir,
+        &format!(
+            r#"{{"kind":"release-stable","ref":"v0.2.0","channel":"stable","managed":true,"remote":"{}"}}"#,
+            origin.display()
+        ),
+    );
+
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(&checkout)
+        .arg("update")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("updated managed source to v0.3.0")
+                .and(predicate::str::contains("release-stable")),
+        );
+
+    // state は新 tag へ更新されている
+    let state = std::fs::read_to_string(dir.join("schneeforge/state.json")).unwrap();
+    assert!(state.contains("\"ref\": \"v0.3.0\""), "state: {state}");
+
+    // checkout は v0.2.0 のまま (managed update は checkout を操作しない)
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&checkout)
+        .arg("describe")
+        .arg("--tags")
+        .arg("--exact-match")
+        .output()
+        .expect("git describe");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "v0.2.0",
+        "checkout must stay pinned to v0.2.0"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// v2 §7: managed source の sync は git 実態が無い旨を案内して
+/// error にならない
+#[test]
+fn managed_sync_is_guidance_not_error() {
+    let dir = cli_dir("sync-managed");
+    write_source_state(
+        &dir,
+        r#"{"kind":"release-stable","ref":"v0.2.0","channel":"stable","managed":true}"#,
+    );
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(dir.join("repo"))
+        .arg("source")
+        .arg("sync")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("no git working tree"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// v2 §7: managed source の deps update は fail-closed に拒否される
+/// (flake ref が実体のため lock を書き換えられない)
+#[test]
+fn managed_deps_update_is_rejected() {
+    let dir = cli_dir("deps-managed");
+    write_source_state(
+        &dir,
+        r#"{"kind":"release-stable","ref":"v0.2.0","channel":"stable","managed":true}"#,
+    );
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(dir.join("repo"))
+        .arg("source")
+        .arg("deps-update")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be updated locally"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

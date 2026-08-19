@@ -229,7 +229,9 @@ fn run_verify(state: tauri::State<'_, CachedToolInventory>) -> Result<VerifyRepo
 
 fn load_manifest() -> Option<schneeforge_core::Manifest> {
     let repo = resolve_repo(None);
-    schneeforge_core::Manifest::load(&repo).ok()
+    // source 解決経由: managed source は tag-pinned 取得 + state cache、
+    // それ以外は local filesystem 読み取り
+    schneeforge_core::load_manifest_for(&repo, &schneeforge_core::StateStore::default()).ok()
 }
 
 /// `get_dashboard` (v2 §28): Installed / Available の snapshot を返す。

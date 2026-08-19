@@ -2,7 +2,7 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-08-16
+最終更新: 2026-08-19
 
 ## 完成済み
 
@@ -55,10 +55,21 @@ P0-1〜P0-5 を 1 change に統合して実装。PR #11 (squash) で develop へ
 
 RELEASE.md のリリースチェックリスト再構築 + weekly workflow の権限修正。
 
+### v2 P0/P1 + Manifest + profile + Release Metadata + GUI Dashboard (2026-08-18 merge 済み)
+
+2026-08-18 に develop へ squash merge 済み (PR #43-#52)。詳細は各 archive 済み change を参照。
+
+- **v2 P0/P1 (PR #43/#44/#45)**: MachineFacts (repo を書かない machine input 生成) / ConfigurationSource (ADR-0003 Accepted, SourceKind 5 種 + update dispatch) / archive 整備
+- **Distribution Manifest (PR #46/#47)**: `schneeforge.toml` (schema 1 / profiles / systems) で旧 config.toml 置換
+- **profile 選択の flake 注入 (PR #48/#49)**: flake input `profile` + `modules/profile-input.nix`、CLI `profile list/set/clear/show`。file 指す path input の override は `path:<abs>` URL 形式が必須 (nix 2.35)
+- **Release Metadata (PR #50)**: `schneeforge-release.json` (schema 1) の parse/validate/fetch + CLI `source metadata`。metadata asset は次回 release (rc.6 以降) から同梱
+- **GUI Dashboard §28 (PR #52/#53)**: core `dashboard.rs` (snapshot + version 比較純関数) + desktop `get_dashboard` + Dashboard card。network は引数差し込みで hermetic
+
 ## 進行中
 
 | 項目 | 進捗 | 場所 |
 |------|------|------|
+| **v2 §7 Managed Release Source** (working tree-less) | 実装中 (branch `feat/managed-release-source`)。Release source の表現に flake ref `github:<owner>/<repo>/<tag>` を追加 (state の `managed` flag。旧 state.json 互換)。repo file は `raw.githubusercontent.com` tag-pinned 取得 + state dir 無期限 cache。`schneeforge source init [--channel/--tag]` で移行、update は state 更新のみ、sync は案内 no-op。install.sh / bootstrap-flow は不改変 (2 表現佷存) | `openspec/changes/add-managed-release-source/` |
 | Managed Nix Bootstrap Phase 1 + install 修正 (PR #13/#18) | **develop merge 済み** (a7d4777)。review 4 巡。CI 18/18 green | `openspec/changes/archive/2026-08-14-add-managed-nix-bootstrap/` |
 | Spike `nix-bootstrap-provider-evaluation` | 完了 (Linux x86_64 実測済み、macOS aarch64 は ADR final acceptance 条件) | `openspec/changes/spike-nix-bootstrap-provider-evaluation/` |
 | NixStatus 状態分類 (issue #15) | **develop merge 済み** (PR #33 / 6c48837)。`NixStatus` 4 状態 model + doctor `[status]` 欄 + GUI `nix_status` 表示・wizard の Managed Nix 案内。`nix repair` は別 change で設計予定 | `openspec/changes/archive/2026-08-16-add-nix-status-classification/` / `2026-08-16-add-gui-managed-nix-status/` |

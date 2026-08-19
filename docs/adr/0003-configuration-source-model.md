@@ -66,6 +66,15 @@ Local               開発中 working tree
 - **単一 Git source のまま update を smart にする**: source 実態と
   操作の不一致が残り、GUI で channel 表示もできない。採用しない
 - **Release source で working tree を持たない (Nix Store 直接)**:
-  v2 §7 の理想形だが apply/rollback の現行実装 (repo path前提) の
-  変更が大きく、Phase 1 では pinned checkout を Release の表現として
-  使う。working tree-less は後続 change で検討する
+  v2 §7 の理想形として実現済み (openspec change
+  `add-managed-release-source`)。Release source の実体を flake ref
+  `github:<owner>/<repo>/<tag>` とし、nix が直接取得・cache する
+  (SchneeForge は source tree を local に持たない)。既存の nix 引数
+  (`--inputs-from <repo>` / `--flake <ref>` / `nix build <ref>`) は
+  flake ref 文字列をそのまま受け、`--override-input path:` も remote
+  flake に有効なため引数構成は不変。tag が不変のため取得結果・
+  repo file cache (`raw.githubusercontent.com` tag-pinned 取得を
+  state dir へ無期限 cache) も不変。移行は `schneeforge source init`
+  の明示実行のみで、install.sh 由来の pinned checkout (checkout 表現)
+  との 2 表現佷存。Phase 1 で pinned checkout を仮表現としたのは、
+  apply/rollback の引数経路が repo path 前提だったため

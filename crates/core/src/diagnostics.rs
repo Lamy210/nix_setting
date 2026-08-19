@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::discovery::{current_user, detect_arch, detect_platform, detect_target};
 use crate::managed_nix::status::{classify_current, StatusReport};
-use crate::manifest::{Manifest, Validation};
+use crate::manifest::Validation;
 use crate::process::{command_succeeds, run_capture};
 use crate::repo::resolve_repo;
 use crate::state::StateStore;
@@ -290,7 +290,7 @@ fn manifest_diagnostics(
     repo_path: &str,
     system: &str,
 ) -> (bool, Option<String>, Option<String>, Option<Validation>) {
-    match Manifest::load(repo_path) {
+    match crate::source_files::load_manifest_for(repo_path, &StateStore::default()) {
         Ok(m) => {
             let validation = m.validate(system);
             let profile = m.profiles.default.clone();

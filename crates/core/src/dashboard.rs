@@ -234,6 +234,9 @@ mod tests {
                 },
                 ref_: "v0.2.0".to_string(),
                 channel: Some(c.to_string()),
+                managed: false,
+                remote: None,
+                revision: None,
             }),
             profile: profile.map(|p| p.to_string()),
         }
