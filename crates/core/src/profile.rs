@@ -47,6 +47,48 @@ pub fn resolve_with(repo: &str, store: &StateStore) -> Result<(String, bool)> {
     }
 }
 
+/// manifest の available / default と state の選択の一覧。
+/// GUI の切替 UI と CLI `profile list` が共通で使う形。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ProfileList {
+    pub available: Vec<String>,
+    pub default: Option<String>,
+    pub selected: Option<String>,
+}
+
+/// [`ProfileList`] を構築する
+pub fn list(repo: &str) -> Result<ProfileList> {
+    list_with(repo, &StateStore::default())
+}
+
+/// [`list`] の state store 注入版 (test 用)
+pub fn list_with(repo: &str, store: &StateStore) -> Result<ProfileList> {
+    let manifest = crate::source_files::load_manifest_for(repo, store)?;
+    Ok(ProfileList {
+        available: manifest.profiles.available,
+        default: manifest.profiles.default,
+        selected: store.load().and_then(|s| s.profile),
+    })
+}
+
+/// manifest の `profiles.available` を検証してから state へ保存する
+/// (CLI と GUI の検証経路を集約。fail-closed)
+pub fn set_selection(repo: &str, name: &str) -> Result<()> {
+    set_selection_with(repo, &StateStore::default(), name)
+}
+
+/// [`set_selection`] の state store 注入版 (test 用)
+pub fn set_selection_with(repo: &str, store: &StateStore, name: &str) -> Result<()> {
+    let manifest = crate::source_files::load_manifest_for(repo, store)?;
+    if !manifest.profiles.available.contains(&name.to_string()) {
+        return Err(Error::Manifest(format!(
+            "profile '{name}' is not in manifest profiles.available: {:?}",
+            manifest.profiles.available
+        )));
+    }
+    save_selection_with(store, name)
+}
+
 /// state の profile 選択を保存する (manifest 検証済みであること)
 pub fn save_selection(name: &str) -> Result<()> {
     let store = StateStore::default();
@@ -187,5 +229,59 @@ x86_64-linux = true
         let path = write_profile_input("developer").unwrap();
         let content = std::fs::read_to_string(path).unwrap();
         assert_eq!(content, "{ profile = \"developer\"; }\n");
+    }
+
+    #[test]
+    fn list_returns_manifest_and_selection() {
+        let store = setup_store("list-selected", Some("minimal"));
+        let repo = setup_repo("list-selected", MANIFEST);
+        let list = list_with(&repo, &store).unwrap();
+        assert_eq!(list.available, vec!["minimal", "developer"]);
+        assert_eq!(list.default.as_deref(), Some("developer"));
+        assert_eq!(list.selected.as_deref(), Some("minimal"));
+    }
+
+    #[test]
+    fn list_without_selection_returns_none() {
+        let store = setup_store("list-unselected", None);
+        let repo = setup_repo("list-unselected", MANIFEST);
+        let list = list_with(&repo, &store).unwrap();
+        assert_eq!(list.selected, None);
+    }
+
+    #[test]
+    fn list_fails_without_manifest() {
+        let store = setup_store("list-nomanifest", None);
+        let dir = std::env::temp_dir().join("schneeforge-profile-test-empty2");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(list_with(dir.to_string_lossy().as_ref(), &store).is_err());
+    }
+
+    #[test]
+    fn set_selection_saves_valid_profile() {
+        let store = setup_store("set-valid", None);
+        let repo = setup_repo("set-valid", MANIFEST);
+        set_selection_with(&repo, &store, "minimal").unwrap();
+        assert_eq!(store.load().unwrap().profile.as_deref(), Some("minimal"));
+    }
+
+    #[test]
+    fn set_selection_rejects_unknown_profile_without_saving() {
+        let store = setup_store("set-invalid", None);
+        let repo = setup_repo("set-invalid", MANIFEST);
+        let err = set_selection_with(&repo, &store, "unknown-profile").unwrap_err();
+        assert!(err.to_string().contains("not in manifest"));
+        assert_eq!(store.load().and_then(|s| s.profile), None);
+    }
+
+    #[test]
+    fn set_selection_fails_without_manifest() {
+        let store = setup_store("set-nomanifest", None);
+        let dir = std::env::temp_dir().join("schneeforge-profile-test-empty3");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(set_selection_with(dir.to_string_lossy().as_ref(), &store, "minimal").is_err());
+        assert_eq!(store.load().and_then(|s| s.profile), None);
     }
 }

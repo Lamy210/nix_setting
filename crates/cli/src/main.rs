@@ -337,14 +337,12 @@ fn update(repo: &str, tc: &ToolInventory) -> Result {
 fn run_profile(sub: ProfileSub, repo: &str) -> Result {
     match sub {
         ProfileSub::List => {
-            let manifest =
-                load_manifest(repo).ok_or_else(|| "failed to load schneeforge.toml".to_string())?;
-            let default = manifest.profiles.default.as_deref().unwrap_or("(unset)");
-            let selected = StateStore::default().load().and_then(|s| s.profile);
+            let profiles = schneeforge_core::list_profiles(repo).map_err(|e| e.to_string())?;
+            let default = profiles.default.as_deref().unwrap_or("(unset)");
             println!("=== profiles ===");
             println!();
-            for name in &manifest.profiles.available {
-                let marker = if Some(name.as_str()) == selected.as_deref() {
+            for name in &profiles.available {
+                let marker = if Some(name.as_str()) == profiles.selected.as_deref() {
                     "*"
                 } else if name == default {
                     "(default)"
@@ -355,21 +353,13 @@ fn run_profile(sub: ProfileSub, repo: &str) -> Result {
             }
             println!();
             println!("  * = current selection, (default) = manifest default");
-            if selected.is_none() {
+            if profiles.selected.is_none() {
                 println!("  (no selection; manifest default '{default}' is used)");
             }
             Ok(())
         }
         ProfileSub::Set { name } => {
-            let manifest =
-                load_manifest(repo).ok_or_else(|| "failed to load schneeforge.toml".to_string())?;
-            if !manifest.profiles.available.contains(&name) {
-                return Err(format!(
-                    "profile '{name}' is not in manifest profiles.available: {:?}",
-                    manifest.profiles.available
-                ));
-            }
-            schneeforge_core::save_selection(&name).map_err(|e| e.to_string())?;
+            schneeforge_core::set_selection(repo, &name).map_err(|e| e.to_string())?;
             println!("profile set to '{name}' (applies from next `schneeforge apply`)");
             Ok(())
         }

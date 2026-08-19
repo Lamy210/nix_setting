@@ -264,6 +264,59 @@ async fn get_dashboard(
     .map_err(|e| format!("task error: {e}"))
 }
 
+/// `get_profiles` (v2 §17 follow-up): manifest の available / default と
+/// state の選択を返す。managed source は repo file 取得で network を伴う
+/// ため blocking 実行する。manifest が解決できない場合は error を返し、
+/// frontend は切替 UI を使用不可表示に落とす (Dashboard 自体の表示は維持)。
+#[tauri::command]
+async fn get_profiles() -> Result<schneeforge_core::ProfileList, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let repo = resolve_repo(None);
+        schneeforge_core::list_profiles(&repo).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("task error: {e}"))?
+}
+
+/// `set_profile`: manifest の available 検証を行ってから state へ保存する
+/// (検証は core `set_selection` に集約、fail-closed)。repo は書き換えず、
+/// 選択は次回の apply から反映される。
+#[tauri::command]
+async fn set_profile(name: String) -> Result<CommandOutput, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = resolve_repo(None);
+        match schneeforge_core::set_selection(&repo, &name) {
+            Ok(()) => CommandOutput {
+                success: true,
+                output: format!("profile set to '{name}' (applies from next apply)"),
+            },
+            Err(e) => CommandOutput {
+                success: false,
+                output: e.to_string(),
+            },
+        }
+    })
+    .await
+    .map_err(|e| format!("task error: {e}"))
+}
+
+/// `clear_profile`: state の選択を解除し manifest default へ戻す。
+#[tauri::command]
+async fn clear_profile() -> Result<CommandOutput, String> {
+    tauri::async_runtime::spawn_blocking(|| match schneeforge_core::clear_selection() {
+        Ok(()) => CommandOutput {
+            success: true,
+            output: "profile selection cleared (manifest default will be used)".to_string(),
+        },
+        Err(e) => CommandOutput {
+            success: false,
+            output: e.to_string(),
+        },
+    })
+    .await
+    .map_err(|e| format!("task error: {e}"))
+}
+
 // ---------- Managed Nix install (issue #16 / D4 Phase 2, D8 GUI 版) ----------
 
 /// bundle 内の CLI sidecar の path。
@@ -659,6 +712,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_status,
             get_dashboard,
+            get_profiles,
+            set_profile,
+            clear_profile,
             run_scan,
             run_apply,
             run_rollback,
@@ -928,6 +984,55 @@ mod tests {
             assert!(
                 html.contains(&format!("id=\"{id}\"")),
                 "index.html must have #{id} for the dashboard render"
+            );
+        }
+    }
+
+    /// v2 §17 follow-up: GUI からの profile 切替は `ProfileList` の
+    /// serialize key・frontend の invoke / key 参照・切替 UI の DOM id が
+    /// 揃って機能する。rc.3 と同じ「JS は undefined が falsy 化して実行時
+    /// error にならない」事故を静的検証で防ぐ。
+    #[test]
+    fn profile_switching_contract_matches_frontend() {
+        let list = schneeforge_core::ProfileList {
+            available: vec![],
+            default: None,
+            selected: None,
+        };
+        let json = serde_json::to_value(&list).unwrap();
+        for key in ["available", "default", "selected"] {
+            assert!(json.get(key).is_some(), "ProfileList must serialize {key}");
+        }
+
+        // frontend はこれらの command / key を参照する
+        let js = include_str!("../../dist/main.js");
+        for needle in [
+            "get_profiles",
+            "set_profile",
+            "clear_profile",
+            "p.available",
+            "p.default",
+            "p.selected",
+            // 切替は state のみを変えるため、反映は次回の apply である旨の案内が必須
+            "次回の「適用」から反映",
+        ] {
+            assert!(
+                js.contains(needle),
+                "frontend should reference `{needle}` for profile switching"
+            );
+        }
+
+        // 参照先の DOM 要素が index.html に存在する
+        let html = include_str!("../../dist/index.html");
+        for id in [
+            "dash-profile-select",
+            "profile-set",
+            "profile-clear",
+            "profile-note",
+        ] {
+            assert!(
+                html.contains(&format!("id=\"{id}\"")),
+                "index.html must have #{id} for the profile switch UI"
             );
         }
     }

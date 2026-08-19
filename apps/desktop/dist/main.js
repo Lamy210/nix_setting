@@ -60,6 +60,67 @@ async function refreshDashboard() {
     $("dash-channel").textContent = "-";
     $("dash-available").textContent = `取得エラー: ${e}`;
   }
+  await refreshProfileSelect();
+}
+
+// ---------- profile 切替 (v2 §17 follow-up) ----------
+function setProfileNote(msg) {
+  $("profile-note").textContent = msg;
+}
+
+async function refreshProfileSelect() {
+  const sel = $("dash-profile-select");
+  try {
+    const p = await invoke("get_profiles");
+    sel.innerHTML = "";
+    for (const name of p.available) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name === p.default ? `${name} (既定)` : name;
+      sel.appendChild(opt);
+    }
+    sel.value = p.selected ?? p.default ?? "";
+    $("profile-set").disabled = false;
+    $("profile-clear").disabled = !p.selected;
+    setProfileNote(p.selected ? "選択は次回の「適用」から反映されます" : "");
+  } catch (e) {
+    sel.innerHTML = "";
+    $("profile-set").disabled = true;
+    $("profile-clear").disabled = true;
+    setProfileNote(`切替は使用できません (${e})`);
+  }
+}
+
+async function switchProfile() {
+  const name = $("dash-profile-select").value;
+  if (!name) return;
+  try {
+    const r = await invoke("set_profile", { name });
+    if (r.success) {
+      setProfileNote(`profile を ${name} へ変更しました — 次回の「適用」から反映されます`);
+      await refresh();
+      await refreshDashboard();
+    } else {
+      setProfileNote(`error: ${r.output}`);
+    }
+  } catch (e) {
+    setProfileNote(`error: ${e}`);
+  }
+}
+
+async function clearProfile() {
+  try {
+    const r = await invoke("clear_profile");
+    if (r.success) {
+      setProfileNote("manifest の既定へ戻しました — 次回の「適用」から反映されます");
+      await refresh();
+      await refreshDashboard();
+    } else {
+      setProfileNote(`error: ${r.output}`);
+    }
+  } catch (e) {
+    setProfileNote(`error: ${e}`);
+  }
 }
 
 function setRunning(label, active) {
@@ -475,6 +536,8 @@ $("rollback").addEventListener("click", () => run(() => invoke("run_rollback"), 
 $("upgrade").addEventListener("click", () => run(() => invoke("run_upgrade"), "upgrade", "アップグレード"));
 $("verify").addEventListener("click", verify);
 $("nix-uninstall").addEventListener("click", nixUninstall);
+$("profile-set").addEventListener("click", switchProfile);
+$("profile-clear").addEventListener("click", clearProfile);
 
 async function verify() {
   const btn = $("verify");
