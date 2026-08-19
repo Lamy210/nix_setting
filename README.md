@@ -79,6 +79,13 @@ install します (version pinning・ownership record 付き。ADR-0001 参照)�
 既に Nix が導入済みの場合は何も install せず、flakes 有効化と
 dotfiles 適用のみを行います。
 
+dotfiles 適用は source 表現で分岐します。repo checkout
+(`$HOME/nix_setting`) が無い machine では clone せず、CLI の
+`source init --tag <pin と同一 release>` + `apply` で managed source
+(flake ref) から適用します (初回適用前に既存 dotfile を backup)。
+checkout が既にある場合は、それをそのまま `bootstrap.sh` で再適用します
+(user の変更を壊さない)。
+
 Managed Nix は `bootstrap-manifest.toml` で version + SHA256 を pin し、
 online で download + verify する。offline 配布・DMG bundle は Phase 2。
 詳細: `docs/adr/0001-managed-nix-provider.md`

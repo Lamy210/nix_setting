@@ -79,7 +79,9 @@ type Result = std::result::Result<(), String>;
 
 /// `schneeforge nix install`
 pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
-    let mn = ManagedNix::load_from_repo(Path::new(repo_root))
+    // manifest は repo file 優先 + embedded fallback (fresh machine は
+    // repo checkout 無しでも install できる)
+    let mn = ManagedNix::load_prefer_repo(Some(Path::new(repo_root)))
         .map_err(|e| format!("load bootstrap-manifest: {e}"))?;
 
     let preflight = mn.preflight();

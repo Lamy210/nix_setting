@@ -377,21 +377,9 @@ fn nix_prepare_plan_blocking() -> CommandOutput {
         };
     }
     let repo = resolve_repo(None);
-    // wizard は repo 未 clone 状態でここへ来るべきではないが、fail-closed に
-    // manifest 読み込み error を返す (fresh machine で誤って呼ばれた場合)
-    if !std::path::Path::new(&repo)
-        .join("bootstrap-manifest.toml")
-        .exists()
-    {
-        return CommandOutput {
-            success: false,
-            output: format!(
-                "repository ({repo}) に bootstrap-manifest.toml がありません。\
-                 先に wizard で repository を clone してください"
-            ),
-        };
-    }
-    let mn = match ManagedNix::load_from_repo(std::path::Path::new(&repo)) {
+    // manifest は repo file 優先 + embedded fallback。repo 未 clone でも
+    // (fresh machine で誤って呼ばれた場合でも) embedded manifest で動作する
+    let mn = match ManagedNix::load_prefer_repo(Some(std::path::Path::new(&repo))) {
         Ok(mn) => mn,
         Err(e) => {
             return CommandOutput {
