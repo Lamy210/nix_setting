@@ -35,4 +35,4 @@
 - [x] 6.1 `cargo test` 全 green (core / cli は local、desktop は CI)
 - [x] 6.2 `cargo fmt` / `cargo clippy -D warnings` green
 - [ ] 6.3 `nix flake check` green (CI)
-- [ ] 6.4 openspec validate green / PR 作成 (base: develop)
+- [x] 6.4 openspec validate green / PR 作成 (base: develop)
