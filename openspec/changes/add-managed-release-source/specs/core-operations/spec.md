@@ -123,7 +123,7 @@ network access を必要としない。
   存在しない
 - **THEN** 現状維持の案内を表示して終了する
 
-#### Scenario: Release (checkout 表現) の更新
+#### Scenario: Release Stable の更新
 
 - **WHEN** checkout 表現の `ReleaseStable` の checkout で update を
   実行する
@@ -132,7 +132,7 @@ network access を必要としない。
 - **AND** 実行後に managed への移行 (`schneeforge source init`) の
   案内を表示する
 
-#### Scenario: Release Preview (checkout 表現) の更新
+#### Scenario: Release Preview の更新
 
 - **WHEN** `ReleasePreview` の checkout で update を実行する
 - **THEN** prerelease tag のみを候補に最新へ checkout する
