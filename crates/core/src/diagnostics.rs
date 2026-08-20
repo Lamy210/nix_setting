@@ -57,6 +57,21 @@ pub struct Diagnostics {
     pub tool_inventory: ToolInventorySummary,
     pub applied_revision: Option<String>,
     pub applied_at: Option<String>,
+    /// state の managed Release source (repo checkout 無しで source が
+    /// 初期化済みかの判定に使う)。checkout 表現・未初期化は None
+    pub managed_source: Option<ManagedSourceSummary>,
+}
+
+/// state の managed Release source の概要 (v2 §7)
+///
+/// repo checkout を持たない machine が「source 初期化済み」かを GUI が
+/// 判定するための表示用サマリ。checkout 表現・未初期化の場合は
+/// `Diagnostics.managed_source` が None になる。
+#[derive(Debug, Clone, Serialize)]
+pub struct ManagedSourceSummary {
+    pub tag: String,
+    pub channel: String,
+    pub flake_ref: String,
 }
 
 /// Nix の詳細ヘルス状態
@@ -145,6 +160,7 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
 
     let state = StateStore::default().load();
     let selected_profile = state.as_ref().and_then(|s| s.profile.clone());
+    let managed_source = managed_source_from(state.as_ref());
     // 実効 profile: 明示選択 (manifest available 検証済み) > manifest default
     let profile = if manifest_found {
         match crate::profile::resolve(&repo_path) {
@@ -181,7 +197,22 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
         },
         applied_revision: state.as_ref().and_then(|s| s.applied_revision.clone()),
         applied_at: state.as_ref().and_then(|s| s.applied_at.clone()),
+        managed_source,
     }
+}
+
+/// state から managed Release source のサマリを導出する。
+/// managed Release 以外 (checkout 表現・source 未記録・未初期化) は None
+fn managed_source_from(state: Option<&crate::state::State>) -> Option<ManagedSourceSummary> {
+    let src = state?.source.as_ref()?;
+    if !src.is_managed_release() {
+        return None;
+    }
+    Some(ManagedSourceSummary {
+        tag: src.ref_.clone(),
+        channel: src.channel.clone().unwrap_or_default(),
+        flake_ref: src.flake_ref().unwrap_or_default(),
+    })
 }
 
 /// Nix のヘルスを検査する。store 接続（`nix store ping`）と flakes 有効性
@@ -412,6 +443,61 @@ mod tests {
         assert!(health.executable.is_none());
         assert!(health.error.is_some());
         assert!(health.error.unwrap().contains("not found"));
+    }
+
+    #[test]
+    fn managed_source_summary_reports_managed_state() {
+        let state = crate::state::State {
+            source: Some(crate::source::SourceState {
+                kind: crate::source::SourceKind::ReleaseStable,
+                ref_: "v0.2.0-rc.2".to_string(),
+                channel: Some("stable".to_string()),
+                managed: true,
+                remote: Some("https://github.com/Lamy210/nix_setting".to_string()),
+                revision: None,
+            }),
+            ..Default::default()
+        };
+        let m = managed_source_from(Some(&state)).expect("managed state must yield Some");
+        assert_eq!(m.tag, "v0.2.0-rc.2");
+        assert_eq!(m.channel, "stable");
+        assert_eq!(m.flake_ref, "github:Lamy210/nix_setting/v0.2.0-rc.2");
+    }
+
+    #[test]
+    fn managed_source_summary_none_for_checkout_representation() {
+        // checkout 表現 (managed=false) は None — repo_exists のみで判断させる
+        let state = crate::state::State {
+            source: Some(crate::source::SourceState {
+                kind: crate::source::SourceKind::ReleaseStable,
+                ref_: "v0.2.0".to_string(),
+                channel: Some("stable".to_string()),
+                managed: false,
+                remote: None,
+                revision: None,
+            }),
+            ..Default::default()
+        };
+        assert!(managed_source_from(Some(&state)).is_none());
+    }
+
+    #[test]
+    fn managed_source_summary_none_when_uninitialized() {
+        // state ファイル無し / source 未記録
+        assert!(managed_source_from(None).is_none());
+        assert!(managed_source_from(Some(&crate::state::State::default())).is_none());
+    }
+
+    #[test]
+    fn diagnose_serializes_managed_source_key() {
+        let tc = dummy_tc();
+        let d = diagnose(&tc, Some("/definitely/not/a/real/repo"));
+        let whole = serde_json::to_string(&d).expect("Diagnostics must be serializable");
+        assert!(
+            whole.contains("managed_source"),
+            "got: {}",
+            &whole[..200.min(whole.len())]
+        );
     }
 
     #[test]

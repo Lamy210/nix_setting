@@ -253,19 +253,12 @@ async function stepPrereq(box, actions) {
       box.innerHTML += errorBlock(
         "Nix が未導入です。SchneeForge の Managed Nix で導入できます。" + statusNote
       );
-      // Managed Nix 導入は repo の bootstrap-manifest.toml を必要とする。
-      // 未 clone のまま install しても backend が fail-closed で拒否するため、
-      // frontend で先に repo step へ誘導する (D: fresh machine での空振り防止)
-      if (status && !status.repo_exists) {
-        box.innerHTML +=
-          '<p class="note">まず repository の clone が必要です。次へ進んでください。</p>';
-        actions.appendChild(actionBtn("次へ (repository 設定)", next));
-      } else {
-        actions.appendChild(actionBtn("SchneeForge で導入", () => stepNixInstall(box, actions)));
-        // escalation helper が使えない環境向けの fallback 案内
-        box.innerHTML +=
-          '<p class="note">ターミナルから <code>sudo schneeforge nix install</code> でも導入できます</p>';
-      }
+      // Managed Nix 導入は repo clone を前提としない (escalated CLI sidecar は
+      // embedded manifest で動作するため、fresh machine でもそのまま導入できる)
+      actions.appendChild(actionBtn("SchneeForge で導入", () => stepNixInstall(box, actions)));
+      // escalation helper が使えない環境向けの fallback 案内
+      box.innerHTML +=
+        '<p class="note">ターミナルから <code>sudo schneeforge nix install</code> でも導入できます</p>';
       actions.appendChild(actionBtn("再確認", () => renderStep()));
     }
   } else {
@@ -401,30 +394,75 @@ function tailLines(s, n) {
   return lines.slice(Math.max(0, lines.length - n)).join("\n");
 }
 
-function stepRepo(box, actions) {
+// source 選択 step (旧 stepRepo)。managed source (clone 不要) を既定に、
+// git clone は fork / 開発者向けの選択肢として提供する。既存 checkout が
+// ある場合は「そのまま使う」を既定にする
+async function stepRepo(box, actions) {
   const DEFAULT_REPO_URL = "https://github.com/Lamy210/nix_setting.git";
   const escapedDefault = DEFAULT_REPO_URL
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+  let repoExists = false;
+  try {
+    const status = await invoke("get_status");
+    repoExists = !!(status && status.repo_exists);
+  } catch (_) {}
   box.innerHTML =
+    "<p>configuration source を選択してください。</p>" +
+    (repoExists
+      ? '<label><input type="radio" name="source-mode" value="current" checked />' +
+        " 登録済みの repository checkout を使う</label><br />"
+      : "") +
+    '<label><input type="radio" name="source-mode" value="managed"' +
+    (repoExists ? "" : " checked") +
+    " /> managed source (推奨 — clone 不要。channel stable の最新 release)</label><br />" +
+    '<label><input type="radio" name="source-mode" value="clone" />' +
+    " git clone (fork / 開発者向け)</label>" +
+    '<div id="clone-fields" class="hidden">' +
     '<p>repository の URL を確認してください。空のままなら既定 (upstream) を使います。</p>' +
-    '<input id="repo-url" type="text" value="' + escapedDefault + '" />';
+    '<input id="repo-url" type="text" value="' + escapedDefault + '" /></div>';
+  box.querySelectorAll('input[name="source-mode"]').forEach((r) => {
+    r.addEventListener("change", () => {
+      const mode = box.querySelector('input[name="source-mode"]:checked').value;
+      $("clone-fields").classList.toggle("hidden", mode !== "clone");
+    });
+  });
   actions.appendChild(
-    actionBtn("clone", async () => {
-      // 空 (または既定値のまま) なら backend の既定解決に任せる。
-      // fork を使うユーザーはここを自分の URL に書き換える
-      const url = $("repo-url").value.trim();
-      box.textContent = url ? `cloning ${url}...` : "cloning (default repository)...";
-      const r = await invoke("run_clone_repo", { url });
-      if (r.success) {
-        next();
-      } else {
-        box.innerHTML = errorBlock(`clone 失敗: ${r.output}`);
-        actions.innerHTML = "";
-        actions.appendChild(actionBtn("再試行", () => renderStep()));
+    actionBtn("次へ", async () => {
+      const mode = (box.querySelector('input[name="source-mode"]:checked') || {}).value;
+      if (mode === "clone") {
+        // 空 (または既定値のまま) なら backend の既定解決に任せる。
+        // fork を使うユーザーはここを自分の URL に書き換える
+        const url = $("repo-url").value.trim();
+        box.textContent = url ? `cloning ${url}...` : "cloning (default repository)...";
+        const r = await invoke("run_clone_repo", { url });
+        if (r.success) {
+          next();
+        } else {
+          box.innerHTML = errorBlock(`clone 失敗: ${r.output}`);
+          actions.innerHTML = "";
+          actions.appendChild(actionBtn("再試行", () => renderStep()));
+        }
+        return;
       }
+      if (mode === "managed") {
+        // channel / tag 省略 = CLI `source init` と同じ既定動作
+        // (channel stable の最新 tag を解決して ReleaseMetadata で検証)
+        box.textContent = "managed source を解決しています... (channel stable の最新 tag)";
+        const r = await invoke("run_source_init", {});
+        if (r.success) {
+          next();
+        } else {
+          box.innerHTML = errorBlock(`managed source の初期化に失敗しました: ${r.output}`);
+          actions.innerHTML = "";
+          actions.appendChild(actionBtn("再試行", () => renderStep()));
+        }
+        return;
+      }
+      // "current": 登録済み checkout をそのまま使う
+      next();
     })
   );
 }
@@ -518,7 +556,10 @@ async function stepVerify(box, actions) {
 // ---------- boot ----------
 async function boot() {
   const s = await refresh();
-  if (s && !s.repo_exists) {
+  // setup は「source が未初期化」(checkout 無し かつ managed source 無し) の
+  // 場合のみ表示する。managed source だけで初期化済みの machine (repo 無し) は
+  // main UI へ直接進む
+  if (s && !s.repo_exists && !s.managed_source) {
     showSetup();
   } else {
     showReady();
