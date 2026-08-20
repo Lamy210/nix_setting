@@ -312,7 +312,7 @@ trap cleanup_sf EXIT
 echo "=== nix_setting installer ==="
 echo
 
-# 1. Git (managed source の tag 解決にも git が必要なため、経路によらず必須)
+# 1. Git (managed source の tag 解決にも必要なため、経路によらず必須)
 if ! resolve_git; then
   echo "[1/4] Git not found. Install Git first via your OS package manager." >&2
   exit 1
