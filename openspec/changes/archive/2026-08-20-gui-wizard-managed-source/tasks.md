@@ -22,5 +22,5 @@
 
 - [x] 4.1 `cargo test` / `clippy -D warnings` / `cargo fmt` green (local — desktop は GTK 依存のため CI で確認)
 - [x] 4.2 openspec validate green (@fission-ai/openspec@1.8.0)
-- [ ] 4.3 CI 7 gate green (stack 解除後: PR #56 / install.sh change merge 後に rebase + base develop)
-- [ ] 4.4 PR 作成 (base: develop)
+- [x] 4.3 CI 7 gate green (stack 解除後: PR #56 / install.sh change merge 後に rebase + base develop)
+- [x] 4.4 PR 作成 (base: develop)
