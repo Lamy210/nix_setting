@@ -40,13 +40,23 @@ impl fmt::Display for OperatingSystem {
 impl MachineFacts {
     /// 実行環境から検出する。username / home が取れない場合は error
     pub fn detect() -> Result<Self> {
+        Self::detect_with_home_from(|k| std::env::var_os(k))
+    }
+
+    /// HOME の取得方法を差し込み可能にした detect。
+    /// process 全体の env を test から書き換えると並列 test と race する
+    /// (「HOME is not set」の失敗を再現する test が他 test を巻き込む) ため、
+    /// 該当 test はこの経路で env 無しを simulate する
+    fn detect_with_home_from(
+        home_from_env: impl Fn(&str) -> Option<std::ffi::OsString>,
+    ) -> Result<Self> {
         let username = crate::discovery::current_user()
             .ok_or_else(|| Error::Precondition("username could not be detected".to_string()))?;
         if username.is_empty() {
             return Err(Error::Precondition("username is empty".to_string()));
         }
 
-        let home = std::env::var_os("HOME")
+        let home = home_from_env("HOME")
             .map(PathBuf::from)
             .ok_or_else(|| Error::Precondition("HOME is not set".to_string()))?;
         if home.as_os_str().is_empty() {
@@ -262,11 +272,11 @@ mod tests {
 
     #[test]
     fn detect_fails_without_home() {
-        let home = std::env::var_os("HOME");
-        std::env::remove_var("HOME");
-        let r = MachineFacts::detect();
-        std::env::set_var("HOME", home.unwrap_or_default());
-        assert!(r.is_err());
+        // HOME 無しは env 参照の差し込みで再現する (process 全体の HOME を
+        // remove すると並列 test と race して他 test を巻き込む)
+        let r = MachineFacts::detect_with_home_from(|_| None);
+        let err = r.expect_err("detect should fail without HOME");
+        assert!(err.to_string().contains("HOME is not set"));
     }
 
     #[test]
