@@ -27,5 +27,5 @@
 - [x] 4.1 `cargo test` / `cargo clippy -D warnings` / `cargo fmt` green (local)
 - [x] 4.2 shellcheck (install.sh) — local `nix run nixpkgs#shellcheck` または CI
 - [x] 4.3 openspec validate green (@fission-ai/openspec@1.8.0)
-- [ ] 4.4 bats / bootstrap-test / flake-check / desktop rust-check は CI で green
-- [ ] 4.5 PR 作成 (base: develop。stack 元の PR #56 merge 後に rebase して提出)
+- [x] 4.4 bats / bootstrap-test / flake-check / desktop rust-check は CI で green
+- [x] 4.5 PR 作成 (base: develop。stack 元の PR #56 merge 後に rebase して提出)
