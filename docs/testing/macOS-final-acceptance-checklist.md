@@ -16,8 +16,9 @@ A. Environment    fresh Apple Silicon macOS・Nix なし・state なし
 A2. Pre-bootstrap GUI   DMG の SchneeForge.app を Nix 導入前に Finder 起動
                          → crash 無し・Nix Missing 表示 (Nix 無し Mac で動くことの保証)
 B. Bootstrap      install.sh → pinned CLI → checksum → staging → install
-                  └ 完走時は bootstrap.sh まで自動実行
-                    (nix-darwin switch → Home Manager apply)
+                  ├ rc.5 以前: 完走時は bootstrap.sh まで自動実行
+                  │            (clone → nix-darwin switch → Home Manager apply)
+                  └ rc.6 以降: clone なし。managed source (tag pinned) → apply
 C. Managed Nix    receipt / ownership / daemon / store / flakes
 D. CLI            nix doctor / doctor / status / plan
 E. Finder         SchneeForge.app を Finder 起動 → minimal GUI PATH で Nix 検出
@@ -25,7 +26,8 @@ E. Finder         SchneeForge.app を Finder 起動 → minimal GUI PATH で Nix
 F. Idempotency    2 回目 install → ExistingNixDetected で安全に拒否
 G. Uninstall      ownership 確認 → uninstall → cleanup 確認
 H. Reinstall      再 install → 正常導入 (lifecycle 一周)
-I. Final          ADR-0001 provisionally accepted → Accepted
+I. Managed source (rc.6 以降のみ) source init/status/update・fail-closed・GUI
+J. Final          ADR-0001 provisionally accepted → Accepted
 ```
 
 ## 0. 検証対象の pin (最重要)
@@ -46,6 +48,17 @@ TAG="${TAG:-v0.2.0-rc.5}"
 - **RC.4 の DMG asset は desktop binary が `/nix/store` の libiconv に link した
   まま release されていた** (RC.5 の修正対象。`release-artifact-check` の DMG
   gate 追加により以降は PR 段階で検出される)。RC.4 asset での検証は不可
+- **RC.5 と RC.6 で fresh install の経路が変わる** (PR #54-#61, 2026-08-19/20
+  merge。rc.5 asset には未同梱):
+  - rc.5 以前: install.sh が `--branch "$TAG" --depth 1` で clone し
+    bootstrap.sh まで自動実行
+  - rc.6 以降: **clone しない**。CLI binary を release から取得し
+    `source init --tag` (managed source) → `apply` (flake ref)。
+    `$HOME/nix_setting` は作られない
+  - 影響する gate (B / D / F / G) には「rc.6 以降」の注記を付けてある。
+    gate I (Managed source) は rc.6 以降でのみ実施する。
+    また rc.6 から `schneeforge-release.json` asset が同梱される
+    (PR #50。gate I-2 の `source metadata` で使用)
 - release pipeline は **tag push でのみ発火**する (workflow_dispatch は無い)。
   したがって本手順は以下の順序の「Prerelease assets 生成後」に実施する:
 
@@ -155,6 +168,8 @@ hdiutil attach "$ACCEPT_DIR/$DMG_NAME"
   (RC.4 の `/nix/store` link はここで即 crash したはず)
 - wizard (Set up SchneeForge) が表示され、Nix が NG であることが**正しく**表示される
   (rc.3 の field mismatch のように「常に NG」ではなく、実際の状態に追随する)
+- rc.6 以降: この時に wizard を step 進行し、source 選択 step で
+  **managed source が既定**であることも確認する (gate I8。install まで進めない)
 - gate A と同じ shell で確認する (gate B 実行後は再現できない)
 
 ```bash
@@ -172,7 +187,7 @@ bootstrap_rc=$?
 echo "bootstrap_rc=$bootstrap_rc"   # gate B1 は 0 であること
 ```
 
-確認ポイント:
+確認ポイント (rc.5 以前の clone 経路):
 - CLI binary の download → CHECKSUMS.txt SHA256 検証 → root-owned staging
   (`/private/var/db/schneeforge/bootstrap/`) → root 側再検証 → `schneeforge nix install`
   の順で log が出ること
@@ -185,9 +200,19 @@ echo "bootstrap_rc=$bootstrap_rc"   # gate B1 は 0 であること
   つまり gate B 完走時点で環境は full bootstrap 済みであり、
   gate G (uninstall) では nix-darwin を先に外すことが**必須**になる
 
+確認ポイント (rc.6 以降の managed 経路):
+- `[1/4] Fetching schneeforge CLI (release: ...)` が表示され、**clone が行われない**
+  こと (`$HOME/nix_setting` が作られない)
+- `[4/4] Applying configuration (managed source: <TAG>)` → dotfile backup →
+  `Initializing managed source...` → `Applying configuration...` の順で log が出ること
+- apply も nix-darwin switch を実行するため、gate G (uninstall) で
+  nix-darwin を先に外すことは rc.6 経路でも**必須** (詳細は gate I-1)
+
 - [ ] gate B1: install.sh が完走 (`bootstrap_rc=0`)
 - [ ] gate B2: checksum verification / staging の log が確認できた
 - [ ] gate B3: D8 確認プロンプトが表示され、`y` で先に進んだ
+- [ ] gate B4 (rc.6 以降): clone されず managed source 経路で完走した
+      (詳細な確認は gate I-1)
 
 ## C. Managed Nix (receipt / ownership / runtime)
 
@@ -221,7 +246,8 @@ one-liner 完走後は `schneeforge` command が PATH に無いため、gate 0-2
 保存した release binary (`$SF`) を使う:
 
 ```bash
-cd "$HOME/nix_setting"
+cd "$HOME/nix_setting"   # rc.6 以降の managed 経路では checkout が無いため cd 不要
+                          # (どの directory からでも実行できる)
 "$SF" nix doctor     # receipt / store ping / flakes
 "$SF" doctor         # toolchain 診断
 "$SF" status         # state
@@ -255,6 +281,8 @@ PATH が継承され、minimal GUI PATH の検証にならない。
 ```bash
 # --repo 明示: sudo で root 側 HOME を見て別 repository を探させない
 # (install.sh 自身も sudo env NIX_SETTING_DIR=... で渡している)
+# rc.6 以降の managed 経路では checkout が存在しないため --repo 指定無しの
+# `sudo "$SF" nix install` に読み替える (embedded manifest で動作)
 sudo "$SF" --repo "$HOME/nix_setting" nix install 2>&1 | tee install-second.log
 second_install_rc=$?
 echo "second_install_rc=$second_install_rc"
@@ -282,6 +310,8 @@ sudo nix --extra-experimental-features "nix-command flakes" \
 その後:
 
 ```bash
+# rc.6 以降の managed 経路では checkout が存在しないため
+# `sudo "$SF" nix uninstall` に読み替える (ownership record は /nix 直下)
 sudo "$SF" --repo "$HOME/nix_setting" nix uninstall 2>&1 | tee uninstall.log
 uninstall_rc=$?
 echo "uninstall_rc=$uninstall_rc"
@@ -320,7 +350,79 @@ nix store ping && echo "reinstall OK"
 最終状態: 環境を綺麗に残すならもう一度 G の uninstall を実行して
 fresh に戻す (任意)。
 
-## I. 結果の記録と ADR 昇格
+## I. Managed source (rc.6 以降のみ)
+
+PR #54-#61 (managed release source)・PR #50 (release metadata)・PR #56
+(GUI profile 切替) が同梱される rc.6 以降の asset で実施する。
+rc.5 以前には当該機能が無いため本 section は skip する (skip した旨を記録に残す)。
+「fresh install が clone なしで完走する」ことの実機保証が主目的。
+
+### I-1. install.sh の managed 経路 (gate B の詳細確認)
+
+```bash
+# working tree-less: checkout が作られていないこと
+[ -d "$HOME/nix_setting" ] && echo "NG: checkout exists" || echo "OK: working tree-less"
+
+# state の source が tag pinned の managed source になっていること
+# (ref が検証 TAG と一致・managed: true 相当の flake ref)
+cat "$HOME/.local/state/schneeforge/state.json"
+```
+
+- [ ] gate I1: fresh install が clone せず managed source で完走
+      (`$HOME/nix_setting` が存在しない)
+- [ ] gate I2: state.json の source が flake ref `github:Lamy210/nix_setting/<TAG>`
+      で、ref が検証 TAG に一致
+
+### I-2. CLI での source 確認・更新・fail-closed
+
+```bash
+"$SF" source status          # kind: ... (managed) / ref / channel / revision
+"$SF" source metadata --tag "$TAG"   # rc.6 以降の asset のみ
+"$SF" profile list           # manifest の profiles と現在の選択
+"$SF" profile show
+
+# update は state 更新のみ (checkout 操作なし)。
+# 検証 TAG が channel 最新なら no-op になる
+"$SF" update 2>&1 | tee source-update.log
+
+# flake.lock 更新 (upgrade) は managed source で fail-closed 拒否されること
+"$SF" upgrade 2>&1 | tee upgrade-managed.log
+upgrade_rc=$?
+```
+
+- [ ] gate I3: `source status` が `kind: ... (managed)`・ref・channel を表示
+      (revision は metadata asset があれば `verified`)
+- [ ] gate I4: `source metadata` が version / channel / source revision を表示
+- [ ] gate I5: `update` が checkout 操作なしで完走
+      (最新なら `Already on the latest ... release`)
+- [ ] gate I6: `upgrade` が拒否される
+      (`test "$upgrade_rc" -ne 0` かつ
+      `grep -q 'cannot be updated locally' upgrade-managed.log` が通ること)
+- [ ] gate I7: `profile list` / `profile show` が manifest の profiles を表示
+
+### I-3. GUI (wizard の source 選択・Dashboard)
+
+wizard の source 選択 step は初回 setup でしか表示されないため、
+**gate A2 (pre-bootstrap) の時に wizard を step 進行して確認する**
+(source 選択の確認だけで install 実行まで進めない):
+
+- wizard の source 選択 step で **managed source が既定**で選択されていること
+  (clone も選択肢として残る)
+
+Dashboard 側は gate E (post-bootstrap) と同じ Finder 起動で確認する:
+
+- profile 切替 (選択 →「適用」/「既定へ」) が反映されること (PR #56)
+- **「ソース更新」ボタン**が応答すること (PR #62 merge 済みの tag のみ。
+  update = state 更新のみのため昇格 dialog は出ない)
+- managed source では**「アップグレード」ボタンが非表示**になること
+  (PR #62 merge 済みの tag のみ)
+
+- [ ] gate I8: wizard の source 選択で managed が既定
+- [ ] gate I9: Dashboard の profile 切替が反映
+- [ ] gate I10 (PR #62 merge 済みの tag):「ソース更新」が応答・
+      「アップグレード」が非表示
+
+## J. 結果の記録と ADR 昇格
 
 記録は `docs/spikes/2026-08-15-macos-managed-nix-final-acceptance/` に残す:
 
@@ -333,7 +435,12 @@ finder-smoke.md      gate E の観察 (スクショは repo 外で管理)
 idempotency.log      gate F
 uninstall.log        gate G
 reinstall.log        gate H
+source-update.log    gate I-2 (rc.6 以降)
+upgrade-managed.log  gate I-2 (rc.6 以降)
 ```
+
+rc.5 以前の asset で実施した場合は gate I を skip した旨を記録する
+(gate I を含まない全 gate ✅ で ADR-0001 昇格の条件を満たす)。
 
 **sanitize 注意**: username / hostname / serial / private path 等の端末固有
 情報を public repo へ commit しない (sed で置換してから追加する)。
@@ -368,6 +475,10 @@ Result: PASS
 - [x] uninstall
 - [x] cleanup
 - [x] reinstall
+- [x] managed source install (working tree-less)   ← rc.6 以降
+- [x] source status / metadata / update            ← rc.6 以降
+- [x] upgrade fail-closed rejection                ← rc.6 以降
+- [x] GUI managed source wizard / Dashboard        ← rc.6 以降
 ```
 
 全 gate ✅ なら:
