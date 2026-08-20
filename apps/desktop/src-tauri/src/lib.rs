@@ -1187,16 +1187,16 @@ mod tests {
             .expect("stepRepo must exist");
         let body = step.split("\n}").next().unwrap_or(step);
         assert!(
-            body.contains('invoke("run_source_init"'),
+            body.contains("invoke(\"run_source_init\""),
             "stepRepo must invoke run_source_init for the managed source"
         );
         assert!(
-            body.contains('invoke("run_clone_repo"'),
+            body.contains("invoke(\"run_clone_repo\""),
             "stepRepo must keep run_clone_repo for forks / developers"
         );
         // clone 未選択では git clone が走らないこと (managed 既定の確認)
         assert!(
-            body.contains('value="managed"') && body.contains("mode === \"clone\""),
+            body.contains("value=\"managed\"") && body.contains("mode === \"clone\""),
             "source selection must dispatch on the chosen mode (managed default)"
         );
     }
