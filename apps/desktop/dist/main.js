@@ -29,6 +29,10 @@ async function refresh() {
     $("nix").textContent = s.tools.nix.available ? "yes" : "no";
     $("homebrew").textContent = s.tools.homebrew.available ? "yes" : "no";
     $("applied").textContent = s.applied_revision ?? "(never)";
+    // managed source では flake.lock 更新 (アップグレード) は core が
+    // fail-closed で拒否するためボタンを隠す (checkout 表現では表示のまま)
+    const upgradeBtn = $("upgrade");
+    if (upgradeBtn) upgradeBtn.hidden = Boolean(s.managed_source);
     return s;
   } catch (e) {
     $("output").textContent = `get_status エラー: ${e}`;
@@ -135,11 +139,12 @@ async function run(fn, buttonId, label) {
   const btn = $(buttonId);
   if (!btn) {
     $("output").textContent = `ボタンが見つかりません: ${buttonId}`;
-    return;
+    return undefined;
   }
   btn.disabled = true;
   setRunning(label, true);
   $("output").textContent = `${label} を実行中...`;
+  let result;
   try {
     const r = await fn();
     if (r.success) {
@@ -147,6 +152,7 @@ async function run(fn, buttonId, label) {
     } else {
       $("output").textContent = `${label} 失敗: ${r.output}`;
     }
+    result = r;
   } catch (e) {
     $("output").textContent = `${label} エラー: ${e}`;
   } finally {
@@ -154,6 +160,7 @@ async function run(fn, buttonId, label) {
     setRunning(label, false);
     refresh();
   }
+  return result;
 }
 
 // ---------- setup wizard ----------
@@ -575,6 +582,14 @@ $("plan").addEventListener("click", () => run(() => invoke("run_plan"), "plan", 
 $("apply").addEventListener("click", () => run(() => invoke("run_apply"), "apply", "適用"));
 $("rollback").addEventListener("click", () => run(() => invoke("run_rollback"), "rollback", "ロールバック"));
 $("upgrade").addEventListener("click", () => run(() => invoke("run_upgrade"), "upgrade", "アップグレード"));
+$("update").addEventListener("click", async () => {
+  // configuration source の更新 (v2 主操作)。state の source が書き換わる
+  // ため成功時は dashboard も再取得する
+  const r = await run(() => invoke("run_update"), "update", "ソース更新");
+  if (r && r.success) {
+    refreshDashboard();
+  }
+});
 $("verify").addEventListener("click", verify);
 $("nix-uninstall").addEventListener("click", nixUninstall);
 $("profile-set").addEventListener("click", switchProfile);
