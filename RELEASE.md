@@ -61,6 +61,8 @@ git push origin --delete release/vX.Y.Z
 - [ ] `flake-check`: `homeConfigurations.linux.activationPackage` が build できる
 - [ ] `flake-check`: `homeConfigurations.linux-arm.activationPackage` が eval できる
 - [ ] `macos-check`: `nix flake check` / `homeConfigurations.macbook-air` / `darwinConfigurations.macbook-air`
+- [ ] `release-artifact-check`: release workflow と同一 script での macOS CLI build + smoke + portability gate・DMG mounted-app gate・release metadata 生成 script の自己検証 (RC.4 の `/nix/store` libiconv link 事故の再発防止)
+- [ ] `managed-nix-e2e`: musl static build (release workflow と同一 script) + Docker 上での Managed Nix E2E (bats)
 - [ ] `docker-check`: Docker image build / flake check / dev shell 起動
 - [ ] `lint`: `actionlint` / `shellcheck` / `statix` / `deadnix`
 - [ ] `lint`: **forbid raw tool spawns** — `tool.rs` / `cli/tests/` 以外で `Command::new("nix"|"git"|"brew"|"nh")` 等の文字列リテラル spawn が無いこと。shell 側も `$NIX_BIN` / `$GIT_BIN` / `$BREW_BIN` 経由であること
@@ -74,17 +76,20 @@ git push origin --delete release/vX.Y.Z
 
 ### 手動 smoke
 
+macOS 実機の full フローは [Final Acceptance 手順書](./docs/testing/macOS-final-acceptance-checklist.md)
+(gate A-J。ADR-0001 昇格の条件。rc.6 以降は managed source の gate I を含む):
+
 - [ ] 実機で `schneeforge setup` / `plan` / `apply` / `verify` / `rollback` を実行
 - [ ] `schneeforge doctor` / `schneeforge status` が正常終了
 - [ ] desktop (Tauri) で Diagnostics → Apply → Verify のフロー
-- [ ] fresh 環境で `install.sh` が成功
+- [ ] fresh 環境で `install.sh` が成功 (rc.6 以降は managed source 経路: clone なし)
 
 ### アセット・ノート
 
 - [ ] リリースノート: 変更・既知の制限・未完了機能を記載
-- [ ] Release asset: `schneeforge-{aarch64-darwin,x86_64-linux}` / DMG / SBOM / CHECKSUMS.txt が生成される
+- [ ] Release asset: `schneeforge-{aarch64-darwin,x86_64-linux}` / DMG / SBOM / `schneeforge-release.json` (v2 §27 metadata。release workflow が tag ref から自動生成) / CHECKSUMS.txt が生成される
 - [ ] `vX.Y.Z` の version 表記が `Cargo.toml` / `tauri.conf.json` / flake packages で揃っている
-- [ ] **`install.sh` の `SCHNEEFORGE_BOOTSTRAP_VERSION` を今回の `vX.Y.Z` に bump**（release PR 内で実施。bootstrap が download する CLI version と clone する config ref (`SCHNEEFORGE_BOOTSTRAP_REF`, VERSION に連動) が release と一致する保証になる。latest 任せにすると rc が拾われる）
+- [ ] **`install.sh` の `SCHNEEFORGE_BOOTSTRAP_VERSION` を今回の `vX.Y.Z` に bump**（release PR 内で実施。bootstrap が download する CLI version と pin する config ref (`SCHNEEFORGE_BOOTSTRAP_REF`, VERSION に連動。rc.6 以降の fresh install は managed source としてこの tag を pin する) が release と一致する保証になる。latest 任せにすると rc が拾われる）
 - [ ] **README の Stable ワンライナー URL を今回の tag に差し替え**（`raw.githubusercontent.com/Lamy210/nix_setting/vX.Y.Z/install.sh`。Stable は「script 取得元 tag == pin 先 release」の一致が意味になるため、bump 忘れは test `install-sh.bats` の stable URL 検査で検知される）
 - [ ] Linux asset が musl static であることを release note の CI log で確認（`verify static binary` step）
 
@@ -126,6 +131,6 @@ brew install schneeforge-edge
 
 ## 現在のリリース状態
 
-- 最新 release: `v0.2.0-rc.1`（GUI 正常化・Homebrew tap 公開・Flakes/Health 診断強化）
-- 次候補: `v0.2.0-rc.2` 以降（`runtime-tool-resolution-hardening` 取り込み後、特権ヘルパー/#5 partial 対応を検討）
-- `develop` 未リリース差分: `runtime-tool-resolution-hardening`（Toolchain 統一 / NixHealth / fix-path-env / shell installer 統一）
+- 最新 release: `v0.2.0-rc.5`（2026-08-15。rc.4 の DMG `/nix/store` link 事故の修正: DMG を host build 化 + `release-artifact-check` に mounted-app gate 追加）
+- 次候補: `v0.2.0-rc.6`（macOS Final Acceptance PASS 後に cut。**managed release source (v2 §7) を同梱する最初の release** — fresh install が clone なしの managed source 経路になる。`schneeforge-release.json` asset の同梱もこの release から)
+- `develop` 未リリース差分: 2026-08-18 以降に merge した v2 系 change 全て（MachineFacts / ConfigurationSource / manifest / profile / Release Metadata / GUI Dashboard / managed source 3 change ほか）。詳細は `docs/STATUS.md`
