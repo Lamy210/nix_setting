@@ -2,7 +2,7 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-08-20
+最終更新: 2026-08-21
 
 ## 完成済み
 
@@ -74,6 +74,15 @@ CLI / install.sh / GUI wizard の初期化経路が unified (v2 §7 完結)。�
 - **install.sh fresh 経路の managed source 化 (PR #59 / 77a4d20 + archive #61)**: 初回 install での git clone を廃止。`fetch_schneeforge_binary` (release asset 取得) → `source init --tag pin` → `apply`。dotfile backup、`ManagedNix::load_prefer_repo` (repo 無し時は embedded fallback)
 - **GUI wizard の managed source 対応 (PR #60 / 60e2846 + archive #61)**: `Diagnostics.managed_source`、wizard の source 選択 step (managed 既定 + clone 選択肢)、boot gate `!repo_exists && !managed_source`、Managed Nix install の repo gate 削除
 
+### GUI source 更新 + test 隔離 + ドキュメント整備 + provenance (2026-08-21 merge 済み, develop d1f049a)
+
+PR #62-#68 を sequential chain (各 rebase → CI 全 green → squash merge) で merge。`openspec/changes/` の残存は `add-dmg-offline-bundle-licensing` (法務待ち) のみ。
+
+- **GUI からの source 更新 (PR #62 / f0a880b + archive #68)**: `run_update` Tauri command (core `update()` を昇格なし in-process 実行) +「ソース更新」ボタン + managed source での「アップグレード」隠蔽
+- **cli test の state/network 隔離 (PR #63 / a6621e2)**: `state_dir()` helper で state 読み得る全起動を XDG_STATE_HOME 隔離、`source_init_with_tag` の ls-remote を local origin 化 (network hang 解消)
+- **docs (PR #64-#66)**: STATUS.md (2026-08-20 版) / Final Acceptance 手順書 gate I (managed source) 新設 / RELEASE.md checklist を実 CI と rc.6 前提へ更新
+- **release asset provenance (PR #67 / a1fb376 + archive #68)**: release.yml に `actions/attest-build-provenance` (v4.2.2 SHA pin) 追加。subject は asset 全て、`id-token: write` は release job のみ、fail-closed。**実生成は rc.6 の tag push で初確認**
+
 ## 進行中
 
 | 項目 | 進捗 | 場所 |
@@ -87,8 +96,6 @@ CLI / install.sh / GUI wizard の初期化経路が unified (v2 §7 完結)。�
 | GUI apply 系の昇格統合 (デグレ #5) | **develop merge 済み** (PR #37 / 1134a31)。`run_apply` / `run_rollback` / `run_upgrade` を core 直接呼び出しから CLI sidecar の昇格実行 (osascript / pkexec) へ集約。`EscalatedOp` に Apply/Rollback/Upgrade を追加。lock / state 保存は昇格先 CLI 内。実機 (osascript 昇格での apply) は macOS Final Acceptance で確認 | `openspec/changes/archive/2026-08-16-add-gui-privileged-apply/` |
 | GUI nix repair / uninstall (issue #16 残作業) | **develop merge 済み** (PR #40 / 72fbd20。旧 PR #39 は base branch 削除で close → 再提出)。`EscalatedOp` に NixRepair/NixUninstall を追加し、wizard の Degraded/Broken 表示に「修復を試みる」ボタン・Ready 画面に確認付き「Nix を削除」ボタン。`--force` は GUI から渡さない (fail-closed 維持) | `openspec/changes/archive/2026-08-16-add-gui-nix-repair-uninstall/` |
 | DMG offline bundle 法務 ADR (issue #17) | ADR-0002 起票・openspec change 作成 (branch `feat/gui-managed-nix-install` に同梱)。無改変再配布 + LICENSE 同梱 + written offer の方針を固定。**実装 (bundle 同梱・offline 経路) は弁護士確認後の別 change** | `docs/adr/0002-dmg-bundle-lgpl-redistribution.md` / `openspec/changes/add-dmg-offline-bundle-licensing/` |
-| **GUI からの source 更新** (`gui-source-update`) | **PR #62 (c71fa9b): CI 全 green (required 7 gate + macos-check)、merge 承認待ち**。`run_update` Tauri command (core `update()` を昇格なし in-process 実行 = sync と同じ扱い) +「ソース更新」ボタン (id=`update`) + managed source での「アップグレード」隠蔽 (core が fail-closed のため)。merge 後は archive PR が必要 | `openspec/changes/gui-source-update/` (PR #62 branch) |
-| **cli test の state/network 隔離** (`cli-test-state-isolation`) | **PR #63 (36e20c9): CI 全 green、merge 承認待ち**。`state_dir()` helper で state 読み得る全起動を XDG_STATE_HOME 隔離 (手動 CLI 実行による実 state 汚染で無関係 test が落ちる事故の再発防止) + `source_init_with_tag` の ls-remote を SCHNEEFORGE_REPO_URL で local origin 化 (133s network hang 解消)。#62 merge 後は rebase 必要 (strict up-to-date) | PR #63 branch |
 
 ## 既知のデグレ・機能漏れ（要対応）
 
@@ -103,20 +110,17 @@ CLI / install.sh / GUI wizard の初期化経路が unified (v2 §7 完結)。�
 | # | 問題 | 対応 |
 |---|------|------|
 | 12 | install.sh が main 固定（Stable/Edge 分離無し） | **解消・merge 済み** (PR #38 / e95d899): README の Stable ワンライナーを tag 固定 URL に分離 + tag と `SCHNEEFORGE_BOOTSTRAP_VERSION` pin の一致を `tests/install-sh.bats` で回帰保証。RELEASE.md の bump checklist に README URL 差し替えを追加 |
-| — | Dependabot alert #2: glib 0.18.5 (GHSA-wrw7-89jp-8q8g / RUSTSEC-2024-0429, medium) | Known upstream dependency risk. 現 dependency tree では Tauri v2 Linux → GTK3 0.18 → glib 0.18.5 経由。macOS / Windows distribution には当該 GTK3 dependency は含まれない。app code からの VariantStrIter 直接利用は確認されていないが、transitive dependency 内の到達可能性まで否定する根拠にはしない。**gtk3-rs は 2026-08-13 に maintenance 再開の動き** (gtk-rs/gtk3-rs#857: gtk 0.19.0 + glib 0.22 への更新が進行中)。Tauri v2 / tao / wry 側の追従状況を monitor し、upstream release 後に再評価。**現時点では dismiss (no_plan_to_fix) せず tracking 継続** |
+| — | Dependabot alert #2: glib 0.18.5 (GHSA-wrw7-89jp-8q8g / RUSTSEC-2024-0429, medium) | Known upstream dependency risk. 現 dependency tree では Tauri v2 Linux → GTK3 0.18 → glib 0.18.5 経由。macOS / Windows distribution には当該 GTK3 dependency は含まれない。app code からの VariantStrIter 直接利用は確認されていないが、transitive dependency 内の到達可能性まで否定する根拠にはしない。**2026-08-21 調査**: gtk-rs/gtk3-rs#857 は 2026-08-16 に close し master は活発に開発中だが、glib は **0.23.0-alpha (git 依存、crates.io 未 release)** で stable line は 0.18.x のまま → bump 可能な stable release がまだ存在しない。Tauri v2 / tao / wry 側の追従状況を monitor し、gtk3-rs の stable release 後に再評価。**現時点では dismiss (no_plan_to_fix) せず tracking 継続** |
 
 ### 低
 
 | # | 問題 | 対応 |
 |---|------|------|
-| — | バージョン文字列が `0.1.0` のまま（Cargo.toml / tauri.conf.json / packages.nix） | release/* で v0.2.0-rc.1 に bump |
+| — | バージョン文字列の同期（現在 `0.2.0-rc.5`。Cargo.toml / tauri.conf.json / packages.nix / install.sh） | rc.6 の release branch で 10 箇所まとめて bump (RELEASE.md checklist) |
 
 ## 次の作業（推奨順）
 
-1. **PR #62 / #63 の merge** (user の承認待ち。両方 CI 全 green):
-   - #62 (gui-source-update) を merge → `gui-source-update` change の archive PR を作成
-   - #63 (cli-test-state-isolation) は #62 merge 後に `git rebase origin/develop` (strict up-to-date 対応。upstream 済み commit が conflict したら `git rebase --skip`) してから merge
-2. **macOS Apple Silicon Final Acceptance** (ADR-0001 Accepted 昇格 + PR #11 Finder 実機 smoke を統合した 1 本フロー):
+1. **macOS Apple Silicon Final Acceptance** (ADR-0001 Accepted 昇格 + PR #11 Finder 実機 smoke を統合した 1 本フロー。実施 tag は rc.5 (gate I skip) / rc.6 release 後のどちらでも可 — user 判断):
    - fresh / disposable environment・Nix 無し状態から開始
    - install.sh → Managed Nix install
    - receipt (`/nix/receipt.json`) / ownership record (`/nix/schneeforge-managed.json`) 確認
@@ -127,10 +131,10 @@ CLI / install.sh / GUI wizard の初期化経路が unified (v2 §7 完結)。�
    - **PR #37/#40 の実機 smoke**: osascript 昇格での apply、wizard の「修復を試みる」ボタン・Ready 画面の「Nix を削除」ボタン (confirm dialog)
    - uninstall → cleanup
    - 通れば ADR-0001 を `Accepted` へ昇格
-3. **release/v0.2.0-rc.6** (Final Acceptance PASS 後。現行 release は rc.5): RELEASE.md checklist に沿って release branch → main → tag。rc.6 から `schneeforge-release.json` asset 同梱 (PR #50)。`SCHNEEFORGE_BOOTSTRAP_VERSION` bump + **README の Stable ワンライナー URL を新 tag へ差し替え** (bats test が検知する) + musl asset の実機確認 (Nix-less dry-run)
-4. Phase 2 残作業:
+2. **release/v0.2.0-rc.6** (Final Acceptance PASS 後。現行 release は rc.5): RELEASE.md checklist に沿って release branch → main → tag。rc.6 は **managed source 同梱 + `schneeforge-release.json` asset (PR #50) + provenance attestation (PR #67) の最初の release**。`SCHNEEFORGE_BOOTSTRAP_VERSION` bump + **README の Stable ワンライナー URL を新 tag へ差し替え** (bats test が検知する) + musl asset の実機確認 (Nix-less dry-run) + tag push 後 `gh attestation verify` で attest 実生成を確認
+3. Phase 2 残作業:
    - #17 DMG bundle + LGPL-2.1 法務 ADR: **ADR-0002 起票済み** (Accepted provisionally)。実装 (bundle 同梱・offline 経路、`add-dmg-offline-bundle-licensing` tasks 4.x) は弁護士確認後の別 change
-5. 残デグレ対応:
+4. 残デグレ対応:
    - glib advisory (Dependabot #2): gtk3-rs#857 と Tauri v2 側の追従を monitor、upstream release 後に再評価
 
 ※ issue #14/#15 は close 済み。#16 は Final Acceptance 済み次第 close、#17 は弁護士確認後に close。
