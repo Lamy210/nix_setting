@@ -108,6 +108,10 @@ test -n "$expected" && test "$expected" = "$actual" && echo "OK: checksum verifi
 
 SF="$ACCEPT_DIR/$ASSET"
 chmod +x "$SF" && "$SF" --version
+
+# provenance 検証 (attest 導入以降の tag のみ。要 gh。fresh macOS に gh が
+# 無ければ任意: 実行環境があるときだけ記録する)
+# gh attestation verify --repo Lamy210/nix_setting "$ACCEPT_DIR/$ASSET"
 ```
 
 以降の log 取得は `cmd 2>&1 | tee X.log` の直後に `X_rc=$?` で exit code を
@@ -121,6 +125,8 @@ chmod +x "$SF" && "$SF" --version
   /dev/tty 経路など install.sh 由来の検証は含まれない点を記録に明記する
 
 - [ ] gate 0: 検証対象 ref と artifact (tag・SHA) を記録に明記した
+- [ ] gate 0-3 (attest 導入以降の tag): `gh attestation verify` が通る
+      (gh の無い環境では skip した旨を記録)
 
 ## A. Environment (fresh であることの保証)
 

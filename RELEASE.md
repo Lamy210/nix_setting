@@ -92,6 +92,7 @@ macOS 実機の full フローは [Final Acceptance 手順書](./docs/testing/ma
 - [ ] **`install.sh` の `SCHNEEFORGE_BOOTSTRAP_VERSION` を今回の `vX.Y.Z` に bump**（release PR 内で実施。bootstrap が download する CLI version と pin する config ref (`SCHNEEFORGE_BOOTSTRAP_REF`, VERSION に連動。rc.6 以降の fresh install は managed source としてこの tag を pin する) が release と一致する保証になる。latest 任せにすると rc が拾われる）
 - [ ] **README の Stable ワンライナー URL を今回の tag に差し替え**（`raw.githubusercontent.com/Lamy210/nix_setting/vX.Y.Z/install.sh`。Stable は「script 取得元 tag == pin 先 release」の一致が意味になるため、bump 忘れは test `install-sh.bats` の stable URL 検査で検知される）
 - [ ] Linux asset が musl static であることを release note の CI log で確認（`verify static binary` step）
+- [ ] provenance: `attest build provenance` step が asset 全て (CLI / DMG / SBOM / `schneeforge-release.json` / CHECKSUMS.txt) を attest した。検証は `gh attestation verify --repo Lamy210/nix_setting <file>`（attest 導入 tag 以降。attestation は release asset とは別に attestations API へ保存される）
 
 ## リリースノートの必須記載
 

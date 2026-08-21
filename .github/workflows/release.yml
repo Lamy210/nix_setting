@@ -106,6 +106,11 @@ jobs:
   release:
     needs: [build-binaries, build-dmg]
     runs-on: ubuntu-latest
+    # job level で上書き: attestation に必要な OIDC (id-token) は release
+    # job のみに付与する (build job へは渡さない)
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
@@ -147,6 +152,20 @@ jobs:
             echo "## Source"
             echo "revision: ${{ github.sha }}"
           } > CHECKSUMS.txt
+
+      # Phase E (supply chain): この release の asset 全てに SLSA build
+      # provenance を attest する (checksums 生成後・release 作成前。失敗時は
+      # release を作らない)。検証は upstream nix-installer と対称の
+      # `gh attestation verify --repo Lamy210/nix_setting <file>`。過去
+      # release への遡及 attest はしない (design.md D5)
+      - name: attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: |
+            dist/*/*
+            sbom.cdx.json
+            schneeforge-release.json
+            CHECKSUMS.txt
 
       - name: create release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
