@@ -32,8 +32,10 @@ fn version_prints_semver() {
 #[test]
 fn doctor_prints_system_section() {
     // doctor の基本出力 (system/host)。Nix 有無の断言は core hermetic test が担う
+    let state = state_dir("doctor-system");
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("doctor")
+        .env("XDG_STATE_HOME", &state)
         .assert()
         .success()
         .stdout(predicate::str::contains("[system]").and(predicate::str::contains("host")));
@@ -42,8 +44,10 @@ fn doctor_prints_system_section() {
 /// status は ToolInventory 解決を必要としないので nix 無しでも動く
 #[test]
 fn status_runs_without_nix() {
+    let state = state_dir("status-no-nix");
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("status")
+        .env("XDG_STATE_HOME", &state)
         .assert()
         .success()
         .stdout(predicate::str::contains("host:"));
@@ -57,6 +61,7 @@ fn scan_runs() {
     }
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("scan")
+        .env("XDG_STATE_HOME", state_dir("scan"))
         .assert()
         .success()
         .stdout(predicate::str::contains("OS:").and(predicate::str::contains("arch:")));
@@ -68,6 +73,7 @@ fn status_respects_repo_flag() {
     cmd.arg("--repo")
         .arg("/nonexistent")
         .arg("status")
+        .env("XDG_STATE_HOME", state_dir("status-repo-flag"))
         .assert()
         .success();
 }
@@ -83,6 +89,7 @@ fn plan_shows_target_with_repo() {
     cmd.arg("--repo")
         .arg(env!("CARGO_MANIFEST_DIR"))
         .arg("plan")
+        .env("XDG_STATE_HOME", state_dir("plan-target"))
         .assert()
         .stdout(predicate::str::contains("target:"));
 }
@@ -105,8 +112,10 @@ fn uninstall_runs_without_nix() {
 /// (PATH に nix 無いが /nix は読める) で壊れるため行わない
 #[test]
 fn doctor_runs() {
+    let state = state_dir("doctor-runs");
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("doctor")
+        .env("XDG_STATE_HOME", &state)
         .assert()
         .success()
         .stdout(predicate::str::contains("[system]").and(predicate::str::contains("host")));
@@ -126,12 +135,18 @@ fn nix_subcommand_help_lists_actions() {
 /// `schneeforge nix doctor` は Nix/receipt 無しでも動き、receipt not found を表示する (D7)
 #[test]
 fn nix_doctor_runs_without_receipt() {
+    let state = state_dir("nix-doctor");
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
-    cmd.arg("nix").arg("doctor").assert().success().stdout(
-        predicate::str::contains("=== schneeforge nix doctor ===")
-            .and(predicate::str::contains("[environment]"))
-            .and(predicate::str::contains("[receipt]")),
-    );
+    cmd.arg("nix")
+        .arg("doctor")
+        .env("XDG_STATE_HOME", &state)
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("=== schneeforge nix doctor ===")
+                .and(predicate::str::contains("[environment]"))
+                .and(predicate::str::contains("[receipt]")),
+        );
 }
 
 /// `schneeforge nix install --dry-run` は preflight を表示して終了する (D8)
@@ -145,6 +160,7 @@ fn nix_install_dry_run_shows_preflight() {
         .arg("nix")
         .arg("install")
         .arg("--dry-run")
+        .env("XDG_STATE_HOME", state_dir("install-dry-run"))
         .assert()
         .success()
         .stderr(
@@ -164,6 +180,7 @@ fn nix_install_parses_yes_flag() {
         .arg("install")
         .arg("--dry-run")
         .arg("--yes")
+        .env("XDG_STATE_HOME", state_dir("install-yes"))
         .assert()
         .success()
         .stderr(predicate::str::contains("[dry-run]"));
@@ -183,6 +200,7 @@ fn nix_install_without_root_prompts_sudo() {
         .arg(repo_root.canonicalize().unwrap())
         .arg("nix")
         .arg("install")
+        .env("XDG_STATE_HOME", state_dir("install-no-root"))
         .assert()
         .failure()
         .stderr(
@@ -227,6 +245,7 @@ fn source_status_reports_local_for_non_git_repo() {
         .arg(&dir)
         .arg("source")
         .arg("status")
+        .env("XDG_STATE_HOME", &dir)
         .assert()
         .success()
         .stdout(predicate::str::contains("kind:").and(predicate::str::contains("local")));
@@ -283,6 +302,7 @@ fn profile_list_shows_manifest_profiles() {
         .arg(&dir)
         .arg("profile")
         .arg("list")
+        .env("XDG_STATE_HOME", &dir)
         .assert()
         .success()
         .stdout(
@@ -437,6 +457,18 @@ fn cli_dir(name: &str) -> std::path::PathBuf {
     dir
 }
 
+/// state 隔離用の XDG_STATE_HOME temp dir。CLI に dev machine の実 state
+/// (~/.local/state/schneeforge) を読ませると、手動実行 (source init 等) の
+/// state 汚染が無関係の test まで崩す (2026-08-20 に実際に発生:
+/// source status / profile list が実 state の managed source で誤 fail)。
+/// state を読み得る起動は全てこの dir へ隔離する
+fn state_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("sf-cli-state-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 /// tag を持つ local の origin repo (network 不要の ls-remote 先)
 fn origin_repo(dir: &std::path::Path, tags: &[&str]) -> std::path::PathBuf {
     let origin = dir.join("origin");
@@ -463,22 +495,30 @@ fn write_source_state(dir: &std::path::Path, source_json: &str) {
 }
 
 /// v2 §7: `source init --tag` は managed source を state に設定する。
-/// metadata asset が無い tag は警告付き skip のため offline でも成功する
+/// tag 解決の ls-remote は SCHNEEFORGE_REPO_URL を local origin へ向けて
+/// network 無しで実行する。metadata asset が無い tag は警告付き skip のため
+/// offline でも成功する
 #[test]
 fn source_init_with_tag_sets_managed_state() {
+    if !git_available() {
+        eprintln!("skipping: git not available");
+        return;
+    }
     let dir = cli_dir("init-tag");
+    let origin = origin_repo(&dir, &["v0.1.0"]);
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("source")
         .arg("init")
         .arg("--tag")
-        .arg("v0.0.1")
+        .arg("v0.1.0")
         .env("XDG_STATE_HOME", &dir)
+        .env("SCHNEEFORGE_REPO_URL", &origin)
         .assert()
         .success()
         .stdout(predicate::str::contains("managed source set"));
     let state = std::fs::read_to_string(dir.join("schneeforge/state.json")).unwrap();
     assert!(state.contains("\"managed\": true"), "state: {state}");
-    assert!(state.contains("\"ref\": \"v0.0.1\""), "state: {state}");
+    assert!(state.contains("\"ref\": \"v0.1.0\""), "state: {state}");
     assert!(state.contains("\"channel\": \"stable\""), "state: {state}");
     let _ = std::fs::remove_dir_all(&dir);
 }
