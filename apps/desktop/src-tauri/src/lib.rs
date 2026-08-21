@@ -108,6 +108,37 @@ async fn run_upgrade(app: tauri::AppHandle) -> Result<CommandOutput, String> {
     .map_err(|e| format!("task error: {e}"))
 }
 
+/// `run_update`: configuration source の更新 (v2 主操作, CLI `update` と
+/// 同一の core 経路)。git 操作と state 更新のみで root 権限を要求しないため
+/// 昇格せず GUI process 内で実行する (sync と同じ扱い)。操作 lock は
+/// core `update()` 内で取得され、CLI との同時実行を直列化する。
+#[tauri::command]
+async fn run_update(state: tauri::State<'_, CachedToolInventory>) -> Result<CommandOutput, String> {
+    let tc = state.get_or_discover()?;
+    let repo = resolve_repo(None);
+    tauri::async_runtime::spawn_blocking(move || {
+        match schneeforge_core::update(&repo, &schneeforge_core::StateStore::default(), &tc, true) {
+            Ok(r) => {
+                let mut out = r.output.unwrap_or_default();
+                if let Some(src) = &r.source {
+                    out.push_str(&format!("\nsource: {} ({})", src.kind, src.ref_));
+                }
+                out.push_str("\nstate saved");
+                CommandOutput {
+                    success: true,
+                    output: out,
+                }
+            }
+            Err(e) => CommandOutput {
+                success: false,
+                output: e.to_string(),
+            },
+        }
+    })
+    .await
+    .map_err(|e| format!("task error: {e}"))
+}
+
 /// `nix_repair_escalated`: NixStatus 分類に基づく修復 (stale ownership
 /// record の削除 / 状態に応じた案内)。削除対象は root 所有のため昇格経路で
 /// 実行する。案内のみの状態 (Healthy / Missing 等) は何も変更しないため
@@ -767,6 +798,7 @@ pub fn run() {
             run_apply,
             run_rollback,
             run_upgrade,
+            run_update,
             run_preflight,
             machine_facts,
             run_clone_repo,
@@ -1229,6 +1261,62 @@ mod tests {
         assert!(
             json.get("managed_source").is_some(),
             "Diagnostics must serialize managed_source"
+        );
+    }
+
+    /// 「ソース更新」ボタン (id: update) は v2 主操作 `run_update`
+    /// (core `update()` と同一経路) を dispatch する。昇格を要求しない
+    /// 操作のため、command 定義が run_escalated_cli を使わないことも
+    /// あわせて静的に検証する。
+    #[test]
+    fn source_update_button_wires_run_update() {
+        let js = include_str!("../../dist/main.js");
+        let html = include_str!("../../dist/index.html");
+        let rs = include_str!("lib.rs");
+
+        assert!(
+            html.contains("id=\"update\""),
+            "index.html must have the ソース更新 button (id=update)"
+        );
+        assert!(
+            html.contains("id=\"upgrade\""),
+            "index.html must keep the アップグレード button (id=upgrade)"
+        );
+        assert!(
+            js.contains("invoke(\"run_update\""),
+            "main.js must invoke run_update from the ソース更新 button"
+        );
+
+        // run_update command 本体は昇格しない (root 不要。sync と同じ扱い)
+        let cmd = rs
+            .split("async fn run_update")
+            .nth(1)
+            .expect("run_update must exist");
+        let cmd = cmd.split("\n}").next().unwrap_or(cmd);
+        assert!(
+            !cmd.contains("run_escalated_cli"),
+            "run_update must run in-process (core update needs no root)"
+        );
+        assert!(
+            cmd.contains("schneeforge_core::update"),
+            "run_update must call the core update() path (same as CLI)"
+        );
+    }
+
+    /// managed source では非推奨の「アップグレード」(flake.lock 更新) を
+    /// 隠す。core が managed source で deps 更新を fail-closed で拒否する
+    /// ため、押しても必ず失敗する操作を表示し続けない。
+    #[test]
+    fn upgrade_hidden_for_managed_source() {
+        let js = include_str!("../../dist/main.js");
+        let refresh = js
+            .split("async function refresh")
+            .nth(1)
+            .expect("refresh must exist");
+        let body = refresh.split("\n}").next().unwrap_or(refresh);
+        assert!(
+            body.contains("upgradeBtn.hidden = Boolean(s.managed_source)"),
+            "refresh() must hide the upgrade button from s.managed_source"
         );
     }
 
