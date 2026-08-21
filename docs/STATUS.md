@@ -138,7 +138,7 @@ CLI / install.sh / GUI wizard の初期化経路が unified (v2 §7 完結)。�
 ## 開発フロー
 
 - ブランチ: `git checkout develop` → `feat/*` → PR → develop (squash merge)
-- OpenSpec 必須: `openspec new change` → proposal → specs → tasks → 実装 → PR → merge 後に **archive の separate PR** (change dir → `openspec/changes/archive/<date>-<name>/`)
+- OpenSpec 必須: `openspec new change` → proposal → specs → tasks → 実装 → archive → PR (CONTRIBUTING.md の基本フロー。PR #8 で「develop へ直接 push しない」ために確立)。実装 PR を先に出す場合は merge 後に **archive の separate PR** でもよい (v2 系 #54-#61 はこちらで運用。change dir → `openspec/changes/archive/<date>-<name>/`)
 - 品質ゲート: `cargo test` / `clippy` / `fmt` / `nix flake check` / `openspec validate --all` (local は `npx -y @fission-ai/openspec@1.8.0`)
 - desktop (`apps/desktop`) は GTK 依存のため dev machine で compile 不可。lib.rs 変更時は `rustfmt --edition 2021 --check apps/desktop/src-tauri/src/lib.rs` を最低限実行 (parse error を push 前に検出できる)
 - CI watch は `gh api repos/.../commits/$SHA/check-runs` で `status != "completed"` を数える (この gh version は `gh pr checks --json` 非対応、`statusCheckRollup` は pending を conclusion:null で返さないことがある)
