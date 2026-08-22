@@ -12,7 +12,7 @@ _: {
     {
       packages.schneeforge = pkgs.rustPlatform.buildRustPackage {
         pname = "schneeforge";
-        version = "0.2.0-rc.6";
+        version = "0.2.0-rc.7";
         src = ../..;
         cargoLock.lockFile = ../../Cargo.lock;
         meta = {
@@ -23,7 +23,7 @@ _: {
 
       packages.schneeforge-desktop = pkgs.rustPlatform.buildRustPackage {
         pname = "schneeforge-desktop";
-        version = "0.2.0-rc.6";
+        version = "0.2.0-rc.7";
         src = ../..;
         cargoHash = "sha256-7+VTcjt7+N0NRW0/dSj01VqYSksCXDi89wMPVo8pyn4=";
         nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [
