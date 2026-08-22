@@ -1,6 +1,6 @@
 use schneeforge_core::{
-    detect_target, resolve_repo, scan, Diagnostics, PreflightReport, ToolInventory, VerifyReport,
-    DEFAULT_REPO_URL,
+    detect_target, release_page_url, resolve_repo, scan, Diagnostics, PreflightReport,
+    ToolInventory, VerifyReport, DEFAULT_REPO_URL,
 };
 use serde::Serialize;
 use std::sync::Mutex;
@@ -353,6 +353,28 @@ async fn get_dashboard(
     })
     .await
     .map_err(|e| format!("task error: {e}"))
+}
+
+/// `open_release` (GUI 自己更新 Step 1 / Option B(1)): Dashboard の
+/// 「GitHub Releases を開く」button。available release の version を受け取り、
+/// core の純関数で release page URL を組み立てて既定 browser で開く。
+/// URL を開くのみで権限・network I/O を伴わないため昇格なし (run_update と
+/// 同じ区分)。opener は起動のみで待機しないため sync のまま実行する。
+#[tauri::command]
+fn open_release(version: String) -> Result<CommandOutput, String> {
+    let repo_url =
+        std::env::var("SCHNEEFORGE_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string());
+    let url = release_page_url(&repo_url, &version);
+    match tauri_plugin_opener::open_url(&url, None::<&str>) {
+        Ok(()) => Ok(CommandOutput {
+            success: true,
+            output: format!("opened {url}"),
+        }),
+        Err(e) => Ok(CommandOutput {
+            success: false,
+            output: format!("failed to open {url}: {e}"),
+        }),
+    }
 }
 
 /// `get_profiles` (v2 §17 follow-up): manifest の available / default と
@@ -787,10 +809,12 @@ impl schneeforge_core::ProgressSink for GuiCollectProgress {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .manage(CachedToolInventory::default())
         .invoke_handler(tauri::generate_handler![
             get_status,
             get_dashboard,
+            open_release,
             get_profiles,
             set_profile,
             clear_profile,
@@ -1067,6 +1091,38 @@ mod tests {
                 "index.html must have #{id} for the dashboard render"
             );
         }
+    }
+
+    /// GUI 自己更新 Step 1 (Option B(1)):「GitHub Releases を開く」button は
+    /// DOM id・JS の invoke 参照・backend command の 3 層が揃って機能する
+    /// (rc.3 と同じ「JS の undefined は falsy 化して気づかない」事故対策の
+    /// 静的検証)。URL は core の純関数で組み立てられる。
+    #[test]
+    fn releases_link_button_contract() {
+        let js = include_str!("../../dist/main.js");
+        let html = include_str!("../../dist/index.html");
+        let rs = include_str!("lib.rs");
+
+        assert!(
+            html.contains("id=\"dash-release-link\""),
+            "index.html must have #dash-release-link for the Releases button"
+        );
+        assert!(
+            js.contains("invoke(\"open_release\""),
+            "main.js must invoke `open_release`"
+        );
+        assert!(
+            js.contains("d.update_available && d.available"),
+            "main.js must gate the Releases button on update_available && available"
+        );
+        assert!(
+            rs.contains("fn open_release("),
+            "backend must define the `open_release` command"
+        );
+        assert_eq!(
+            schneeforge_core::release_page_url(DEFAULT_REPO_URL, "0.2.0-rc.7"),
+            "https://github.com/Lamy210/nix_setting/releases/tag/v0.2.0-rc.7"
+        );
     }
 
     /// v2 §17 follow-up: GUI からの profile 切替は `ProfileList` の

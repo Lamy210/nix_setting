@@ -59,12 +59,39 @@ async function refreshDashboard() {
       ? `新しいリリース v${d.available.version} があります — GitHub Releases / install.sh で更新できます`
       : "利用中の版は最新です";
     note.classList.toggle("update-available", d.update_available);
+    // GUI 自己更新 Step 1 (Option B(1)): available が解決されているときだけ
+    // Releases 誘導 button を出す (click → open_release で既定 browser が開く)
+    const linkBtn = $("dash-release-link");
+    if (linkBtn) {
+      const show = Boolean(d.update_available && d.available);
+      linkBtn.hidden = !show;
+      if (show) linkBtn.dataset.version = d.available.version;
+    }
   } catch (e) {
     $("dash-installed").textContent = "-";
     $("dash-channel").textContent = "-";
     $("dash-available").textContent = `取得エラー: ${e}`;
+    const linkBtn = $("dash-release-link");
+    if (linkBtn) linkBtn.hidden = true;
   }
   await refreshProfileSelect();
+}
+
+// ---------- Releases 誘導 (GUI 自己更新 Step 1 / Option B(1)) ----------
+// available release の page を既定 browser で開く。GUI 本体 (.app) の
+// 自動更新は行わない (Step 2 は別 change で検討中)
+async function openReleasePage() {
+  const btn = $("dash-release-link");
+  const version = btn && btn.dataset.version;
+  if (!version) return;
+  try {
+    const r = await invoke("open_release", { version });
+    $("output").textContent = r.success
+      ? r.output
+      : `Releases page を開けませんでした: ${r.output}`;
+  } catch (e) {
+    $("output").textContent = `Releases page を開けませんでした: ${e}`;
+  }
 }
 
 // ---------- profile 切替 (v2 §17 follow-up) ----------
@@ -592,6 +619,7 @@ $("update").addEventListener("click", async () => {
 });
 $("verify").addEventListener("click", verify);
 $("nix-uninstall").addEventListener("click", nixUninstall);
+$("dash-release-link").addEventListener("click", openReleasePage);
 $("profile-set").addEventListener("click", switchProfile);
 $("profile-clear").addEventListener("click", clearProfile);
 
