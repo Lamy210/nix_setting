@@ -133,5 +133,5 @@ brew install schneeforge-edge
 ## 現在のリリース状態
 
 - 最新 release: `v0.2.0-rc.5`（2026-08-15。rc.4 の DMG `/nix/store` link 事故の修正: DMG を host build 化 + `release-artifact-check` に mounted-app gate 追加）
-- 次候補: `v0.2.0-rc.6`（2026-08-22 決定: macOS Final Acceptance の前に cut し、acceptance は rc.6 で実施。**managed release source (v2 §7) を同梱する最初の release** — fresh install が clone なしの managed source 経路になる。`schneeforge-release.json` asset・SLSA provenance attestation・CLI self-update の同梱もこの release から)
+- 次候補: `v0.2.0-rc.7`（2026-08-22 決定: macOS Final Acceptance の前に cut し、acceptance は rc.7 で実施。**managed release source (v2 §7) を同梱する最初の release** — fresh install が clone なしの managed source 経路になる。`schneeforge-release.json` asset・SLSA provenance attestation・CLI self-update の同梱もこの release から。rc.6 は release job の `attest build provenance` が `attestations: write` 権限不足で失敗したため切り直し (PR #76 で fix。tag v0.2.0-rc.6 は asset 未作成のまま削除済み))
 - `develop` 未リリース差分: 2026-08-18 以降に merge した v2 系 change 全て（MachineFacts / ConfigurationSource / manifest / profile / Release Metadata / GUI Dashboard / managed source 3 change ほか）。詳細は `docs/STATUS.md`

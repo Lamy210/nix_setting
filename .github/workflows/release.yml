@@ -106,11 +106,15 @@ jobs:
   release:
     needs: [build-binaries, build-dmg]
     runs-on: ubuntu-latest
-    # job level で上書き: attestation に必要な OIDC (id-token) は release
-    # job のみに付与する (build job へは渡さない)
+    # job level で上書き: attestation に必要な OIDC (id-token) と
+    # attestation 永続化 API の権限 (attestations) は release job のみに
+    # 付与する (build job へは渡さない)。attestations: write が無いと
+    # "Failed to persist attestation: Resource not accessible by integration"
+    # で失敗する (v0.2.0-rc.6 の事故)
     permissions:
       contents: write
       id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
