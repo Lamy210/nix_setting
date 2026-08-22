@@ -81,7 +81,15 @@ PR #62-#68 を sequential chain (各 rebase → CI 全 green → squash merge) �
 - **GUI からの source 更新 (PR #62 / f0a880b + archive #68)**: `run_update` Tauri command (core `update()` を昇格なし in-process 実行) +「ソース更新」ボタン + managed source での「アップグレード」隠蔽
 - **cli test の state/network 隔離 (PR #63 / a6621e2)**: `state_dir()` helper で state 読み得る全起動を XDG_STATE_HOME 隔離、`source_init_with_tag` の ls-remote を local origin 化 (network hang 解消)
 - **docs (PR #64-#66)**: STATUS.md (2026-08-20 版) / Final Acceptance 手順書 gate I (managed source) 新設 / RELEASE.md checklist を実 CI と rc.6 前提へ更新
-- **release asset provenance (PR #67 / a1fb376 + archive #68)**: release.yml に `actions/attest-build-provenance` (v4.2.2 SHA pin) 追加。subject は asset 全て、`id-token: write` は release job のみ、fail-closed。**実生成は rc.6 の tag push で初確認**
+- **release asset provenance (PR #67 / a1fb376 + archive #68)**: release.yml に `actions/attest-build-provenance` (v4.2.2 SHA pin) 追加。subject は asset 全て、`id-token: write` は release job のみ、fail-closed。実生成は rc.7 の tag push で確認 (rc.6 は `attestations: write` 権限不足で失敗 → PR #76 で fix)
+
+### v0.2.0-rc.7 release (2026-08-22)
+
+**rc.7 を release 済み** (PR #77 / main f6a1f33 / tag v0.2.0-rc.7)。rc.5 以降の develop 全変更を同梱する最初の release。
+
+- **rc.6 → rc.7 の切り直し**: rc.6 は release job の `attest build provenance` が `Resource not accessible by integration` で失敗 (attestation 永続化 API に必要な **`attestations: write`** 権限が release job に無かった。`id-token: write` は OIDC 用で別 scope)。`create release` は skipped で asset は一度も作成されず、tag v0.2.0-rc.6 は削除して rc.7 で切り直し (fix: PR #76)
+- **asset 検証 (rc.7)**: asset 6 個 (CLI 2 + DMG + SBOM + `schneeforge-release.json` + CHECKSUMS.txt) 全生成。CHECKSUMS 全項目一致 (tag 時点 flake.lock 含む)。provenance attestation は 1 bundle が **6 asset 全てを subject として保有** (workflow ref `refs/tags/v0.2.0-rc.7` / commit f6a1f33 を attestations API の dsse payload で確認。この gh version は `gh attestation` 未対応のため API 直確認)。Linux binary は static-pie (musl static) を file(1) で確認、`schneeforge --version` smoke 通過
+- **初同梱**: managed release source (v2 §7) / `schneeforge-release.json` asset / SLSA provenance attestation / CLI self-update
 
 ### CLI 自己更新 self-update (2026-08-22 merge 済み, develop 653fc1f)
 
@@ -89,7 +97,7 @@ Phase E 残件の self-update を実装 (PR #70 / 2401c50 + archive #71 / 653fc1
 
 - **`schneeforge self-update`**: channel の最新 tag 解決 (`git ls-remote --tags` → `latest_tag_for_channel`) → release binary asset download → `CHECKSUMS.txt` との sha256 突合 → 実行 binary と同一 directory の temp file + rename による atomic 置換。検証失敗時は実行 binary を変更しない (fail-closed)。権限なしは `sudo` / install.sh 案内の structured error (自動昇格なし)
 - **core `self_update.rs`**: 純関数 (platform asset 選択 / checksums parse / plan / URL 構築) と effect (`run`) を分離し hermetic test 化 (dashboard と同じ分離方針)。platform gating は install.sh と同一 (darwin aarch64 / linux x86_64)。URL は `SCHNEEFORGE_REPO_URL` 規約 (fork 対応)
-- **設計判断**: GUI 内自己更新 (tauri-plugin-updater) は minisign 鍵管理 + `latest.json` asset が必須で既存の SHA256SUMS + provenance モデルと別系統の署名基盤が増えるため**別 change で判断**。GUI は notify-only 継続 (`dash-update` の案内文)
+- **設計判断**: GUI 内自己更新 (tauri-plugin-updater) は minisign 鍵管理 + `latest.json` asset が必須で既存の SHA256SUMS + provenance モデルと別系統の署名基盤が増えるため**別 change で判断**。GUI は notify-only 継続 (`dash-update` の案内文)。**設計提案 `add-gui-app-self-update` を merge 済み (PR #74)** — 推奨は Step 1 = Releases link button 先行 / Step 2 = tauri-plugin-updater を鍵管理方針決定後に導入。Open Questions 4 件 (鍵管理・Linux 対象外・latest.json 生成方式・タイミング) が user 判断待ち
 - test: core 11 件 (asset 選択 / parse / plan / fs 置換) + cli 3 件 (help 列挙 / tag 無し origin / non-github origin の fail-closed、network 不要)
 
 ## 進行中
@@ -125,11 +133,12 @@ Phase E 残件の self-update を実装 (PR #70 / 2401c50 + archive #71 / 653fc1
 
 | # | 問題 | 対応 |
 |---|------|------|
-| — | バージョン文字列の同期（現在 `0.2.0-rc.5`。Cargo.toml / tauri.conf.json / packages.nix / install.sh） | rc.6 の release branch で 10 箇所まとめて bump (RELEASE.md checklist) |
+| — | バージョン文字列の同期（現在 `0.2.0-rc.7`。Cargo.toml / tauri.conf.json / packages.nix / install.sh） | **rc.7 で 10 箇所 bump 済み**。次回 release で同様に (RELEASE.md checklist) |
+| — | Homebrew tap (Lamy210/homebrew-tap) の formula が v0.2.0-rc.1 で停止 | rc.2-rc.5 は tap 更新なし。rc.7 で追従するか stable (v1.0) まで待つかは user 判断。formula は `Formula/` 配下ではなく repo root の `schneeforge.rb` (RELEASE.md の記述と相違あり) |
 
 ## 次の作業（推奨順）
 
-1. **macOS Apple Silicon Final Acceptance** (ADR-0001 Accepted 昇格 + PR #11 Finder 実機 smoke を統合した 1 本フロー。実施 tag は rc.5 (gate I skip) / rc.6 release 後のどちらでも可 — user 判断):
+1. **macOS Apple Silicon Final Acceptance** (ADR-0001 Accepted 昇格 + PR #11 Finder 実機 smoke を統合した 1 本フロー。**実施 tag は v0.2.0-rc.7 に確定** — 2026-08-22 決定。手順書 `docs/testing/macOS-final-acceptance-checklist.md` gate A-J、rc.7 は managed source gate I を含む):
    - fresh / disposable environment・Nix 無し状態から開始
    - install.sh → Managed Nix install
    - receipt (`/nix/receipt.json`) / ownership record (`/nix/schneeforge-managed.json`) 確認
@@ -138,12 +147,15 @@ Phase E 残件の self-update を実装 (PR #70 / 2401c50 + archive #71 / 653fc1
    - minimal GUI PATH でも Nix を検出すること (`fix-path-env-rs` 検証)
    - doctor / status 正常終了
    - **PR #37/#40 の実機 smoke**: osascript 昇格での apply、wizard の「修復を試みる」ボタン・Ready 画面の「Nix を削除」ボタン (confirm dialog)
+   - **rc.7 の新機能実機確認**: managed source 経路の fresh install (gate I)・`schneeforge self-update` (rc.7 → 次回 release で初の実 update)
    - uninstall → cleanup
-   - 通れば ADR-0001 を `Accepted` へ昇格
-2. **release/v0.2.0-rc.6** (Final Acceptance PASS 後。現行 release は rc.5): RELEASE.md checklist に沿って release branch → main → tag。rc.6 は **managed source 同梱 + `schneeforge-release.json` asset (PR #50) + provenance attestation (PR #67) + CLI self-update (PR #70) の最初の release**。`SCHNEEFORGE_BOOTSTRAP_VERSION` bump + **README の Stable ワンライナー URL を新 tag へ差し替え** (bats test が検知する) + musl asset の実機確認 (Nix-less dry-run) + tag push 後 `gh attestation verify` で attest 実生成を確認
-3. Phase 2/E 残作業:
+   - 通れば ADR-0001 を `Accepted` へ昇格 + issue #16 close
+2. Phase 2/E 残作業:
+   - GUI 内自己更新 (Phase E 残件): **設計提案 merge 済み (PR #74 / `add-gui-app-self-update`)**。Step 1 (Releases link button) は鍵管理と独立に実装可。Step 2 (tauri-plugin-updater) は Open Questions (鍵管理方針・Linux 対象外・latest.json 生成・タイミング) の user 判断後に別 change
    - #17 DMG bundle + LGPL-2.1 法務 ADR: **ADR-0002 起票済み** (Accepted provisionally)。実装 (bundle 同梱・offline 経路、`add-dmg-offline-bundle-licensing` tasks 4.x) は弁護士確認後の別 change
-   - GUI 内自己更新 (Phase E 残件): tauri-plugin-updater (minisign 鍵管理 + `latest.json` 必須) か手動案内維持かは user の設計判断。CLI 側は #70 で完了
+3. 残デグレ対応:
+   - glib advisory (Dependabot #2): gtk3-rs#857 と Tauri v2 側の追従を monitor、upstream release 後に再評価
+4. Homebrew tap 更新 (v0.2.0-rc.7): `Lamy210/homebrew-tap` の `schneeforge.rb` (root 直、rc.1 停止中)。version/url/sha256 差し替え + `brew audit --strict`。実施 timing は user 判断
 4. 残デグレ対応:
    - glib advisory (Dependabot #2): gtk3-rs#857 と Tauri v2 側の追従を monitor、upstream release 後に再評価
 
