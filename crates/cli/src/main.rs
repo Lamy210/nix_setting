@@ -3,7 +3,8 @@ mod nix_cmd;
 use clap::{Parser, Subcommand};
 use nix_cmd::{NixArgs, NixSub};
 use schneeforge_core::{
-    detect_target, Manifest, ReleaseMetadata, SourceKind, SourceResolver, StateStore, ToolInventory,
+    channel_of, detect_target, run_self_update, Manifest, ReleaseMetadata, SelfUpdateStatus,
+    SourceKind, SourceResolver, StateStore, ToolInventory,
 };
 /// Declarative Developer Workstation Manager
 #[derive(Parser)]
@@ -47,6 +48,8 @@ enum Cmd {
     Verify,
     /// アンインストール手順を表示
     Uninstall,
+    /// SchneeForge 本体を channel の最新 release へ自己更新 (source は対象外)
+    SelfUpdate,
     /// Managed Nix (nix-installer 統合) の install / doctor / uninstall
     Nix(NixArgs),
 }
@@ -123,6 +126,7 @@ fn main() {
         Cmd::Sync => with_tool_inventory(|tc| sync(&repo, tc), &repo),
         Cmd::Verify => with_tool_inventory(|tc| verify(&repo, tc), &repo),
         Cmd::Uninstall => uninstall(),
+        Cmd::SelfUpdate => with_tool_inventory(self_update, &repo),
         Cmd::Nix(nix_args) => run_nix(nix_args.command, &repo),
     };
     if let Err(e) = result {
@@ -331,6 +335,29 @@ fn update(repo: &str, tc: &ToolInventory) -> Result {
         println!("source: {} ({})", source.kind, source.ref_);
     }
     println!("state saved");
+    Ok(())
+}
+
+fn self_update(tc: &ToolInventory) -> Result {
+    let Some(git) = tc.git.as_ref() else {
+        return Err(
+            "git not found; cannot resolve latest release (install git or update via install.sh)"
+                .to_string(),
+        );
+    };
+    let state = StateStore::default().load();
+    let channel = channel_of(state.as_ref());
+    println!("最新 release を確認中 (channel: {channel})...");
+    match run_self_update(git, env!("CARGO_PKG_VERSION"), &channel).map_err(|e| e.to_string())? {
+        SelfUpdateStatus::UpToDate { version } => {
+            println!("利用中の版 ({version}) が最新です");
+        }
+        SelfUpdateStatus::Updated { from, to, exe } => {
+            println!("更新しました: {from} → {to}");
+            println!("  binary: {}", exe.display());
+            println!("  実行中の process は旧 binary のまま動作します (次回起動から新 binary)");
+        }
+    }
     Ok(())
 }
 
