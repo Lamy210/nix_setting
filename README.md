@@ -55,15 +55,36 @@ sudo ./target/release/schneeforge nix install
 
 ### ワンライナー
 
+**Stable** — release tag 時点の install.sh (CLI binary の pin 先と同一 release):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/v0.2.0-rc.6/install.sh | bash
+```
+
+**Edge** — main HEAD の install.sh (開発追従用):
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/main/install.sh | bash
 ```
+
+Stable は script の取得元 tag と `SCHNEEFORGE_BOOTSTRAP_VERSION` (CLI binary /
+config ref の pin 先) が一致する release unit として動く。Edge は script 自体は
+最新だが、download する CLI は install.sh 内の pin 値のまま (release 時に bump
+される)。release 間で main の install.sh が古い pin のままの場合でも、pinned
+release の asset が消えることはないため動作は継続する。
 
 Nix 未導入環境では、この script が GitHub Release から schneeforge CLI binary を
 download し (CHECKSUMS.txt の SHA256 で検証)、**Managed Nix 経路**で Nix を
 install します (version pinning・ownership record 付き。ADR-0001 参照)。
 既に Nix が導入済みの場合は何も install せず、flakes 有効化と
 dotfiles 適用のみを行います。
+
+dotfiles 適用は source 表現で分岐します。repo checkout
+(`$HOME/nix_setting`) が無い machine では clone せず、CLI の
+`source init --tag <pin と同一 release>` + `apply` で managed source
+(flake ref) から適用します (初回適用前に既存 dotfile を backup)。
+checkout が既にある場合は、それをそのまま `bootstrap.sh` で再適用します
+(user の変更を壊さない)。
 
 Managed Nix は `bootstrap-manifest.toml` で version + SHA256 を pin し、
 online で download + verify する。offline 配布・DMG bundle は Phase 2。

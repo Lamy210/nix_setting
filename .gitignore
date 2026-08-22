@@ -34,4 +34,7 @@ result
 # Rust
 target/
 apps/desktop/src-tauri/gen/
+# CLI sidecar は build script が都度 stage する (binary は commit しない)
+apps/desktop/src-tauri/binaries/
 .opencode/command/
+config.toml

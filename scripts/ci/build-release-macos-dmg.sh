@@ -42,6 +42,12 @@ TAURI_BIN="$WORKDIR/tauri-cli/cargo-tauri"
 chmod +x "$TAURI_BIN"
 
 # --- build (host cargo + pinned CLI) ---
+# CLI sidecar (externalBin) の source を先に build する。desktop は root
+# workspace と分離しているため root 側で build し、build script は
+# <repo>/target/release/schneeforge を stage 元として解決する
+cd "$REPO_ROOT"
+cargo build --release -p schneeforge
+
 cd "$REPO_ROOT/apps/desktop/src-tauri"
 "$TAURI_BIN" build
 
@@ -61,6 +67,18 @@ APP="$MOUNT_POINT/SchneeForge.app"
 DESKTOP_BIN="$APP/Contents/MacOS/schneeforge-desktop"
 
 "$SCRIPT_DIR/check-macos-portability.sh" "$DESKTOP_BIN"
+
+# GUI の escalation 先は bundle 内 CLI sidecar でなければならない
+# (GUI binary は CLI 引数を解釈しない。externalBin が外れると install が
+#  実行されないまま昇格だけ走る)。tauri 2.x は triple suffix を除去して
+#  `schneeforge-cli` の名で配置する
+SIDECAR_BIN="$APP/Contents/MacOS/schneeforge-cli"
+if [ ! -f "$SIDECAR_BIN" ]; then
+  echo "ERROR: CLI sidecar missing from .app bundle: $SIDECAR_BIN" >&2
+  ls "$APP/Contents/MacOS/" >&2
+  exit 1
+fi
+"$SCRIPT_DIR/check-macos-portability.sh" "$SIDECAR_BIN"
 
 # DMG 内 app の version が tauri.conf.json と一致すること
 EXPECTED_VERSION="$(plutil -extract version raw "$REPO_ROOT/apps/desktop/src-tauri/tauri.conf.json")"

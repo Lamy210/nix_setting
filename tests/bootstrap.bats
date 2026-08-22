@@ -8,7 +8,7 @@ setup() {
   detect_host_body="$(extract_detect_host)"
 }
 
-@test "detect_host returns macbook-air on macOS arm64" {
+@test "detect_host returns darwin-aarch64 on macOS arm64" {
   uname() {
     case "$1" in
       -s) echo "Darwin" ;;
@@ -17,7 +17,7 @@ setup() {
   }
   eval "$detect_host_body"
   result="$(detect_host)"
-  [ "$result" = "macbook-air" ]
+  [ "$result" = "darwin-aarch64" ]
 }
 
 @test "detect_host returns unsupported on macOS x86_64 (Intel Mac)" {

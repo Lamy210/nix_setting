@@ -8,6 +8,7 @@
     ./templates.nix
     ./apps.nix
     ./packages.nix
+    ../profile-input.nix
   ];
 
   perSystem = _: {

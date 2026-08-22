@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{Error, Result};
+use crate::source::SourceState;
 
 /// 一時ファイル名をユニーク化するプロセス内シーケンス
 static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -14,6 +15,12 @@ pub struct State {
     pub applied_revision: Option<String>,
     pub applied_at: Option<String>,
     pub product_version: Option<String>,
+    /// source の現在状態 (v2 P1)。source 情報を含まない従来 JSON も読める
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceState>,
+    /// 選択 profile (v2 §17)。未選択 (None) は manifest の default
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 
 impl State {
@@ -108,15 +115,53 @@ mod tests {
     #[test]
     fn roundtrip_state() {
         let s = State {
-            host: Some("macbook-air".to_string()),
+            host: Some("darwin-aarch64".to_string()),
             applied_revision: Some("abc123".to_string()),
             applied_at: Some("2026-08-13".to_string()),
             product_version: Some("0.1.0".to_string()),
+            source: None,
+            profile: None,
         };
         let json = serde_json::to_string(&s).unwrap();
         let back: State = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.host.as_deref(), Some("macbook-air"));
+        assert_eq!(back.host.as_deref(), Some("darwin-aarch64"));
         assert_eq!(back.applied_revision.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn legacy_state_without_source_loads() {
+        let json = r#"{
+            "host": "linux",
+            "applied_revision": "def456",
+            "applied_at": "2026-08-13",
+            "product_version": "0.1.0"
+        }"#;
+        let s: State = serde_json::from_str(json).unwrap();
+        assert_eq!(s.host.as_deref(), Some("linux"));
+        assert_eq!(s.source, None);
+    }
+
+    #[test]
+    fn state_with_source_roundtrips() {
+        let s = State {
+            host: Some("linux".to_string()),
+            applied_revision: Some("def456".to_string()),
+            applied_at: None,
+            product_version: Some("0.1.0".to_string()),
+            source: Some(crate::source::SourceState {
+                kind: crate::source::SourceKind::ReleaseStable,
+                ref_: "v0.2.0".to_string(),
+                channel: Some("stable".to_string()),
+                managed: false,
+                remote: None,
+                revision: None,
+            }),
+            profile: Some("minimal".to_string()),
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        let back: State = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.source, s.source);
+        assert_eq!(back.profile.as_deref(), Some("minimal"));
     }
 
     #[test]
@@ -127,6 +172,8 @@ mod tests {
             applied_revision: Some("def456".to_string()),
             applied_at: None,
             product_version: Some("0.1.0".to_string()),
+            source: None,
+            profile: None,
         };
         store.save(&s).unwrap();
         let loaded = store.load().unwrap();

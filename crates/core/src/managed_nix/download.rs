@@ -171,16 +171,25 @@ fn classify_reqwest_error(cls: &NetworkClassifier, dest_exists: bool) -> Managed
     }
 }
 
-/// URL から文字列を GET する (SHA256SUMS の取得等)
+/// URL から文字列を GET する (SHA256SUMS / release metadata の取得等)。
+/// HTTP error status は error page body を返さず fail-closed にする。
 pub fn download_text(url: &str) -> Result<String, ManagedNixError> {
     let client = http_client()?;
-    client
+    let response = client
         .get(url)
         .send()
-        .and_then(|r| r.text())
         .map_err(|e| ManagedNixError::Download {
             source: format!("{url}: {e}"),
-        })
+        })?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(ManagedNixError::Download {
+            source: format!("{url}: HTTP {status}"),
+        });
+    }
+    response.text().map_err(|e| ManagedNixError::Download {
+        source: format!("{url}: {e}"),
+    })
 }
 
 #[cfg(test)]

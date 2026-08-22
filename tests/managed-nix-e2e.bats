@@ -113,3 +113,64 @@ sf() {
   docker exec "$CT_NAME" bash -c '! test -e /nix/receipt.json'
   docker exec "$CT_NAME" bash -c '! id nixbld1 2>/dev/null'
 }
+
+@test "install: re-install after full uninstall succeeds (cached installer)" {
+  # /nix は完全除去済み。cache は /var/lib/schneeforge 配下に残っているため
+  # 再 download なしで (plan → install → ownership 再記録) が成功する
+  run sf nix install --yes
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "Managed Nix install 完了"
+  docker exec "$CT_NAME" test -f /nix/schneeforge-managed.json
+}
+
+@test "repair: Broken (stale ownership only) is repaired to Missing via doctor" {
+  # uninstall 中断を模擬: /nix を手動で消して ownership record のみ残す
+  docker exec "$CT_NAME" bash -c 'rm -rf /nix/nix-installer /nix/store /nix/var /nix/receipt.json'
+  docker exec "$CT_NAME" test -f /nix/schneeforge-managed.json
+  # doctor は Broken を報告し repair を案内する
+  run sf nix doctor
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "status:      Broken"
+  echo "$output" | grep -q "schneeforge nix repair"
+}
+
+@test "repair: dry-run keeps stale ownership record, run removes it" {
+  # dry-run は file system を変更しない
+  run sf nix repair --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "dry-run"
+  docker exec "$CT_NAME" test -f /nix/schneeforge-managed.json
+  # 実行で stale record を削除し Missing へ復帰
+  run sf nix repair
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "stale ownership record を削除しました"
+  docker exec "$CT_NAME" bash -c '! test -e /nix/schneeforge-managed.json'
+  run sf nix doctor
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "status:      Missing"
+}
+
+@test "repair: Missing suggests install" {
+  run sf nix repair
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "sudo schneeforge nix install"
+}
+
+@test "install: stale receipt.json alone is detected (fail-closed regression)" {
+  # issue #14: /nix/receipt.json が残っている状態 (部分的に削除された
+  # degraded install) での再 install が ExistingNixDetected で拒否されること。
+  # PATH / store / var が無くても receipt marker 単独で検出する回帰保証。
+  docker exec "$CT_NAME" bash -c 'mkdir -p /nix && echo "{}" > /nix/receipt.json'
+  # dry-run は info 表示で exit 0 (D8: preview は中止を予告するだけ)
+  run sf nix install --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "既存の Nix が検出されているため install は中止されます"
+  # 実 install は ExistingNixDetected で拒否
+  run sf nix install --yes
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "existing Nix detected"
+  # doctor は Degraded を報告する (marker が残る状態)
+  run sf nix doctor
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "Degraded"
+}

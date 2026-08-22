@@ -1,7 +1,8 @@
 use serde::Serialize;
 
 use crate::discovery::{current_user, detect_arch, detect_platform, detect_target};
-use crate::manifest::{Manifest, Validation};
+use crate::managed_nix::status::{classify_current, StatusReport};
+use crate::manifest::Validation;
 use crate::process::{command_succeeds, run_capture};
 use crate::repo::resolve_repo;
 use crate::state::StateStore;
@@ -21,7 +22,7 @@ pub struct ToolsSummary {
 /// GUI / CLI が取得する診断 Status
 #[derive(Debug, Clone, Serialize)]
 pub struct Diagnostics {
-    /// ConfigurationTarget 名 (例: "macbook-air")
+    /// ConfigurationTarget 名 (例: "darwin-aarch64")
     pub host: String,
     /// OS (Platform) — ConfigurationTarget とは独立
     pub platform: String,
@@ -31,12 +32,14 @@ pub struct Diagnostics {
     pub repo_path: String,
     /// repository が存在するか
     pub repo_exists: bool,
-    /// config.toml が読み込めたか
+    /// schneeforge.toml (distribution manifest) が読み込めたか
     pub manifest_found: bool,
-    /// config.toml の読み込み・parse エラー原因
+    /// schneeforge.toml の読み込み・parse エラー原因
     pub manifest_error: Option<String>,
-    /// manifest の username (読めた場合のみ)
-    pub username: Option<String>,
+    /// 実効 profile (state 選択 > manifest default。manifest が読めれば Some)
+    pub profile: Option<String>,
+    /// state に保存された明示選択 (manifest default と同じか未選択なら None)
+    pub selected_profile: Option<String>,
     /// 実行 OS ユーザー (manifest の username とは独立)
     pub system_user: Option<String>,
     /// 実行ユーザーの HOME
@@ -46,10 +49,29 @@ pub struct Diagnostics {
     pub tools: ToolsSummary,
     /// Nix の詳細ヘルス（store 接続・flakes 有効・出処）
     pub nix_health: NixHealth,
+    /// NixStatus 4 状態分類 (Missing / Healthy / Degraded / Broken)。
+    /// `nix_health` が binary 単位の検知であるのに対し、こちらは
+    /// marker / receipt / ownership を組合せた install 状態の分類。
+    pub nix_status: StatusReport,
     /// 解決済み tool inventory（GUI が内部で使う・表示用）
     pub tool_inventory: ToolInventorySummary,
     pub applied_revision: Option<String>,
     pub applied_at: Option<String>,
+    /// state の managed Release source (repo checkout 無しで source が
+    /// 初期化済みかの判定に使う)。checkout 表現・未初期化は None
+    pub managed_source: Option<ManagedSourceSummary>,
+}
+
+/// state の managed Release source の概要 (v2 §7)
+///
+/// repo checkout を持たない machine が「source 初期化済み」かを GUI が
+/// 判定するための表示用サマリ。checkout 表現・未初期化の場合は
+/// `Diagnostics.managed_source` が None になる。
+#[derive(Debug, Clone, Serialize)]
+pub struct ManagedSourceSummary {
+    pub tag: String,
+    pub channel: String,
+    pub flake_ref: String,
 }
 
 /// Nix の詳細ヘルス状態
@@ -125,14 +147,31 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
     };
 
     let nix_health = nix_health(tc);
+    // 分類の ping 成否は nix_health の検証結果を使い回す (同一 binary で
+    // 二重に ping しない)
+    let nix_status = classify_current(nix_health.store_accessible);
 
     let target = detect_target();
     let repo_path = resolve_repo(cli_repo);
     let repo_exists = std::path::Path::new(&repo_path).is_dir();
 
-    let (manifest_found, manifest_error, username, validation) = manifest_diagnostics(&repo_path);
+    let (manifest_found, manifest_error, manifest_default, validation) =
+        manifest_diagnostics(&repo_path, target.name());
 
     let state = StateStore::default().load();
+    let selected_profile = state.as_ref().and_then(|s| s.profile.clone());
+    let managed_source = managed_source_from(state.as_ref());
+    // 実効 profile: 明示選択 (manifest available 検証済み) > manifest default
+    let profile = if manifest_found {
+        match crate::profile::resolve(&repo_path) {
+            Ok((name, _)) => Some(name),
+            // 選択が manifest と不整合なら表示は default に fallback
+            // (apply 時は fail-closed で error になる)
+            Err(_) => manifest_default.clone(),
+        }
+    } else {
+        None
+    };
 
     Diagnostics {
         host: target.name().to_string(),
@@ -142,12 +181,14 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
         repo_exists,
         manifest_found,
         manifest_error,
-        username,
+        profile,
+        selected_profile,
         system_user: current_user(),
         home: std::env::var("HOME").ok(),
         validation,
         tools,
         nix_health,
+        nix_status,
         tool_inventory: ToolInventorySummary {
             nix: tc.nix.as_ref().map(ResolvedToolSummary::from),
             git: tc.git.as_ref().map(ResolvedToolSummary::from),
@@ -156,7 +197,22 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
         },
         applied_revision: state.as_ref().and_then(|s| s.applied_revision.clone()),
         applied_at: state.as_ref().and_then(|s| s.applied_at.clone()),
+        managed_source,
     }
+}
+
+/// state から managed Release source のサマリを導出する。
+/// managed Release 以外 (checkout 表現・source 未記録・未初期化) は None
+fn managed_source_from(state: Option<&crate::state::State>) -> Option<ManagedSourceSummary> {
+    let src = state?.source.as_ref()?;
+    if !src.is_managed_release() {
+        return None;
+    }
+    Some(ManagedSourceSummary {
+        tag: src.ref_.clone(),
+        channel: src.channel.clone().unwrap_or_default(),
+        flake_ref: src.flake_ref().unwrap_or_default(),
+    })
 }
 
 /// Nix のヘルスを検査する。store 接続（`nix store ping`）と flakes 有効性
@@ -263,11 +319,13 @@ fn xdg_state_profile_dir() -> Option<std::path::PathBuf> {
 
 fn manifest_diagnostics(
     repo_path: &str,
+    system: &str,
 ) -> (bool, Option<String>, Option<String>, Option<Validation>) {
-    match Manifest::load(repo_path) {
+    match crate::source_files::load_manifest_for(repo_path, &StateStore::default()) {
         Ok(m) => {
-            let validation = m.validate(current_user().as_deref());
-            (true, None, Some(m.user.username.clone()), Some(validation))
+            let validation = m.validate(system);
+            let profile = m.profiles.default.clone();
+            (true, None, profile, Some(validation))
         }
         Err(e) => (false, Some(e.to_string()), None, None),
     }
@@ -302,7 +360,7 @@ mod tests {
         assert!(!d.repo_exists);
         assert!(!d.manifest_found);
         assert!(d.manifest_error.is_some());
-        assert_eq!(d.username, None);
+        assert_eq!(d.profile, None);
         assert_eq!(d.validation, None);
     }
 
@@ -324,6 +382,28 @@ mod tests {
         assert!(json.contains("installed"));
         assert!(json.contains("store_accessible"));
         assert!(json.contains("flakes_available"));
+    }
+
+    #[test]
+    fn diagnose_includes_nix_status() {
+        let tc = dummy_tc();
+        let d = diagnose(&tc, Some("/definitely/not/a/real/repo"));
+        let json = serde_json::to_string(&d.nix_status).expect("StatusReport must be serializable");
+        // status は 4 状態のいずれかの label で serialize される
+        assert!(json.contains("status"));
+        assert!(
+            ["Missing", "Healthy", "Degraded", "Broken"]
+                .iter()
+                .any(|label| json.contains(label)),
+            "got: {json}"
+        );
+        // Diagnostics 全体にも nix_status が入っている (GUI は get_status で受け取る)
+        let whole = serde_json::to_string(&d).expect("Diagnostics must be serializable");
+        assert!(
+            whole.contains("nix_status"),
+            "got: {}",
+            &whole[..200.min(whole.len())]
+        );
     }
 
     #[test]
@@ -363,6 +443,61 @@ mod tests {
         assert!(health.executable.is_none());
         assert!(health.error.is_some());
         assert!(health.error.unwrap().contains("not found"));
+    }
+
+    #[test]
+    fn managed_source_summary_reports_managed_state() {
+        let state = crate::state::State {
+            source: Some(crate::source::SourceState {
+                kind: crate::source::SourceKind::ReleaseStable,
+                ref_: "v0.2.0-rc.2".to_string(),
+                channel: Some("stable".to_string()),
+                managed: true,
+                remote: Some("https://github.com/Lamy210/nix_setting".to_string()),
+                revision: None,
+            }),
+            ..Default::default()
+        };
+        let m = managed_source_from(Some(&state)).expect("managed state must yield Some");
+        assert_eq!(m.tag, "v0.2.0-rc.2");
+        assert_eq!(m.channel, "stable");
+        assert_eq!(m.flake_ref, "github:Lamy210/nix_setting/v0.2.0-rc.2");
+    }
+
+    #[test]
+    fn managed_source_summary_none_for_checkout_representation() {
+        // checkout 表現 (managed=false) は None — repo_exists のみで判断させる
+        let state = crate::state::State {
+            source: Some(crate::source::SourceState {
+                kind: crate::source::SourceKind::ReleaseStable,
+                ref_: "v0.2.0".to_string(),
+                channel: Some("stable".to_string()),
+                managed: false,
+                remote: None,
+                revision: None,
+            }),
+            ..Default::default()
+        };
+        assert!(managed_source_from(Some(&state)).is_none());
+    }
+
+    #[test]
+    fn managed_source_summary_none_when_uninitialized() {
+        // state ファイル無し / source 未記録
+        assert!(managed_source_from(None).is_none());
+        assert!(managed_source_from(Some(&crate::state::State::default())).is_none());
+    }
+
+    #[test]
+    fn diagnose_serializes_managed_source_key() {
+        let tc = dummy_tc();
+        let d = diagnose(&tc, Some("/definitely/not/a/real/repo"));
+        let whole = serde_json::to_string(&d).expect("Diagnostics must be serializable");
+        assert!(
+            whole.contains("managed_source"),
+            "got: {}",
+            &whole[..200.min(whole.len())]
+        );
     }
 
     #[test]

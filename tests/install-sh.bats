@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 
-# install.sh の Managed Nix 統合 (issue #14 作業項目 3) の unit test。
+# install.sh の Managed Nix 経路 + fresh install の managed source 化
+# (switch-install-sh-to-managed-source) の unit test。
 # network access は不要 (curl / sha256sum は stub して関数 logic のみ検証)。
 #
 # shellcheck disable=SC2030,SC2031  # bats の @test は subshell で動くため export の影響は test 内で完結する
@@ -13,6 +14,10 @@ INSTALL_SH="$BATS_TEST_DIRNAME/../install.sh"
 # /dev/tty redirect は test 環境 (CI container) で open できないため
 # /dev/null へ置換する (redirect 先が違うだけで分岐 logic は同じ)
 INSTALL_FUNCTIONS="$(sed -n '1,/^# --- end inline resolver ---$/p' "$INSTALL_SH" | sed 's|/dev/tty|/dev/null|g')"
+
+# main flow (marker 以降) も取り出す。flow 分岐 (checkout / managed) の実挙動を
+# stub 環境下で eval して検証するために使う (/dev/tty は同様に置換)
+INSTALL_MAIN="$(sed -n '/^# --- end inline resolver ---$/,$p' "$INSTALL_SH" | tail -n +2 | sed 's|/dev/tty|/dev/null|g')"
 
 # stub 環境を setup して関数を eval する。
 #   $1: CHECKSUMS に置く sha256 (空なら entry 無し)
@@ -292,7 +297,6 @@ EOF
   }
   # staged path の hash 検証は sandbox 内 file を見る
   sudo_sha256_file() { sudo sha256sum "${sandbox}/var/lib/schneeforge/bootstrap/schneeforge"; }
-  fetch_schneeforge_binary() { echo "$BATS_TEST_TMPDIR/sf-download"; }
   echo fake-binary-content >"$BATS_TEST_TMPDIR/sf-download"
   mkdir -p "$sandbox"
 
@@ -300,8 +304,9 @@ EOF
   resolve_nix() { return 0; }
 
   # INSTALL_FUNCTIONS は /dev/tty → /dev/null 置換済み (CI container で
-  # open できないため)。redirect 先が違うだけで分岐 logic は同じ
-  run install_managed_nix "$BATS_TEST_TMPDIR/repo"
+  # open できないため)。redirect 先が違うだけで分岐 logic は同じ。
+  # sf_bin は caller から渡す (既存 checkout 経路: repo_dir も渡す)
+  run install_managed_nix "$BATS_TEST_TMPDIR/sf-download" "$BATS_TEST_TMPDIR/repo"
   [ "$status" -eq 0 ]
 
   # command order: dir 作成が copy より前、exec より前に hash 再検証
@@ -316,12 +321,14 @@ EOF
   [ "$first_d" -lt "$first_cp" ]
   [ "$first_cp" -lt "$first_exec" ]
 
-  # cleanup: binary と staging dir が削除されていること
+  # cleanup: staging 側は削除されるが、user 側 binary は caller が apply まで
+  # 使うため残ること (fresh 経路の source init / apply で再利用)
   first_rm="$(echo "$log" | grep -n 'rm -f' | head -1 | cut -d: -f1)"
   [ -n "$first_rm" ]
   [ "$first_exec" -lt "$first_rm" ]
   [ ! -e "${sandbox}${stage}/schneeforge" ]
   [ ! -d "${sandbox}${stage}" ]
+  [ -f "$BATS_TEST_TMPDIR/sf-download" ]
 }
 
 @test "install_managed_nix aborts before exec when staged hash mismatches" {
@@ -377,16 +384,84 @@ EOF
     esac
   }
   sudo_sha256_file() { sudo sha256sum "${sandbox}/var/lib/schneeforge/bootstrap/schneeforge"; }
-  fetch_schneeforge_binary() { echo "$BATS_TEST_TMPDIR/sf-download"; }
   echo fake-binary-content >"$BATS_TEST_TMPDIR/sf-download"
 
-  run install_managed_nix "$BATS_TEST_TMPDIR/repo"
+  run install_managed_nix "$BATS_TEST_TMPDIR/sf-download" "$BATS_TEST_TMPDIR/repo"
   [ "$status" -ne 0 ]
   echo "$output" | grep -q "TOCTOU"
 
   # exec (sudo env) が呼ばれていないこと
   if grep -q 'UNEXPECTED-EXEC' "$BATS_TEST_TMPDIR/sudo.log"; then
     echo "exec was reached despite hash mismatch:" >&2
+    cat "$BATS_TEST_TMPDIR/sudo.log" >&2
+    return 1
+  fi
+}
+
+@test "install_managed_nix omits NIX_SETTING_DIR on fresh (embedded manifest) path" {
+  # fresh 経路は repo checkout が無い (embedded manifest で動作) ため、
+  # sudo 実行時に NIX_SETTING_DIR を渡さないこと
+  uname() {
+    case "$1" in
+    -s) echo "Linux" ;;
+    -m) echo "x86_64" ;;
+    esac
+  }
+  load_stubbed "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+  local sandbox="$BATS_TEST_TMPDIR/rootfs"
+  local stage="/var/lib/schneeforge/bootstrap"
+  mkdir -p "$sandbox"
+  : >"$BATS_TEST_TMPDIR/sudo.log"
+  sudo() {
+    echo "sudo $*" >>"$BATS_TEST_TMPDIR/sudo.log"
+    case "$1" in
+    install)
+      if [ "$2" = "-d" ]; then
+        mkdir -p "${sandbox}$5"
+        return 0
+      fi
+      # install -m 0755 <src> <dst>
+      local dst="$5"
+      case "$dst" in
+      "$stage"/*) dst="${sandbox}${dst}" ;;
+      esac
+      cp "$4" "$dst"
+      chmod 0755 "$dst"
+      ;;
+    rm)
+      local target="$3"
+      case "$target" in
+      "$stage"/*) target="${sandbox}${target}" ;;
+      esac
+      rm -f "$target"
+      ;;
+    rmdir) rmdir "${sandbox}$2" 2>/dev/null || true ;;
+    sh) return 0 ;;
+    sha256sum) sha256sum "$2" | awk '{print $1}' ;;
+    "$stage"*)
+      # plain exec (fresh 経路): env 経由ではなく staged binary を直接実行
+      if [ ! -f "${sandbox}${stage}/schneeforge" ]; then
+        echo "ERROR: exec before staging" >&2
+        return 1
+      fi
+      echo "exec: $*" >>"$BATS_TEST_TMPDIR/sudo.log"
+      ;;
+    *) return 0 ;;
+    esac
+  }
+  sudo_sha256_file() { sudo sha256sum "${sandbox}/var/lib/schneeforge/bootstrap/schneeforge"; }
+  echo fake-binary-content >"$BATS_TEST_TMPDIR/sf-download"
+  resolve_nix() { return 0; }
+
+  # repo_dir を渡さない (fresh 経路)
+  run install_managed_nix "$BATS_TEST_TMPDIR/sf-download"
+  [ "$status" -eq 0 ]
+
+  # staged binary が実行され、NIX_SETTING_DIR を含まないこと
+  grep -q '^exec:' "$BATS_TEST_TMPDIR/sudo.log"
+  if grep -q 'NIX_SETTING_DIR' "$BATS_TEST_TMPDIR/sudo.log"; then
+    echo "NIX_SETTING_DIR should not be passed on fresh path:" >&2
     cat "$BATS_TEST_TMPDIR/sudo.log" >&2
     return 1
   fi
@@ -401,64 +476,158 @@ EOF
   [ "$status" -ne 0 ]
 }
 
-@test "fresh clone uses pinned release ref, not default branch" {
-  # source ref pin: binary の pin と同一 release tag を clone すること。
-  # default branch (develop) を拾うと「過去の installer 実行時にその時点の
-  # develop が入る」問題が出る
+@test "README stable one-liner URL matches install.sh bootstrap pin (Stable/Edge 分離)" {
+  # デグレ #12: Stable ワンライナーは tag 固定 URL。その tag が install.sh の
+  # SCHNEEFORGE_BOOTSTRAP_VERSION pin と一致することで「script 取得元 ==
+  # download する CLI の release」という release unit の一致が保証される。
+  # bump 忘れ (README だけ古い tag) はここで検知する。
+  local pinned stable_url stable_tag
+  # shellcheck disable=SC2016  # ${SCHNEEFORGE_VERSION:-...} は literal として match させる
+  pinned="$(sed -n 's/^SCHNEEFORGE_BOOTSTRAP_VERSION="\${SCHNEEFORGE_VERSION:-\([^"]*\)}"/\1/p' "$INSTALL_SH")"
+  [ -n "$pinned" ]
+
+  stable_url="$(grep -oE 'https://raw\.githubusercontent\.com/Lamy210/nix_setting/v[^/]+/install\.sh' "$BATS_TEST_DIRNAME/../README.md" | head -1)"
+  [ -n "$stable_url" ]
+  stable_tag="${stable_url%/install.sh}"
+  stable_tag="${stable_tag##*/}"
+
+  [ "$stable_tag" = "$pinned" ]
+
+  # Edge (main HEAD) の案内も残っていること
+  grep -q 'raw\.githubusercontent\.com/Lamy210/nix_setting/main/install\.sh' "$BATS_TEST_DIRNAME/../README.md"
+}
+
+@test "fresh install does not clone and pins managed source ref to release" {
+  # source ref pin: managed source の init は binary の pin と同一 release tag を
+  # 指定すること。default branch (develop) を拾うと「過去の installer 実行時に
+  # その時点の develop が入る」問題が出る
   run grep -n 'SCHNEEFORGE_BOOTSTRAP_REF=' "$INSTALL_SH"
   [ "$status" -eq 0 ]
   # ref は version pin と連動 (独立 default 値を持たない)
   # [$] を使い SC2016 を回避しつつ literal を grep
   run grep -n 'SCHNEEFORGE_REF:-[$]SCHNEEFORGE_BOOTSTRAP_VERSION' "$INSTALL_SH"
   [ "$status" -eq 0 ]
-  # clone が --branch で ref 指定していること
-  run grep -n 'clone --branch "[$]SCHNEEFORGE_BOOTSTRAP_REF"' "$INSTALL_SH"
+  # clone が install.sh から完全に消えていること
+  run grep -n '"[$]GIT_BIN" clone' "$INSTALL_SH"
+  [ "$status" -ne 0 ]
+  run grep -nE 'git clone' "$INSTALL_SH"
+  [ "$status" -ne 0 ]
+  # source init が pinned ref を指定すること
+  run grep -n 'source init --tag "[$]SCHNEEFORGE_BOOTSTRAP_REF"' "$INSTALL_SH"
   [ "$status" -eq 0 ]
-  # --branch 無しの clone が存在しないこと
-  if grep -qE 'clone([" ]|$)' <(grep -oE '"[$]GIT_BIN" clone[^&|]*' "$INSTALL_SH" | grep -v -- '--branch' || true); then
-    flunk "clone without --branch detected"
-  fi
 }
 
-@test "clone step clones pinned ref and existing repo is left untouched" {
-  # 動作検証: git stub で clone 引数を記録し、main flow の step 1 を実行
-  local clone_log="$BATS_TEST_TMPDIR/clone.log"
-  : >"$clone_log"
+@test "fresh path runs source init and apply via fetched CLI, without clone" {
+  # 動作検証: main flow (INSTALL_MAIN) を stub 環境下で実行し、
+  # 1. clone (git 任意の invocation) が発生しないこと
+  # 2. fetch した CLI binary が source init --tag <pin> → apply の順で呼ばれること
+  # 3. dotfile backup が apply 前に行われること
+  local git_log="$BATS_TEST_TMPDIR/git.log"
+  local sf_log="$BATS_TEST_TMPDIR/sf.log"
+  local home="$BATS_TEST_TMPDIR/home"
+  : >"$git_log"
+  mkdir -p "$home" "$BATS_TEST_TMPDIR/sfbin"
 
-  # 関数定義のみ eval (INSTALL_FUNCTIONS は marker まで含む)
-  eval "$INSTALL_FUNCTIONS"
-
-  GIT_BIN="$BATS_TEST_TMPDIR/git-stub"
-  cat >"$GIT_BIN" <<'EOF'
+  # git stub: 全 invocation を log に記録 (clone 検出用)
+  cat >"$BATS_TEST_TMPDIR/bin-git" <<EOF
 #!/usr/bin/env bash
-echo "$*" >>"${CLONE_LOG}"
+echo "\$*" >>"$git_log"
 exit 0
 EOF
-  chmod +x "$GIT_BIN"
-  export CLONE_LOG="$clone_log"
-  REPO_URL="https://example.com/org/repo.git"
-  REPO_DIR="$BATS_TEST_TMPDIR/repo"
+  chmod +x "$BATS_TEST_TMPDIR/bin-git"
+  PATH="$BATS_TEST_TMPDIR:$PATH"
+  ln -sf "$BATS_TEST_TMPDIR/bin-git" "$BATS_TEST_TMPDIR/git"
 
-  # fresh (repo 無し): pinned ref 付きの clone が呼ばれる
+  # nix stub: step 2 で「Nix found」にする (Managed Nix install 経路は別 test で担保)
+  ln -sf "$BATS_TEST_TMPDIR/bin-git" "$BATS_TEST_TMPDIR/nix"
+
+  # sf binary stub: 引数を log に記録する「fetch 済み binary」
+  cat >"$BATS_TEST_TMPDIR/sfbin/schneeforge" <<EOF
+#!/usr/bin/env bash
+echo "\$*" >>"$sf_log"
+exit 0
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/sfbin/schneeforge"
+
+  eval "$INSTALL_FUNCTIONS"
+  fetch_schneeforge_binary() { echo "$BATS_TEST_TMPDIR/sfbin/schneeforge"; }
+
+  HOME="$home"
+  export HOME
+  unset XDG_STATE_HOME || true # state dir が実 home 配下に作られるようにする
+  REPO_DIR="$BATS_TEST_TMPDIR/repo" # .git 無し = fresh
   unset SCHNEEFORGE_REF SCHNEEFORGE_VERSION || true
   SCHNEEFORGE_BOOTSTRAP_VERSION="v0.2.0-rc.2"
-  SCHNEEFORGE_BOOTSTRAP_REF="${SCHNEEFORGE_REF:-$SCHNEEFORGE_BOOTSTRAP_VERSION}"
+  # shellcheck disable=SC2034  # INSTALL_MAIN の eval 内で参照される
+  SCHNEEFORGE_BOOTSTRAP_REF="$SCHNEEFORGE_BOOTSTRAP_VERSION"
 
-  # main flow step 1 の clone 部分を同等に実行
-  if [ -d "$REPO_DIR/.git" ]; then
-    flunk "precondition: repo dir should not exist"
-  else
-    "$GIT_BIN" clone --branch "$SCHNEEFORGE_BOOTSTRAP_REF" --depth 1 "$REPO_URL" "$REPO_DIR"
-  fi
-  grep -q -- "--branch v0.2.0-rc.2" "$clone_log"
+  # backup 対象の既存 dotfile を置いておく
+  echo 'existing-zshrc' >"$home/.zshrc"
 
-  # existing (repo 有り): clone も checkout も呼ばれない
-  mkdir -p "$REPO_DIR/.git"
-  : >"$clone_log"
-  if [ -d "$REPO_DIR/.git" ]; then
-    echo "exists: skip clone"
-  else
-    flunk "should not reach clone"
-  fi
-  [ ! -s "$clone_log" ]
+  # subshell で wrap し、flow 内の exit が test process を巻き込まないようにする
+  (eval "$INSTALL_MAIN")
+
+  # 1. git が一度も呼ばれていない (clone も含む) こと
+  [ ! -s "$git_log" ]
+
+  # 2. CLI が pinned tag 付き source init → apply の順で呼ばれたこと
+  grep -q -- '--tag v0.2.0-rc.2' "$sf_log"
+  [ "$(head -1 "$sf_log")" = "source init --tag v0.2.0-rc.2" ]
+  [ "$(tail -1 "$sf_log")" = "apply" ]
+
+  # 3. dotfile backup が行われていること (glob 展開結果が file として存在)
+  local backed
+  backed="$(echo "$home"/hm-bak-*/.zshrc)"
+  [ -f "$backed" ]
+}
+
+@test "existing checkout keeps bootstrap.sh flow without managed source" {
+  # 動作検証: $REPO_DIR/.git が存在する場合は従来 flow (bootstrap.sh) を使い、
+  # CLI binary の fetch / source init / apply が発生しないこと
+  local home="$BATS_TEST_TMPDIR/home"
+  local repo="$BATS_TEST_TMPDIR/repo"
+  local sf_log="$BATS_TEST_TMPDIR/sf.log"
+  local bootstrap_log="$BATS_TEST_TMPDIR/bootstrap.log"
+  local git_log="$BATS_TEST_TMPDIR/git.log"
+  mkdir -p "$home" "$repo/.git"
+  : >"$git_log"
+
+  cat >"$repo/bootstrap.sh" <<EOF
+#!/usr/bin/env bash
+echo "bootstrap-ran" >>"$bootstrap_log"
+exit 0
+EOF
+  chmod +x "$repo/bootstrap.sh"
+
+  # git / nix stub: invocation を log に記録する (実環境の git に依存しない)
+  cat >"$BATS_TEST_TMPDIR/bin-stub" <<EOF
+#!/usr/bin/env bash
+echo "\$*" >>"$git_log"
+exit 0
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin-stub"
+  PATH="$BATS_TEST_TMPDIR:$PATH"
+  ln -sf "$BATS_TEST_TMPDIR/bin-stub" "$BATS_TEST_TMPDIR/git"
+  ln -sf "$BATS_TEST_TMPDIR/bin-stub" "$BATS_TEST_TMPDIR/nix"
+
+  eval "$INSTALL_FUNCTIONS"
+  fetch_schneeforge_binary() {
+    echo "fetch-called" >>"$sf_log"
+    echo "$BATS_TEST_TMPDIR/sfbin/schneeforge"
+  }
+
+  HOME="$home"
+  export HOME
+  unset XDG_STATE_HOME || true
+  # shellcheck disable=SC2034  # INSTALL_MAIN の eval 内で参照される
+  REPO_DIR="$repo" # .git 有り = 既存 checkout
+
+  # subshell で wrap し、flow 内の exit が test process を巻き込まないようにする
+  (eval "$INSTALL_MAIN")
+
+  # bootstrap.sh が呼ばれ、managed source 経路 (fetch / source init / apply) は
+  # 一切発生していないこと
+  [ -f "$bootstrap_log" ]
+  [ ! -e "$sf_log" ]
+  [ ! -s "$git_log" ]
 }

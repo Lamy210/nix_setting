@@ -106,10 +106,15 @@ jobs:
   release:
     needs: [build-binaries, build-dmg]
     runs-on: ubuntu-latest
+    # job level で上書き: attestation に必要な OIDC (id-token) は release
+    # job のみに付与する (build job へは渡さない)
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-      - uses: cachix/install-nix-action@08dcb3a5e62fa31e2da3d490afc4176ef55ecd72
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
@@ -124,6 +129,9 @@ jobs:
           target="$(nix path-info .#homeConfigurations.linux.activationPackage)"
           nix run nixpkgs#sbomnix -- "$target" --cdx sbom.cdx.json
 
+      - name: generate release metadata (v2 §27)
+        run: ./scripts/ci/generate-release-metadata.sh "${{ github.ref_name }}" "${{ github.sha }}"
+
       - name: generate checksums
         run: |
           {
@@ -135,6 +143,9 @@ jobs:
             echo "## SBOM"
             sha256sum sbom.cdx.json
             echo
+            echo "## Release metadata"
+            sha256sum schneeforge-release.json
+            echo
             echo "## flake.lock"
             sha256sum flake.lock
             echo
@@ -142,12 +153,27 @@ jobs:
             echo "revision: ${{ github.sha }}"
           } > CHECKSUMS.txt
 
+      # Phase E (supply chain): この release の asset 全てに SLSA build
+      # provenance を attest する (checksums 生成後・release 作成前。失敗時は
+      # release を作らない)。検証は upstream nix-installer と対称の
+      # `gh attestation verify --repo Lamy210/nix_setting <file>`。過去
+      # release への遡及 attest はしない (design.md D5)
+      - name: attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: |
+            dist/*/*
+            sbom.cdx.json
+            schneeforge-release.json
+            CHECKSUMS.txt
+
       - name: create release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: |
             dist/*/*
             sbom.cdx.json
+            schneeforge-release.json
             CHECKSUMS.txt
           generate_release_notes: true
           # -rc / -beta tag は prerelease 扱いにし releases/latest API が

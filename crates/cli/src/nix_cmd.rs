@@ -5,10 +5,11 @@ use std::path::{Path, PathBuf};
 use clap::Args;
 
 use schneeforge_core::{
-    cache_path, default_ownership_path, default_receipt_path, detect_arch, detect_platform,
-    existing_nix_detected, installed_binary_path, nix_health, run_with_json_logs, secure_plan_dir,
+    cache_path, classify_current, default_ownership_path, default_receipt_path, detect_arch,
+    detect_platform, existing_nix_detected, installed_binary_path, nix_health,
+    repair_action_current, repair_args, run_with_json_logs, secure_plan_dir,
     uninstall_args as build_uninstall_args, JsonLogLine, ManagedNix, ManagedNixError, NoProgress,
-    OwnershipRecord, ProgressSink, Receipt, ToolInventory,
+    OwnershipRecord, ProgressSink, Receipt, RepairAction, ToolInventory, UpstreamRepair,
 };
 
 /// `schneeforge nix` サブコマンド
@@ -26,6 +27,8 @@ pub enum NixSub {
     Doctor,
     /// Managed Nix を uninstall (nix-darwin 残留時は警告で abort)
     Uninstall(UninstallArgs),
+    /// NixStatus 分類に基づいて修復 (stale record 削除 / upstream repair)
+    Repair(RepairArgs),
 }
 
 #[derive(Args, Debug, Default)]
@@ -56,11 +59,29 @@ pub struct UninstallArgs {
     pub force: bool,
 }
 
+#[derive(Args, Debug, Default)]
+pub struct RepairArgs {
+    /// 実行内容を表示するのみで file system を変更しない
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// upstream `nix-installer repair hooks` (shell profile 修復) を実行する
+    #[arg(long)]
+    pub hooks: bool,
+
+    /// upstream `nix-installer repair sequoia` (macOS Sequoia の _nixbld 回復)
+    /// を実行する
+    #[arg(long)]
+    pub sequoia: bool,
+}
+
 type Result = std::result::Result<(), String>;
 
 /// `schneeforge nix install`
 pub fn run_install(repo_root: &str, args: InstallArgs) -> Result {
-    let mn = ManagedNix::load_from_repo(Path::new(repo_root))
+    // manifest は repo file 優先 + embedded fallback (fresh machine は
+    // repo checkout 無しでも install できる)
+    let mn = ManagedNix::load_prefer_repo(Some(Path::new(repo_root)))
         .map_err(|e| format!("load bootstrap-manifest: {e}"))?;
 
     let preflight = mn.preflight();
@@ -265,6 +286,23 @@ pub fn run_doctor(tc: Option<&ToolInventory>) -> Result {
     println!("=== schneeforge nix doctor ===");
     println!();
 
+    // [status]: NixStatus 4 状態分類 (issue #15)。
+    // ping 成否は既存の [nix runtime] 診断 (nix_health) と同じ解決済み binary から
+    // 取る。Nix 未解決環境では nix_health が store_accessible = false を返すため
+    // そのまま使う (Missing 分類は marker の有無だけで決まるため影響しない)。
+    let store_ping_ok = tc
+        .map(nix_health)
+        .map(|h| h.store_accessible)
+        .unwrap_or(false);
+    let report = classify_current(store_ping_ok);
+    println!("[status]");
+    println!("  status:      {}", report.status.label());
+    println!("  next action: {}", report.status.next_action());
+    if let Some(mismatch) = &report.mismatch {
+        println!("  mismatch:    {mismatch}");
+    }
+    println!();
+
     println!("[environment]");
     println!("  platform: {}", detect_platform());
     println!("  arch:     {}", detect_arch());
@@ -449,6 +487,118 @@ pub fn run_uninstall(args: UninstallArgs) -> Result {
 
     eprintln!();
     eprintln!("upstream uninstall 完了。`/nix` が残っている場合は手動で確認してください。");
+    Ok(())
+}
+
+/// `schneeforge nix repair`
+///
+/// NixStatus 分類に基づいて修復 action を決定する。SchneeForge 単独で安全に
+/// 実行できるのは stale ownership record の削除のみ。破壊的な uninstall /
+/// 再 install は案内表示に留める (spec: state-driven 修復)。
+pub fn run_repair(args: RepairArgs, tc: Option<&ToolInventory>) -> Result {
+    eprintln!("=== schneeforge nix repair ===");
+    eprintln!();
+
+    // upstream repair (hooks / sequoia) は状態分類と独立した明示 option
+    if args.hooks || args.sequoia {
+        return run_upstream_repair(args);
+    }
+
+    let store_ping_ok = tc
+        .map(nix_health)
+        .map(|h| h.store_accessible)
+        .unwrap_or(false);
+    let action = repair_action_current(store_ping_ok);
+    let ownership_path = default_ownership_path();
+
+    match action {
+        RepairAction::RemoveStaleOwnership => {
+            // marker が一切無い = Nix 実態が無い。record を消すだけで
+            // Missing へ復帰する (receipt も同時に確認して案内)
+            eprintln!("ownership record は存在しますが /nix 配下の Nix が見つかりません。");
+            eprintln!("  (uninstall が途中で失敗した可能性があります)");
+            eprintln!();
+            eprintln!("  削除対象: {}", ownership_path.display());
+            if args.dry_run {
+                eprintln!();
+                eprintln!("[dry-run] 所有権 record の削除は実行しませんでした。");
+                eprintln!("  実行するには: schneeforge nix repair");
+                return Ok(());
+            }
+            OwnershipRecord::remove(&ownership_path)
+                .map_err(|e| format!("remove stale ownership record: {e}"))?;
+            eprintln!();
+            eprintln!("stale ownership record を削除しました。状態は Missing に戻りました。");
+            eprintln!("  再 install する場合: sudo schneeforge nix install");
+        }
+        RepairAction::SuggestUninstall => {
+            eprintln!("Nix の marker / receipt は揃っていますが、runtime 検証に失敗しています");
+            eprintln!("  (nix store ping が失敗)。修復手段:");
+            eprintln!();
+            eprintln!("  1. sudo schneeforge nix uninstall");
+            eprintln!("  2. sudo schneeforge nix install");
+            eprintln!();
+            eprintln!("  (SchneeForge は破壊的な uninstall を repair から自動実行しません)");
+        }
+        RepairAction::SuggestManualCleanup => {
+            eprintln!("installation marker は残っていますが receipt が読めません。");
+            eprintln!("  この状態では upstream (nix-installer) も revert できません。");
+            eprintln!();
+            eprintln!("  手動での cleanup 手順:");
+            eprintln!("    1. sudo schneeforge nix uninstall --force");
+            eprintln!("       (receipt が無いため --force が必要です)");
+            eprintln!("    2. /nix 配下と build users が残っていれば手動で削除");
+            eprintln!("       Linux: sudo userdel nixbld1..nixbldN / sudo groupdel nixbld");
+            eprintln!("       macOS: sudo dscl . -delete /Users/_nixbld1..");
+            eprintln!("    3. sudo schneeforge nix install");
+            eprintln!();
+            eprintln!("  (SchneeForge は /nix 配下や build users の削除を自動実行しません)");
+        }
+        RepairAction::NoActionNeeded => {
+            eprintln!("Nix は Healthy です。対応は不要です。");
+        }
+        RepairAction::SuggestInstall => {
+            eprintln!("Nix は Missing (未導入) です。install してください:");
+            eprintln!("  sudo schneeforge nix install");
+        }
+    }
+    Ok(())
+}
+
+/// upstream `nix-installer repair {hooks|sequoia}` を wrap する。
+/// 修復 logic は upstream 側のものをそのまま使う (uninstall と同じ委譲方針)。
+fn run_upstream_repair(args: RepairArgs) -> Result {
+    let targets: Vec<UpstreamRepair> = [
+        args.hooks.then_some(UpstreamRepair::Hooks),
+        args.sequoia.then_some(UpstreamRepair::Sequoia),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    let binary = installed_binary_path();
+    if !binary.exists() {
+        return Err(format!(
+            "{} が見つかりません。upstream repair は install 済み環境でのみ利用できます",
+            binary.display()
+        ));
+    }
+
+    for target in &targets {
+        let cli_args = repair_args(*target);
+        eprintln!(
+            "invoking upstream: nix-installer {} ...",
+            cli_args.join(" ")
+        );
+        if args.dry_run {
+            eprintln!("[dry-run] upstream 呼び出しは実行しませんでした。");
+            continue;
+        }
+        let mut noop = NoProgress;
+        run_with_json_logs(&binary, &cli_args, |line| noop.on_log(line))
+            .map_err(|e| format!("upstream repair {}: {e}", target.subcommand()))?;
+        eprintln!("upstream repair {} 完了。", target.subcommand());
+    }
     Ok(())
 }
 

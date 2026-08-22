@@ -106,6 +106,30 @@ pub fn uninstall_args(receipt: Option<&Path>) -> Vec<String> {
     args
 }
 
+/// upstream `nix-installer repair` の対象 (spike 実測: hooks / sequoia)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpstreamRepair {
+    /// shell profile (/etc/profile.d/nix.sh 等) の修復
+    Hooks,
+    /// macOS 15 Sequoia が `_nixbld` user を乗っ取る問題の回復
+    Sequoia,
+}
+
+impl UpstreamRepair {
+    pub fn subcommand(&self) -> &'static str {
+        match self {
+            UpstreamRepair::Hooks => "hooks",
+            UpstreamRepair::Sequoia => "sequoia",
+        }
+    }
+}
+
+/// `nix-installer repair {hooks|sequoia}` の CLI args。
+/// 修復 logic は upstream 側のものをそのまま使う (再実装しない)。
+pub fn repair_args(target: UpstreamRepair) -> Vec<String> {
+    vec!["repair".to_string(), target.subcommand().to_string()]
+}
+
 /// subprocess を spawn し、stderr を JSON Lines で best-effort parse しながら callback へ渡す。
 /// exit code 0 以外は `Subprocess` エラー (stderr の最後の N 行を保持)。
 pub fn run_with_json_logs<F>(
@@ -345,6 +369,15 @@ mod tests {
     fn uninstall_args_with_receipt() {
         let args = uninstall_args(Some(Path::new("/nix/receipt.json")));
         assert_eq!(args, vec!["uninstall", "--no-confirm", "/nix/receipt.json"]);
+    }
+
+    #[test]
+    fn repair_args_hooks_and_sequoia() {
+        assert_eq!(repair_args(UpstreamRepair::Hooks), vec!["repair", "hooks"]);
+        assert_eq!(
+            repair_args(UpstreamRepair::Sequoia),
+            vec!["repair", "sequoia"]
+        );
     }
 
     #[test]

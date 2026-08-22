@@ -10,6 +10,8 @@ pub enum Error {
     UnsupportedPlatform { os: String, arch: String },
     /// manifest (config.toml) の読み込み・parse・検証エラー
     Manifest(String),
+    /// release metadata (schneeforge-release.json) の parse・検証エラー
+    ReleaseMetadata(String),
     /// コマンド実行エラー
     Command { command: String, detail: String },
     /// ファイル入出力エラー (state 保存等)
@@ -18,6 +20,8 @@ pub enum Error {
     Busy(String),
     /// 前提条件を満たしていない (Nix 未インストール等)
     Precondition(String),
+    /// 本体自己更新 (schneeforge self-update) のエラー
+    SelfUpdate(String),
     /// Managed Nix (nix-installer 統合) のエラー
     ManagedNix(ManagedNixError),
 }
@@ -29,10 +33,12 @@ impl fmt::Display for Error {
                 write!(f, "unsupported platform: {os} {arch}")
             }
             Error::Manifest(msg) => write!(f, "manifest error: {msg}"),
+            Error::ReleaseMetadata(msg) => write!(f, "release metadata error: {msg}"),
             Error::Command { command, detail } => write!(f, "{command}: {detail}"),
             Error::Io(msg) => write!(f, "io error: {msg}"),
             Error::Busy(msg) => write!(f, "busy: {msg}"),
             Error::Precondition(msg) => write!(f, "precondition not met: {msg}"),
+            Error::SelfUpdate(msg) => write!(f, "self-update error: {msg}"),
             Error::ManagedNix(e) => write!(f, "managed nix error: {e}"),
         }
     }

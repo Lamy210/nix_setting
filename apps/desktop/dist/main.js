@@ -1,4 +1,5 @@
 const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
 
 const $ = (id) => document.getElementById(id);
 
@@ -24,14 +25,105 @@ async function refresh() {
   try {
     const s = await invoke("get_status");
     $("host").textContent = s.host;
-    $("user").textContent = s.username ?? "-";
+    $("profile").textContent = s.profile ?? "-";
     $("nix").textContent = s.tools.nix.available ? "yes" : "no";
     $("homebrew").textContent = s.tools.homebrew.available ? "yes" : "no";
     $("applied").textContent = s.applied_revision ?? "(never)";
+    // managed source では flake.lock 更新 (アップグレード) は core が
+    // fail-closed で拒否するためボタンを隠す (checkout 表現では表示のまま)
+    const upgradeBtn = $("upgrade");
+    if (upgradeBtn) upgradeBtn.hidden = Boolean(s.managed_source);
     return s;
   } catch (e) {
     $("output").textContent = `get_status エラー: ${e}`;
     return null;
+  }
+}
+
+// ---------- dashboard (v2 §28: Installed / Available) ----------
+async function refreshDashboard() {
+  try {
+    const d = await invoke("get_dashboard");
+    $("dash-installed").textContent = `v${d.installed.version}`;
+    $("dash-profile").textContent = d.installed.profile ?? "-";
+    $("dash-channel").textContent = d.installed.channel;
+    if (d.available) {
+      $("dash-available").textContent =
+        `v${d.available.version} (${d.available.channel}) [${d.available.systems.join(", ")}]`;
+    } else {
+      $("dash-available").textContent =
+        `取得できません (${d.available_error ?? "理由不明"})`;
+    }
+    const note = $("dash-update");
+    note.textContent = d.update_available
+      ? `新しいリリース v${d.available.version} があります — GitHub Releases / install.sh で更新できます`
+      : "利用中の版は最新です";
+    note.classList.toggle("update-available", d.update_available);
+  } catch (e) {
+    $("dash-installed").textContent = "-";
+    $("dash-channel").textContent = "-";
+    $("dash-available").textContent = `取得エラー: ${e}`;
+  }
+  await refreshProfileSelect();
+}
+
+// ---------- profile 切替 (v2 §17 follow-up) ----------
+function setProfileNote(msg) {
+  $("profile-note").textContent = msg;
+}
+
+async function refreshProfileSelect() {
+  const sel = $("dash-profile-select");
+  try {
+    const p = await invoke("get_profiles");
+    sel.innerHTML = "";
+    for (const name of p.available) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name === p.default ? `${name} (既定)` : name;
+      sel.appendChild(opt);
+    }
+    sel.value = p.selected ?? p.default ?? "";
+    $("profile-set").disabled = false;
+    $("profile-clear").disabled = !p.selected;
+    setProfileNote(p.selected ? "選択は次回の「適用」から反映されます" : "");
+  } catch (e) {
+    sel.innerHTML = "";
+    $("profile-set").disabled = true;
+    $("profile-clear").disabled = true;
+    setProfileNote(`切替は使用できません (${e})`);
+  }
+}
+
+async function switchProfile() {
+  const name = $("dash-profile-select").value;
+  if (!name) return;
+  try {
+    const r = await invoke("set_profile", { name });
+    if (r.success) {
+      setProfileNote(`profile を ${name} へ変更しました — 次回の「適用」から反映されます`);
+      await refresh();
+      await refreshDashboard();
+    } else {
+      setProfileNote(`error: ${r.output}`);
+    }
+  } catch (e) {
+    setProfileNote(`error: ${e}`);
+  }
+}
+
+async function clearProfile() {
+  try {
+    const r = await invoke("clear_profile");
+    if (r.success) {
+      setProfileNote("manifest の既定へ戻しました — 次回の「適用」から反映されます");
+      await refresh();
+      await refreshDashboard();
+    } else {
+      setProfileNote(`error: ${r.output}`);
+    }
+  } catch (e) {
+    setProfileNote(`error: ${e}`);
   }
 }
 
@@ -47,11 +139,12 @@ async function run(fn, buttonId, label) {
   const btn = $(buttonId);
   if (!btn) {
     $("output").textContent = `ボタンが見つかりません: ${buttonId}`;
-    return;
+    return undefined;
   }
   btn.disabled = true;
   setRunning(label, true);
   $("output").textContent = `${label} を実行中...`;
+  let result;
   try {
     const r = await fn();
     if (r.success) {
@@ -59,6 +152,7 @@ async function run(fn, buttonId, label) {
     } else {
       $("output").textContent = `${label} 失敗: ${r.output}`;
     }
+    result = r;
   } catch (e) {
     $("output").textContent = `${label} エラー: ${e}`;
   } finally {
@@ -66,6 +160,7 @@ async function run(fn, buttonId, label) {
     setRunning(label, false);
     refresh();
   }
+  return result;
 }
 
 // ---------- setup wizard ----------
@@ -80,6 +175,7 @@ function showReady() {
   $("setup-view").classList.add("hidden");
   $("ready-view").classList.remove("hidden");
   refresh();
+  refreshDashboard();
 }
 
 function next() {
@@ -121,20 +217,57 @@ async function stepPrereq(box, actions) {
   const nixOk = pre.nix_installed;
   const gitOk = pre.git_installed;
   const flakesOk = pre.flakes_enabled;
+  // NixStatus 分類 (Missing / Healthy / Degraded / Broken)。nix_health が
+  // binary 単位の検知なのに対し、marker / receipt / ownership を組合せた
+  // install 状態。get_status 失敗時は未取得として表示しない
+  const nixStatus = status && status.nix_status ? status.nix_status.status : null;
+  const nixNextAction = status && status.nix_status ? status.nix_status.next_action : null;
   box.innerHTML =
     row("host", status ? status.host : "-") +
     row("platform", status ? `${status.platform}/${status.architecture}` : "-") +
     row("Nix", nixOk ? "OK" : "NG") +
+    row("Nix status", nixStatus ?? "-") +
     row("Git", gitOk ? "OK" : "NG") +
     row("flakes", flakesOk ? "OK" : "NG");
   if (nixOk && gitOk && flakesOk) {
+    if (nixStatus === "Degraded" || nixStatus === "Broken") {
+      // wizard は install 案内だけで済ませず、修復 / 手動調査の案内を出す。
+      // repair は非破壊の状態を含むため確認なしで実行できる (破壊操作は
+      // stale ownership record の削除のみで、内容は CLI 側が案内する)
+      box.innerHTML += errorBlock(
+        `Nix の状態は ${nixStatus} です: ${nixNextAction}`
+      );
+      actions.appendChild(
+        actionBtn("修復を試みる", () => stepNixRepair(box, actions))
+      );
+    }
     actions.appendChild(actionBtn("次へ", next));
   } else if (!nixOk) {
-    box.innerHTML += errorBlock(
-      "Nix が未導入です。Nix をインストールしてください:<br>" +
-        "<code>curl -L https://nixos.org/nix/install | sh</code>"
-    );
-    actions.appendChild(actionBtn("再確認", () => renderStep()));
+    // Managed Nix を SchneeForge 自身で install する (ownership 管理下)。
+    // legacy な curl | sh は ownership record が残らず uninstall 対称性が
+    // 崩れるため案内しない
+    const statusNote =
+      nixStatus && nixStatus !== "Missing"
+        ? `<br>現在の状態は ${nixStatus} です — まず修復が必要です: ${nixNextAction}`
+        : "";
+    if (nixStatus && nixStatus !== "Missing") {
+      // Missing 以外 (Broken 等) は GUI install を offering しない
+      box.innerHTML += errorBlock(
+        "Nix が未導入です。" + statusNote
+      );
+      actions.appendChild(actionBtn("再確認", () => renderStep()));
+    } else {
+      box.innerHTML += errorBlock(
+        "Nix が未導入です。SchneeForge の Managed Nix で導入できます。" + statusNote
+      );
+      // Managed Nix 導入は repo clone を前提としない (escalated CLI sidecar は
+      // embedded manifest で動作するため、fresh machine でもそのまま導入できる)
+      actions.appendChild(actionBtn("SchneeForge で導入", () => stepNixInstall(box, actions)));
+      // escalation helper が使えない環境向けの fallback 案内
+      box.innerHTML +=
+        '<p class="note">ターミナルから <code>sudo schneeforge nix install</code> でも導入できます</p>';
+      actions.appendChild(actionBtn("再確認", () => renderStep()));
+    }
   } else {
     box.innerHTML += errorBlock(
       !gitOk
@@ -147,66 +280,228 @@ async function stepPrereq(box, actions) {
   }
 }
 
-function stepRepo(box, actions) {
+// Managed Nix install flow (D8 の GUI 版: plan preview → 最終確認 → install)
+async function stepNixInstall(box, actions) {
+  box.textContent = "Managed Nix の plan を生成しています... (download / verify を含みます)";
+  actions.innerHTML = "";
+  let plan;
+  try {
+    plan = await invoke("nix_prepare_plan");
+  } catch (e) {
+    box.innerHTML = errorBlock(`plan 生成に失敗しました: ${e}`) +
+      cliFallbackNote();
+    actions.appendChild(actionBtn("再試行", () => stepNixInstall(box, actions)));
+    return;
+  }
+  if (!plan.success) {
+    box.innerHTML = errorBlock(`plan 生成に失敗しました: ${plan.output}`) +
+      cliFallbackNote();
+    actions.appendChild(actionBtn("再試行", () => stepNixInstall(box, actions)));
+    return;
+  }
+
+  // detailed plan 表示 (D8: この確認が GUI 側の確認 gate)
+  box.innerHTML =
+    "<p>以下の内容で Nix を導入します (detailed plan):</p>" +
+    "<pre>" + escapeHtml(plan.output) + "</pre>" +
+    "<p>続行しますか? 管理者権限の確認が表示される場合があります。</p>";
+  actions.innerHTML = "";
+  actions.appendChild(
+    actionBtn("導入する", async () => {
+      box.innerHTML =
+        '<p id="nix-install-phase">Managed Nix を導入しています...</p>' +
+        '<pre id="nix-install-log" class="nix-log"></pre>';
+      actions.innerHTML = "";
+      // backend の stderr JSON Lines を event で受け、phase + 直近 log を随時表示
+      let unlisten = null;
+      try {
+        unlisten = await listen("nix-install-progress", (e) => {
+          const phaseEl = document.getElementById("nix-install-phase");
+          const logEl = document.getElementById("nix-install-log");
+          const { phase, message } = e.payload || {};
+          if (phaseEl && phase) {
+            phaseEl.textContent = `Managed Nix を導入しています... (${phase})`;
+          }
+          if (logEl && message) {
+            logEl.textContent = tailLines(logEl.textContent + message + "\n", 10);
+          }
+        });
+      } catch (_) {
+        // event listener が取得できない環境でも install 自体は続行 (表示は完了後一括)
+      }
+      let r;
+      try {
+        r = await invoke("nix_install_escalated");
+      } catch (e) {
+        if (unlisten) unlisten();
+        box.innerHTML = errorBlock(`導入に失敗しました: ${e}`) + cliFallbackNote();
+        actions.appendChild(actionBtn("再試行", () => stepNixInstall(box, actions)));
+        return;
+      }
+      if (unlisten) unlisten();
+      if (r.success) {
+        box.innerHTML =
+          "<p>Managed Nix の導入が完了しました。</p><pre>" +
+          escapeHtml(tailLines(r.output, 30)) +
+          "</pre>";
+        actions.innerHTML = "";
+        actions.appendChild(actionBtn("前提確認へ戻る", () => renderStep()));
+      } else {
+        box.innerHTML = errorBlock(r.output) + cliFallbackNote();
+        actions.innerHTML = "";
+        actions.appendChild(actionBtn("再試行", () => stepNixInstall(box, actions)));
+      }
+    })
+  );
+  actions.appendChild(actionBtn("キャンセル", () => renderStep()));
+}
+
+function cliFallbackNote() {
+  return '<p class="note">ターミナルから <code>sudo schneeforge nix install</code> でも導入できます</p>';
+}
+
+// Nix repair flow: NixStatus 分類に基づく修復 (Broken は stale record 削除、
+// Degraded は uninstall / 手動手順の案内)。実行は昇格された CLI sidecar。
+async function stepNixRepair(box, actions) {
+  box.textContent = "Nix の状態を修復しています... (schneeforge nix repair)";
+  actions.innerHTML = "";
+  let r;
+  try {
+    r = await invoke("nix_repair_escalated");
+  } catch (e) {
+    box.innerHTML = errorBlock(`修復の実行に失敗しました: ${e}`) +
+      '<p class="note">ターミナルから <code>sudo schneeforge nix repair</code> でも実行できます</p>';
+    actions.appendChild(actionBtn("再試行", () => stepNixRepair(box, actions)));
+    actions.appendChild(actionBtn("前提確認へ戻る", () => renderStep()));
+    return;
+  }
+  if (r.success) {
+    box.innerHTML =
+      "<p>修復コマンドが完了しました。結果:</p><pre>" +
+      escapeHtml(tailLines(r.output, 30)) +
+      "</pre>";
+  } else {
+    box.innerHTML = errorBlock(r.output) +
+      '<p class="note">ターミナルから <code>sudo schneeforge nix repair</code> でも実行できます</p>';
+  }
+  actions.innerHTML = "";
+  actions.appendChild(actionBtn("前提確認へ戻る (状態を再確認)", () => renderStep()));
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function tailLines(s, n) {
+  const lines = String(s).split("\n");
+  return lines.slice(Math.max(0, lines.length - n)).join("\n");
+}
+
+// source 選択 step (旧 stepRepo)。managed source (clone 不要) を既定に、
+// git clone は fork / 開発者向けの選択肢として提供する。既存 checkout が
+// ある場合は「そのまま使う」を既定にする
+async function stepRepo(box, actions) {
   const DEFAULT_REPO_URL = "https://github.com/Lamy210/nix_setting.git";
   const escapedDefault = DEFAULT_REPO_URL
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+  let repoExists = false;
+  try {
+    const status = await invoke("get_status");
+    repoExists = !!(status && status.repo_exists);
+  } catch (_) {}
   box.innerHTML =
+    "<p>configuration source を選択してください。</p>" +
+    (repoExists
+      ? '<label><input type="radio" name="source-mode" value="current" checked />' +
+        " 登録済みの repository checkout を使う</label><br />"
+      : "") +
+    '<label><input type="radio" name="source-mode" value="managed"' +
+    (repoExists ? "" : " checked") +
+    " /> managed source (推奨 — clone 不要。channel stable の最新 release)</label><br />" +
+    '<label><input type="radio" name="source-mode" value="clone" />' +
+    " git clone (fork / 開発者向け)</label>" +
+    '<div id="clone-fields" class="hidden">' +
     '<p>repository の URL を確認してください。空のままなら既定 (upstream) を使います。</p>' +
-    '<input id="repo-url" type="text" value="' + escapedDefault + '" />';
+    '<input id="repo-url" type="text" value="' + escapedDefault + '" /></div>';
+  box.querySelectorAll('input[name="source-mode"]').forEach((r) => {
+    r.addEventListener("change", () => {
+      const mode = box.querySelector('input[name="source-mode"]:checked').value;
+      $("clone-fields").classList.toggle("hidden", mode !== "clone");
+    });
+  });
   actions.appendChild(
-    actionBtn("clone", async () => {
-      // 空 (または既定値のまま) なら backend の既定解決に任せる。
-      // fork を使うユーザーはここを自分の URL に書き換える
-      const url = $("repo-url").value.trim();
-      box.textContent = url ? `cloning ${url}...` : "cloning (default repository)...";
-      const r = await invoke("run_clone_repo", { url });
-      if (r.success) {
-        next();
-      } else {
-        box.innerHTML = errorBlock(`clone 失敗: ${r.output}`);
-        actions.innerHTML = "";
-        actions.appendChild(actionBtn("再試行", () => renderStep()));
+    actionBtn("次へ", async () => {
+      const mode = (box.querySelector('input[name="source-mode"]:checked') || {}).value;
+      if (mode === "clone") {
+        // 空 (または既定値のまま) なら backend の既定解決に任せる。
+        // fork を使うユーザーはここを自分の URL に書き換える
+        const url = $("repo-url").value.trim();
+        box.textContent = url ? `cloning ${url}...` : "cloning (default repository)...";
+        const r = await invoke("run_clone_repo", { url });
+        if (r.success) {
+          next();
+        } else {
+          box.innerHTML = errorBlock(`clone 失敗: ${r.output}`);
+          actions.innerHTML = "";
+          actions.appendChild(actionBtn("再試行", () => renderStep()));
+        }
+        return;
       }
+      if (mode === "managed") {
+        // channel / tag 省略 = CLI `source init` と同じ既定動作
+        // (channel stable の最新 tag を解決して ReleaseMetadata で検証)
+        box.textContent = "managed source を解決しています... (channel stable の最新 tag)";
+        const r = await invoke("run_source_init", {});
+        if (r.success) {
+          next();
+        } else {
+          box.innerHTML = errorBlock(`managed source の初期化に失敗しました: ${r.output}`);
+          actions.innerHTML = "";
+          actions.appendChild(actionBtn("再試行", () => renderStep()));
+        }
+        return;
+      }
+      // "current": 登録済み checkout をそのまま使う
+      next();
     })
   );
 }
 
 async function stepUser(box, actions) {
-  let status = null;
+  box.textContent = "machine 情報を検出中...";
+  let r = null;
   try {
-    status = await invoke("get_status");
-  } catch (_) {}
-  const detected = (status && status.system_user) || "";
-  const escaped = detected
+    r = await invoke("machine_facts");
+  } catch (e) {
+    r = { success: false, output: String(e) };
+  }
+  if (!r.success) {
+    box.innerHTML = errorBlock(
+      `machine 情報を検出できませんでした: ${r.output}`
+    );
+    actions.innerHTML = "";
+    actions.appendChild(actionBtn("再検出", () => renderStep()));
+    return;
+  }
+  const display = r.output
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+  // v2: machine 情報は自動検出のみ。repo へ書き込まない (machine input は
+  // apply 時に state dir へ生成される)
   box.innerHTML =
-    '<p>ユーザー名を確認してください。</p>' +
-    `<input id="username" type="text" value="${escaped}" />`;
-  actions.appendChild(
-    actionBtn("config.toml を生成", async () => {
-      const username = $("username").value.trim();
-      if (!username) {
-        box.innerHTML += errorBlock("ユーザー名を入力してください。");
-        return;
-      }
-      box.textContent = "config.toml を生成中...";
-      const r = await invoke("run_generate_config", { username });
-      if (r.success) {
-        next();
-      } else {
-        box.innerHTML = errorBlock(`生成失敗: ${r.output}`);
-        actions.innerHTML = "";
-        actions.appendChild(actionBtn("再試行", () => renderStep()));
-      }
-    })
-  );
+    "<p>machine 情報を検出しました:</p>" +
+    `<pre>${display}</pre>` +
+    "<p>この内容で proceed します (repo は書き換えられません)。</p>";
+  actions.appendChild(actionBtn("次へ", next));
 }
 
 function stepPlan(box, actions) {
@@ -268,20 +563,37 @@ async function stepVerify(box, actions) {
 // ---------- boot ----------
 async function boot() {
   const s = await refresh();
-  if (s && !s.repo_exists) {
+  // setup は「source が未初期化」(checkout 無し かつ managed source 無し) の
+  // 場合のみ表示する。managed source だけで初期化済みの machine (repo 無し) は
+  // main UI へ直接進む
+  if (s && !s.repo_exists && !s.managed_source) {
     showSetup();
   } else {
     showReady();
   }
 }
 
-$("refresh").addEventListener("click", refresh);
+$("refresh").addEventListener("click", () => {
+  refresh();
+  refreshDashboard();
+});
 $("scan").addEventListener("click", () => run(() => invoke("run_scan"), "scan", "スキャン"));
 $("plan").addEventListener("click", () => run(() => invoke("run_plan"), "plan", "プラン"));
 $("apply").addEventListener("click", () => run(() => invoke("run_apply"), "apply", "適用"));
 $("rollback").addEventListener("click", () => run(() => invoke("run_rollback"), "rollback", "ロールバック"));
 $("upgrade").addEventListener("click", () => run(() => invoke("run_upgrade"), "upgrade", "アップグレード"));
+$("update").addEventListener("click", async () => {
+  // configuration source の更新 (v2 主操作)。state の source が書き換わる
+  // ため成功時は dashboard も再取得する
+  const r = await run(() => invoke("run_update"), "update", "ソース更新");
+  if (r && r.success) {
+    refreshDashboard();
+  }
+});
 $("verify").addEventListener("click", verify);
+$("nix-uninstall").addEventListener("click", nixUninstall);
+$("profile-set").addEventListener("click", switchProfile);
+$("profile-clear").addEventListener("click", clearProfile);
 
 async function verify() {
   const btn = $("verify");
@@ -305,6 +617,22 @@ async function verify() {
   } finally {
     btn.disabled = false;
   }
+}
+
+// Managed Nix の削除 (破壊的操作)。確認 dialog を経てのみ実行する。
+// ownership record が無い環境では CLI 側が fail-closed で拒否する
+// (--force は GUI からは渡さない)。
+async function nixUninstall() {
+  const ok = confirm(
+    "SchneeForge の管理する Nix (/nix 配下) を削除します。\n" +
+      "適用済みの環境も失われます。本当に削除しますか?"
+  );
+  if (!ok) return;
+  await run(
+    () => invoke("nix_uninstall_escalated"),
+    "nix-uninstall",
+    "Nix 削除"
+  );
 }
 
 boot();

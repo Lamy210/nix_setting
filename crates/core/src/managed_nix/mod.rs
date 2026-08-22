@@ -5,24 +5,31 @@
 
 pub mod download;
 pub mod error;
+pub mod escalate;
 pub mod installer;
 pub mod manifest;
 pub mod ownership;
 pub mod provider;
 pub mod receipt;
+pub mod status;
 pub mod verify;
 
 pub use download::{cache_path, download, download_text};
 pub use error::ManagedNixError;
+pub use escalate::{escalate_command, EscalatedOp};
 pub use installer::{
-    install_args, installed_binary_path, parse_json_line, plan_args, planner_name,
+    install_args, installed_binary_path, parse_json_line, plan_args, planner_name, repair_args,
     run_with_json_logs, run_with_json_logs_capture_stdout, uninstall_args, InstallPhase,
-    JsonLogLine,
+    JsonLogLine, UpstreamRepair,
 };
 pub use manifest::{BootstrapManifest, ManagedNixSection, Sha256ByArch};
 pub use ownership::{default_ownership_path, OwnershipRecord};
 pub use provider::Provider;
 pub use receipt::{default_receipt_path, Receipt};
+pub use status::{
+    classify, classify_current, repair_action, repair_action_current, NixStatus, RepairAction,
+    StatusProbe, StatusReport,
+};
 pub use verify::{parse_sha256_sums, sha256_hex, verify_file, verify_sha256};
 
 use std::path::{Path, PathBuf};
@@ -326,6 +333,26 @@ impl ManagedNix {
         Ok(Self::from_manifest(manifest))
     }
 
+    /// build 時に binary へ embed した `bootstrap-manifest.toml` を使う。
+    /// release binary は同一 tag の source tree から build されるため、
+    /// embedded manifest はその binary 自身の release の pin と一致する
+    /// (repo checkout が無い fresh machine での解決に使う)
+    pub fn embedded() -> Result<Self, ManagedNixError> {
+        let manifest =
+            BootstrapManifest::parse(include_str!("../../../../bootstrap-manifest.toml"))?;
+        Ok(Self::from_manifest(manifest))
+    }
+
+    /// manifest の解決: repo file 優先、repo に file が無ければ embedded へ
+    /// fallback する。`nix install` の実行主体 (CLI / desktop) はこの経路を
+    /// 使うことで repo checkout 無しでも install できる
+    pub fn load_prefer_repo(repo_root: Option<&Path>) -> Result<Self, ManagedNixError> {
+        match repo_root {
+            Some(root) => Self::load_from_repo(root).or_else(|_| Self::embedded()),
+            None => Self::embedded(),
+        }
+    }
+
     pub fn version(&self) -> &str {
         &self.manifest.managed_nix.version
     }
@@ -552,6 +579,63 @@ aarch64-darwin = "33333333333333333333333333333333333333333333333333333333333333
             sha,
             "1111111111111111111111111111111111111111111111111111111111111111"
         );
+    }
+
+    #[test]
+    fn embedded_manifest_parses_repo_file() {
+        // build 時 embed した manifest が実際の repo file と同じ schema で
+        // parse できること (include_str! 先が壊れていてもこの test が検出する)
+        let mn = ManagedNix::embedded().unwrap();
+        assert!(!mn.version().is_empty());
+        for (platform, arch) in [
+            (Platform::Linux, Architecture::X86_64),
+            (Platform::Linux, Architecture::Aarch64),
+            (Platform::MacOS, Architecture::Aarch64),
+        ] {
+            assert!(
+                mn.resolve_asset(platform, arch).is_ok(),
+                "embedded manifest must pin sha256 for {platform:?}/{arch:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn load_prefer_repo_uses_repo_file_when_present() {
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-embedded-manifest-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("bootstrap-manifest.toml"),
+            r#"
+[managed_nix]
+version = "9.9.9"
+
+[managed_nix.sha256_by_arch]
+x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111"
+"#,
+        )
+        .unwrap();
+        let mn = ManagedNix::load_prefer_repo(Some(&dir)).unwrap();
+        assert_eq!(mn.version(), "9.9.9");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_prefer_repo_falls_back_to_embedded() {
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-embedded-manifest-empty-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mn = ManagedNix::load_prefer_repo(Some(&dir)).unwrap();
+        assert_eq!(mn.version(), ManagedNix::embedded().unwrap().version());
+        let none = ManagedNix::load_prefer_repo(None).unwrap();
+        assert_eq!(none.version(), ManagedNix::embedded().unwrap().version());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

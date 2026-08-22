@@ -110,3 +110,24 @@ h2 {
   margin: 0 0 0.5rem;
 }
 
+.note {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  margin: 0.5rem 0;
+  line-height: 1.5;
+}
+.note.update-available {
+  color: #fbbf24;
+}
+/* profile 切替 UI (Dashboard card 内) — row の中で扱うため button は小さめに */
+#dashboard .row .val select {
+  background: #0f172a;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.5rem;
+}
+#dashboard .row .val button {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+}

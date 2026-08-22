@@ -1,0 +1,287 @@
+//! profile 選択の解決と flake への注入 (v2 §17)。
+//!
+//! 選択状態は state (`profile: Option<String>`) が持ち、未選択時は
+//! distribution manifest の `profiles.default` を使う。repo は書き換えず、
+//! 選択名を `{ profile = "<name>"; }` として state dir へ生成し
+//! `--override-input profile <path>` で差し替える (machine input と同じ
+//! pattern)。実際の `profiles/<name>.nix` 解決は flake 側
+//! (modules/profile-input.nix) が行う。
+
+use crate::error::{Error, Result};
+use crate::state::{State, StateStore};
+
+/// profile input (`profile.nix`) の既定 path
+pub fn default_profile_nix_path() -> std::path::PathBuf {
+    crate::machine::state_dir().join("profile.nix")
+}
+
+/// 選択 profile を解決する。優先順位:
+/// 1. state の `profile` (manifest の available に含まれること)
+/// 2. manifest の `profiles.default`
+///
+/// 戻り値は (profile 名, state 由来か)
+pub fn resolve(repo: &str) -> Result<(String, bool)> {
+    resolve_with(repo, &StateStore::default())
+}
+
+/// [`resolve`] の state store 注入版 (test 用)
+pub fn resolve_with(repo: &str, store: &StateStore) -> Result<(String, bool)> {
+    let manifest = crate::source_files::load_manifest_for(repo, store)?;
+    let default = manifest
+        .profiles
+        .default
+        .clone()
+        .ok_or_else(|| Error::Manifest("profiles.default is not set".to_string()))?;
+    let selected = store.load().and_then(|s| s.profile);
+    match selected {
+        Some(name) => {
+            if manifest.profiles.available.contains(&name) {
+                Ok((name, true))
+            } else {
+                Err(Error::Manifest(format!(
+                    "selected profile '{name}' is not in manifest profiles.available"
+                )))
+            }
+        }
+        None => Ok((default, false)),
+    }
+}
+
+/// manifest の available / default と state の選択の一覧。
+/// GUI の切替 UI と CLI `profile list` が共通で使う形。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ProfileList {
+    pub available: Vec<String>,
+    pub default: Option<String>,
+    pub selected: Option<String>,
+}
+
+/// [`ProfileList`] を構築する
+pub fn list(repo: &str) -> Result<ProfileList> {
+    list_with(repo, &StateStore::default())
+}
+
+/// [`list`] の state store 注入版 (test 用)
+pub fn list_with(repo: &str, store: &StateStore) -> Result<ProfileList> {
+    let manifest = crate::source_files::load_manifest_for(repo, store)?;
+    Ok(ProfileList {
+        available: manifest.profiles.available,
+        default: manifest.profiles.default,
+        selected: store.load().and_then(|s| s.profile),
+    })
+}
+
+/// manifest の `profiles.available` を検証してから state へ保存する
+/// (CLI と GUI の検証経路を集約。fail-closed)
+pub fn set_selection(repo: &str, name: &str) -> Result<()> {
+    set_selection_with(repo, &StateStore::default(), name)
+}
+
+/// [`set_selection`] の state store 注入版 (test 用)
+pub fn set_selection_with(repo: &str, store: &StateStore, name: &str) -> Result<()> {
+    let manifest = crate::source_files::load_manifest_for(repo, store)?;
+    if !manifest.profiles.available.contains(&name.to_string()) {
+        return Err(Error::Manifest(format!(
+            "profile '{name}' is not in manifest profiles.available: {:?}",
+            manifest.profiles.available
+        )));
+    }
+    save_selection_with(store, name)
+}
+
+/// state の profile 選択を保存する (manifest 検証済みであること)
+pub fn save_selection(name: &str) -> Result<()> {
+    let store = StateStore::default();
+    save_selection_with(&store, name)
+}
+
+/// [`save_selection`] の state store 注入版 (test 用)
+pub fn save_selection_with(store: &StateStore, name: &str) -> Result<()> {
+    let mut state: State = store.load().unwrap_or_default();
+    state.profile = Some(name.to_string());
+    store.save(&state)
+}
+
+/// state の profile 選択を解除する (manifest default へ戻す)
+pub fn clear_selection() -> Result<()> {
+    let store = StateStore::default();
+    let mut state: State = store.load().unwrap_or_default();
+    state.profile = None;
+    store.save(&state)
+}
+
+/// profile input (`profile.nix`) を生成する。常に上書き。
+/// atomic write により truncate 中の読み取りで空の file が観測されない
+pub fn write_profile_input(name: &str) -> Result<std::path::PathBuf> {
+    let path = default_profile_nix_path();
+    crate::machine::atomic_write(&path, &format!("{{ profile = \"{name}\"; }}\n"))
+        .map_err(|e| Error::Io(format!("write profile input ({e})")))?;
+    Ok(path)
+}
+
+/// machine input と profile input の `--override-input` 引数を返す。
+/// apply / plan の評価前に必ず呼ばれる。
+///
+/// file を指す path input の override は `path:<abs>` URL 形式が必須
+/// (nix 2.35 は bare の絶対 path を flake ref として解釈し
+/// "not a flake (because it's not a directory)" で拒否する)
+pub fn override_args(repo: &str) -> Result<Vec<String>> {
+    override_args_with(repo, &StateStore::default())
+}
+
+/// [`override_args`] の state store 注入版 (test 用。env の state に左右されない)
+pub fn override_args_with(repo: &str, store: &StateStore) -> Result<Vec<String>> {
+    let facts = crate::machine::MachineFacts::detect()?;
+    let machine_path = crate::machine::write_machine_input(&facts)?;
+    let (profile, _) = resolve_with(repo, store)?;
+    let profile_path = write_profile_input(&profile)?;
+    Ok(vec![
+        "--override-input".to_string(),
+        "machine".to_string(),
+        format!("path:{}", machine_path.to_string_lossy()),
+        "--override-input".to_string(),
+        "profile".to_string(),
+        format!("path:{}", profile_path.to_string_lossy()),
+    ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup_repo(name: &str, manifest: &str) -> String {
+        let dir = std::env::temp_dir().join(format!("schneeforge-profile-test-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("schneeforge.toml"), manifest).unwrap();
+        dir.to_string_lossy().to_string()
+    }
+
+    /// test 毎に独立した state store を作る (env var 経由だと並列 test で競合する)
+    fn setup_store(name: &str, profile: Option<&str>) -> StateStore {
+        let dir = std::env::temp_dir().join(format!("schneeforge-profile-state-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = StateStore::new(dir.join("state.json"));
+        if let Some(p) = profile {
+            save_selection_with(&store, p).unwrap();
+        }
+        store
+    }
+
+    const MANIFEST: &str = r#"
+schema = 1
+[profiles]
+default = "developer"
+available = ["minimal", "developer"]
+[systems]
+x86_64-linux = true
+"#;
+
+    #[test]
+    fn resolve_uses_manifest_default_when_unselected() {
+        let store = setup_store("default", None);
+        let repo = setup_repo("default", MANIFEST);
+        let (name, from_state) = resolve_with(&repo, &store).unwrap();
+        assert_eq!(name, "developer");
+        assert!(!from_state);
+    }
+
+    #[test]
+    fn resolve_uses_state_selection() {
+        let store = setup_store("selected", Some("minimal"));
+        let repo = setup_repo("selected", MANIFEST);
+        let (name, from_state) = resolve_with(&repo, &store).unwrap();
+        assert_eq!(name, "minimal");
+        assert!(from_state);
+    }
+
+    #[test]
+    fn resolve_rejects_profile_not_in_available() {
+        let store = setup_store("invalid", Some("unknown-profile"));
+        let repo = setup_repo("invalid", MANIFEST);
+        let err = resolve_with(&repo, &store).unwrap_err();
+        assert!(err.to_string().contains("not in manifest"));
+    }
+
+    #[test]
+    fn resolve_fails_without_manifest() {
+        let store = setup_store("nomanifest", None);
+        let dir = std::env::temp_dir().join("schneeforge-profile-test-empty");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(resolve_with(dir.to_string_lossy().as_ref(), &store).is_err());
+    }
+
+    #[test]
+    fn save_and_clear_selection_roundtrip() {
+        let store = setup_store("roundtrip", None);
+        save_selection_with(&store, "minimal").unwrap();
+        assert_eq!(store.load().unwrap().profile.as_deref(), Some("minimal"));
+        let mut state = store.load().unwrap();
+        state.profile = None;
+        store.save(&state).unwrap();
+        assert_eq!(store.load().unwrap().profile, None);
+    }
+
+    #[test]
+    fn write_profile_input_contains_name() {
+        let path = write_profile_input("developer").unwrap();
+        let content = std::fs::read_to_string(path).unwrap();
+        assert_eq!(content, "{ profile = \"developer\"; }\n");
+    }
+
+    #[test]
+    fn list_returns_manifest_and_selection() {
+        let store = setup_store("list-selected", Some("minimal"));
+        let repo = setup_repo("list-selected", MANIFEST);
+        let list = list_with(&repo, &store).unwrap();
+        assert_eq!(list.available, vec!["minimal", "developer"]);
+        assert_eq!(list.default.as_deref(), Some("developer"));
+        assert_eq!(list.selected.as_deref(), Some("minimal"));
+    }
+
+    #[test]
+    fn list_without_selection_returns_none() {
+        let store = setup_store("list-unselected", None);
+        let repo = setup_repo("list-unselected", MANIFEST);
+        let list = list_with(&repo, &store).unwrap();
+        assert_eq!(list.selected, None);
+    }
+
+    #[test]
+    fn list_fails_without_manifest() {
+        let store = setup_store("list-nomanifest", None);
+        let dir = std::env::temp_dir().join("schneeforge-profile-test-empty2");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(list_with(dir.to_string_lossy().as_ref(), &store).is_err());
+    }
+
+    #[test]
+    fn set_selection_saves_valid_profile() {
+        let store = setup_store("set-valid", None);
+        let repo = setup_repo("set-valid", MANIFEST);
+        set_selection_with(&repo, &store, "minimal").unwrap();
+        assert_eq!(store.load().unwrap().profile.as_deref(), Some("minimal"));
+    }
+
+    #[test]
+    fn set_selection_rejects_unknown_profile_without_saving() {
+        let store = setup_store("set-invalid", None);
+        let repo = setup_repo("set-invalid", MANIFEST);
+        let err = set_selection_with(&repo, &store, "unknown-profile").unwrap_err();
+        assert!(err.to_string().contains("not in manifest"));
+        assert_eq!(store.load().and_then(|s| s.profile), None);
+    }
+
+    #[test]
+    fn set_selection_fails_without_manifest() {
+        let store = setup_store("set-nomanifest", None);
+        let dir = std::env::temp_dir().join("schneeforge-profile-test-empty3");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(set_selection_with(dir.to_string_lossy().as_ref(), &store, "minimal").is_err());
+        assert_eq!(store.load().and_then(|s| s.profile), None);
+    }
+}

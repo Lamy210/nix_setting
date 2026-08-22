@@ -38,6 +38,18 @@
         "type": "github"
       }
     },
+    "machine": {
+      "flake": false,
+      "locked": {
+        "path": "./defaults/machine.nix",
+        "type": "path"
+      },
+      "original": {
+        "path": "./defaults/machine.nix",
+        "type": "path"
+      },
+      "parent": []
+    },
     "nix-darwin": {
       "inputs": {
         "nixpkgs": [
@@ -89,12 +101,26 @@
         "type": "github"
       }
     },
+    "profile": {
+      "flake": false,
+      "locked": {
+        "path": "./defaults/profile.nix",
+        "type": "path"
+      },
+      "original": {
+        "path": "./defaults/profile.nix",
+        "type": "path"
+      },
+      "parent": []
+    },
     "root": {
       "inputs": {
         "flake-parts": "flake-parts",
         "home-manager": "home-manager",
+        "machine": "machine",
         "nix-darwin": "nix-darwin",
         "nixpkgs": "nixpkgs",
+        "profile": "profile",
         "treefmt-nix": "treefmt-nix"
       }
     },

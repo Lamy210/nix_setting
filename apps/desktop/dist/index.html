@@ -10,9 +10,27 @@
     <h1>❄ SchneeForge</h1>
 
     <div id="ready-view">
+      <div class="card" id="dashboard">
+        <h2>Dashboard</h2>
+        <div class="row"><span class="key">installed</span><span class="val" id="dash-installed">-</span></div>
+        <div class="row"><span class="key">profile</span><span class="val" id="dash-profile">-</span></div>
+        <div class="row"><span class="key">channel</span><span class="val" id="dash-channel">-</span></div>
+        <div class="row"><span class="key">available</span><span class="val" id="dash-available">-</span></div>
+        <p class="note" id="dash-update"></p>
+        <div class="row">
+          <span class="key">profile 切替</span>
+          <span class="val">
+            <select id="dash-profile-select"></select>
+            <button id="profile-set">適用</button>
+            <button id="profile-clear">既定へ</button>
+          </span>
+        </div>
+        <p class="note" id="profile-note"></p>
+      </div>
+
       <div class="card" id="status">
         <div class="row"><span class="key">host</span><span class="val" id="host">-</span></div>
-        <div class="row"><span class="key">user</span><span class="val" id="user">-</span></div>
+        <div class="row"><span class="key">profile</span><span class="val" id="profile">-</span></div>
         <div class="row"><span class="key">nix</span><span class="val" id="nix">-</span></div>
         <div class="row"><span class="key">homebrew</span><span class="val" id="homebrew">-</span></div>
         <div class="row"><span class="key">applied</span><span class="val" id="applied">-</span></div>
@@ -24,8 +42,10 @@
         <button id="plan">プラン</button>
         <button id="apply">適用</button>
         <button id="rollback" class="danger">ロールバック</button>
+        <button id="update">ソース更新</button>
         <button id="upgrade">アップグレード</button>
         <button id="verify">検証</button>
+        <button id="nix-uninstall" class="danger">Nix を削除...</button>
       </div>
 
       <div class="running-bar" id="running">
