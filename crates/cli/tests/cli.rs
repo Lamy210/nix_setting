@@ -716,3 +716,68 @@ fn managed_deps_update_is_rejected() {
         .stderr(predicate::str::contains("cannot be updated locally"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `self-update` が help に列挙されていること
+#[test]
+fn help_lists_self_update() {
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("self-update"));
+}
+
+fn self_update_platform_supported() -> bool {
+    schneeforge_core::current_platform_asset().is_ok()
+}
+
+/// self-update は release tag が channel に無いと fail-closed。
+/// ls-remote 先は tag 無し local origin を向けるため network 不要
+#[test]
+fn self_update_fails_closed_without_release_tags() {
+    if !git_available() {
+        eprintln!("skipping: git not available");
+        return;
+    }
+    if !self_update_platform_supported() {
+        eprintln!("skipping: no release binary for this platform");
+        return;
+    }
+    let dir = cli_dir("self-update-no-tags");
+    let origin = origin_repo(&dir, &[]);
+    let state = state_dir("self-update-no-tags");
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("self-update")
+        .env("XDG_STATE_HOME", &state)
+        .env("SCHNEEFORGE_REPO_URL", &origin)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("release tag"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// tag 解決後の asset URL 構築は github slug を要求する (fail-closed)。
+/// tag あり local origin (github 形式ではない path) を向けるため network 不要
+#[test]
+fn self_update_fails_closed_for_non_github_origin() {
+    if !git_available() {
+        eprintln!("skipping: git not available");
+        return;
+    }
+    if !self_update_platform_supported() {
+        eprintln!("skipping: no release binary for this platform");
+        return;
+    }
+    let dir = cli_dir("self-update-non-github");
+    // 現行 version より新しい stable tag を用意する (plan が Update まで進む)
+    let origin = origin_repo(&dir, &["v9.9.9"]);
+    let state = state_dir("self-update-non-github");
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("self-update")
+        .env("XDG_STATE_HOME", &state)
+        .env("SCHNEEFORGE_REPO_URL", &origin)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("owner/repo"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -20,6 +20,8 @@ pub enum Error {
     Busy(String),
     /// 前提条件を満たしていない (Nix 未インストール等)
     Precondition(String),
+    /// 本体自己更新 (schneeforge self-update) のエラー
+    SelfUpdate(String),
     /// Managed Nix (nix-installer 統合) のエラー
     ManagedNix(ManagedNixError),
 }
@@ -36,6 +38,7 @@ impl fmt::Display for Error {
             Error::Io(msg) => write!(f, "io error: {msg}"),
             Error::Busy(msg) => write!(f, "busy: {msg}"),
             Error::Precondition(msg) => write!(f, "precondition not met: {msg}"),
+            Error::SelfUpdate(msg) => write!(f, "self-update error: {msg}"),
             Error::ManagedNix(e) => write!(f, "managed nix error: {e}"),
         }
     }

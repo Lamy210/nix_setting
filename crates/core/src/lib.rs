@@ -13,6 +13,7 @@ pub(crate) mod process;
 pub mod profile;
 pub mod release_metadata;
 pub mod repo;
+pub mod self_update;
 pub mod source;
 pub mod source_files;
 pub mod state;
@@ -64,6 +65,11 @@ pub use profile::{
 };
 pub use release_metadata::{channel_for_version, ReleaseMetadata};
 pub use repo::{current_git_revision, resolve_repo, Repo, RepoResolver};
+pub use self_update::{
+    current_platform_asset, expected_sha256, plan as plan_self_update, platform_asset,
+    release_asset_url, run as run_self_update, verify_and_replace, SelfUpdateAction,
+    SelfUpdatePlan, SelfUpdateStatus,
+};
 pub use source::{
     classify_release_tag, effective_ref, github_slug, latest_tag_for_channel, repo_url, SourceKind,
     SourceResolver, SourceState,
