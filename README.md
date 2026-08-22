@@ -58,7 +58,7 @@ sudo ./target/release/schneeforge nix install
 **Stable** — release tag 時点の install.sh (CLI binary の pin 先と同一 release):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/v0.2.0-rc.5/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/v0.2.0-rc.6/install.sh | bash
 ```
 
 **Edge** — main HEAD の install.sh (開発追従用):
