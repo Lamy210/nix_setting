@@ -63,7 +63,7 @@ pub use profile::{
     clear_selection, default_profile_nix_path, list as list_profiles, override_args,
     resolve as resolve_profile, save_selection, set_selection, write_profile_input, ProfileList,
 };
-pub use release_metadata::{channel_for_version, ReleaseMetadata};
+pub use release_metadata::{channel_for_version, release_page_url, ReleaseMetadata};
 pub use repo::{current_git_revision, resolve_repo, Repo, RepoResolver};
 pub use self_update::{
     current_platform_asset, expected_sha256, plan as plan_self_update, platform_asset,

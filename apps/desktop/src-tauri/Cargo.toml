@@ -19,5 +19,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs", rev = "c4c45d503ea115a839aae718d02f79e7c7f0f673" }
 schneeforge-core = { path = "../../../crates/core" }
+tauri-plugin-opener = "2"
 # NOTE: CLI sidecar binary は build.rs が workspace の target から stage する
 # (bin-only crate なのでここからの依存にはできない)

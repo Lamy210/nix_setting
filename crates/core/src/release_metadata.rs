@@ -110,6 +110,18 @@ impl ReleaseMetadata {
     }
 }
 
+/// release page の URL。GUI の「GitHub Releases を開く」誘導で使う。
+/// `repo_url` は `DEFAULT_REPO_URL` (`SCHNEEFORGE_REPO_URL` で上書き可) を
+/// 想定し、`.git` suffix は web URL への変換で落とす。`version` は
+/// `ReleaseMetadata.version` (tag から先頭の v を除いたもの) で、tag は
+/// 常に `v<version>` (`validate` と同じ規約)。
+pub fn release_page_url(repo_url: &str, version: &str) -> String {
+    format!(
+        "{}/releases/tag/v{version}",
+        repo_url.trim_end_matches(".git")
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,6 +228,25 @@ mod tests {
         assert_eq!(
             ReleaseMetadata::asset_url("v0.2.0-rc.5"),
             "https://github.com/Lamy210/nix_setting/releases/download/v0.2.0-rc.5/schneeforge-release.json"
+        );
+    }
+
+    #[test]
+    fn release_page_url_shape() {
+        // DEFAULT_REPO_URL は .git 付き
+        assert_eq!(
+            release_page_url(crate::DEFAULT_REPO_URL, "0.2.0-rc.7"),
+            "https://github.com/Lamy210/nix_setting/releases/tag/v0.2.0-rc.7"
+        );
+        // .git 無しの URL もそのまま通る
+        assert_eq!(
+            release_page_url("https://github.com/example/fork", "1.0.0"),
+            "https://github.com/example/fork/releases/tag/v1.0.0"
+        );
+        // SCHNEEFORGE_REPO_URL 上書き (fork) の case
+        assert_eq!(
+            release_page_url("https://github.com/example/fork.git", "1.0.0"),
+            "https://github.com/example/fork/releases/tag/v1.0.0"
         );
     }
 
