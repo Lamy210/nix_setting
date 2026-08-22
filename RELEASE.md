@@ -112,23 +112,23 @@ SchneeForge の Homebrew formula は本体リポジトリ（この repo）では
 brew tap Lamy210/homebrew-tap
 brew install schneeforge
 
-# Edge (main HEAD を local build)
-brew install schneeforge-edge
+# Edge (main HEAD を local build) — edge formula は未提供
+# brew install schneeforge-edge
 ```
 
 ### Homebrew tap 更新
 
 リリース (`vX.Y.Z`) の tag push 後、GitHub Releases にアセットが揃ったら `Lamy210/homebrew-tap` を更新する。
 
-1. **`Formula/schneeforge.rb` を開く**
-2. **`version` / `url` / `sha256` を差し替え**（`on_arm` / `on_intel` セレクタ配下）
-   - `sha256` はリリースアセット毎に `sha256sum schneeforge-<target>` で計算
-3. **`brew audit --strict Formula/schneeforge.rb` を local で通す**
+1. **repo root の `schneeforge.rb` を開く**（tap repo に `Formula/` ディレクトリは無く、formula は root 直下に置く運用）
+2. **`version` / `url` / `sha256` を差し替え**（現行 formula は aarch64-darwin アセット 1 本のみで、`on_arm` / `on_intel` セレクタは無い）
+   - `sha256` はリリースアセット毎に `sha256sum schneeforge-<target>` で計算（release の `CHECKSUMS.txt` と突合してもよい）
+3. **`brew audit --strict schneeforge.rb` を local で通す**
 4. **PR を作って review → merge**
 
-> Intel macOS (x86_64-darwin) アセットは未提供。`on_intel` ブロックの `od_unsupported` を外す前に `release.yml` の matrix 拡張が必要。
+> Intel macOS (x86_64-darwin) アセットは未提供。`on_intel` ブロックを足す前に `release.yml` の matrix 拡張が必要。
 
-`Formula/schneeforge-edge.rb` は `head` 機能で `main` HEAD をローカルビルドするため、リリース時の更新は不要。
+edge 用 formula（`schneeforge-edge.rb`、`head` 機能で `main` HEAD をローカルビルド）は未提供。
 
 ## 現在のリリース状態
 
