@@ -132,6 +132,6 @@ edge 用 formula（`schneeforge-edge.rb`、`head` 機能で `main` HEAD をロ�
 
 ## 現在のリリース状態
 
-- 最新 release: `v0.2.0-rc.5`（2026-08-15。rc.4 の DMG `/nix/store` link 事故の修正: DMG を host build 化 + `release-artifact-check` に mounted-app gate 追加）
-- 次候補: `v0.2.0-rc.7`（2026-08-22 決定: macOS Final Acceptance の前に cut し、acceptance は rc.7 で実施。**managed release source (v2 §7) を同梱する最初の release** — fresh install が clone なしの managed source 経路になる。`schneeforge-release.json` asset・SLSA provenance attestation・CLI self-update の同梱もこの release から。rc.6 は release job の `attest build provenance` が `attestations: write` 権限不足で失敗したため切り直し (PR #76 で fix。tag v0.2.0-rc.6 は asset 未作成のまま削除済み))
-- `develop` 未リリース差分: 2026-08-18 以降に merge した v2 系 change 全て（MachineFacts / ConfigurationSource / manifest / profile / Release Metadata / GUI Dashboard / managed source 3 change ほか）。詳細は `docs/STATUS.md`
+- 最新 release: `v0.2.0-rc.7`（2026-08-22。rc.6 は release job の `attest build provenance` が `attestations: write` 権限不足で失敗したため tag 削除のうえ切り直し (fix: PR #76)。**managed release source (v2 §7) を同梱する最初の release** — fresh install が clone なしの managed source 経路。`schneeforge-release.json` asset・SLSA provenance attestation・CLI self-update の同梱もこの release から。asset 6 個の CHECKSUMS 全一致・attestation は 1 bundle が全 asset を subject 保持を検証済み）
+- 次候補: 未定（macOS Final Acceptance (rc.7, `docs/testing/macOS-final-acceptance-checklist.md` gate A-J) の結果次第 — PASS なら stable `v0.2.0` への道筋、issue があれば fix + 次 RC）
+- `develop` 未リリース差分: rc.7 後の follow-up のみ（Homebrew tap 更新・RELEASE.md/STATUS.md の docs・GUI 自己更新 Step 1 (Releases link button, PR #81)）。詳細は `docs/STATUS.md`
