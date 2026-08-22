@@ -38,7 +38,7 @@ J. Final          ADR-0001 provisionally accepted → Accepted
 - 検証対象 TAG は環境変数で指定する (手順書に RC 番号を直書きしない):
 
 ```bash
-TAG="${TAG:-v0.2.0-rc.5}"
+TAG="${TAG:-v0.2.0-rc.7}"
 ```
 
 - current main の installer (one-liner) は **RC.1-era の legacy Nix shell
@@ -93,7 +93,7 @@ one-liner 完走後は `schneeforge` command がどこにも残らない
 # fresh macOS に gh は無い前提で curl で取得し、CHECKSUMS.txt で SHA256 を
 # 検証してから使う (D/F/G では root 実行もするため、保存 binary の verify が必須)
 set -o pipefail
-TAG="${TAG:-v0.2.0-rc.5}"
+TAG="${TAG:-v0.2.0-rc.7}"
 ASSET="schneeforge-aarch64-darwin"
 BASE="https://github.com/Lamy210/nix_setting/releases/download/$TAG"
 ACCEPT_DIR="/tmp/schneeforge-acceptance"
