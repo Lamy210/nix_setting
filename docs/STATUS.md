@@ -2,15 +2,15 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-08-21
+最終更新: 2026-08-22
 
 ## 完成済み
 
 | 領域 | 内容 |
 |------|------|
 | Nix 基盤 | flake-parts / hosts / profiles / manifest / 3システム / CI 10+ジョブ |
-| Rust core | actions / discovery / diagnostics / manifest / repo / state / time / tool / lock / operations / process / bootstrap（+ 98 unit tests） |
-| CLI | 11 コマンド（core 委譲のみの adapter 化済み / `with_toolchain` wrapper） |
+| Rust core | actions / discovery / diagnostics / manifest / repo / state / time / tool / lock / operations / process / bootstrap / self_update（+ 303 unit tests） |
+| CLI | 12 コマンド（core 委譲のみの adapter 化済み / `with_toolchain` wrapper） |
 | Tauri GUI | 診断 Status + First Run Wizard + 非同期コマンド + CSP + 状態機械 + Plan/Verify ボタン + `fix-path-env-rs` による macOS PATH 補正 |
 | OpenSpec | `gui-normalization` 63/63 merge 済み・アーカイブ済み / `runtime-tool-resolution-hardening` 実装完了（archive 待ち）/ main specs 5件 |
 
@@ -83,6 +83,15 @@ PR #62-#68 を sequential chain (各 rebase → CI 全 green → squash merge) �
 - **docs (PR #64-#66)**: STATUS.md (2026-08-20 版) / Final Acceptance 手順書 gate I (managed source) 新設 / RELEASE.md checklist を実 CI と rc.6 前提へ更新
 - **release asset provenance (PR #67 / a1fb376 + archive #68)**: release.yml に `actions/attest-build-provenance` (v4.2.2 SHA pin) 追加。subject は asset 全て、`id-token: write` は release job のみ、fail-closed。**実生成は rc.6 の tag push で初確認**
 
+### CLI 自己更新 self-update (2026-08-22 merge 済み, develop 653fc1f)
+
+Phase E 残件の self-update を実装 (PR #70 / 2401c50 + archive #71 / 653fc1f)。
+
+- **`schneeforge self-update`**: channel の最新 tag 解決 (`git ls-remote --tags` → `latest_tag_for_channel`) → release binary asset download → `CHECKSUMS.txt` との sha256 突合 → 実行 binary と同一 directory の temp file + rename による atomic 置換。検証失敗時は実行 binary を変更しない (fail-closed)。権限なしは `sudo` / install.sh 案内の structured error (自動昇格なし)
+- **core `self_update.rs`**: 純関数 (platform asset 選択 / checksums parse / plan / URL 構築) と effect (`run`) を分離し hermetic test 化 (dashboard と同じ分離方針)。platform gating は install.sh と同一 (darwin aarch64 / linux x86_64)。URL は `SCHNEEFORGE_REPO_URL` 規約 (fork 対応)
+- **設計判断**: GUI 内自己更新 (tauri-plugin-updater) は minisign 鍵管理 + `latest.json` asset が必須で既存の SHA256SUMS + provenance モデルと別系統の署名基盤が増えるため**別 change で判断**。GUI は notify-only 継続 (`dash-update` の案内文)
+- test: core 11 件 (asset 選択 / parse / plan / fs 置換) + cli 3 件 (help 列挙 / tag 無し origin / non-github origin の fail-closed、network 不要)
+
 ## 進行中
 
 | 項目 | 進捗 | 場所 |
@@ -110,7 +119,7 @@ PR #62-#68 を sequential chain (各 rebase → CI 全 green → squash merge) �
 | # | 問題 | 対応 |
 |---|------|------|
 | 12 | install.sh が main 固定（Stable/Edge 分離無し） | **解消・merge 済み** (PR #38 / e95d899): README の Stable ワンライナーを tag 固定 URL に分離 + tag と `SCHNEEFORGE_BOOTSTRAP_VERSION` pin の一致を `tests/install-sh.bats` で回帰保証。RELEASE.md の bump checklist に README URL 差し替えを追加 |
-| — | Dependabot alert #2: glib 0.18.5 (GHSA-wrw7-89jp-8q8g / RUSTSEC-2024-0429, medium) | Known upstream dependency risk. 現 dependency tree では Tauri v2 Linux → GTK3 0.18 → glib 0.18.5 経由。macOS / Windows distribution には当該 GTK3 dependency は含まれない。app code からの VariantStrIter 直接利用は確認されていないが、transitive dependency 内の到達可能性まで否定する根拠にはしない。**2026-08-21 調査**: gtk-rs/gtk3-rs#857 は 2026-08-16 に close し master は活発に開発中だが、glib は **0.23.0-alpha (git 依存、crates.io 未 release)** で stable line は 0.18.x のまま → bump 可能な stable release がまだ存在しない。Tauri v2 / tao / wry 側の追従状況を monitor し、gtk3-rs の stable release 後に再評価。**現時点では dismiss (no_plan_to_fix) せず tracking 継続** |
+| — | Dependabot alert #2: glib 0.18.5 (GHSA-wrw7-89jp-8q8g / RUSTSEC-2024-0429, medium) | Known upstream dependency risk. 現 dependency tree では Tauri v2 Linux → GTK3 0.18 → glib 0.18.5 経由。macOS / Windows distribution には当該 GTK3 dependency は含まれない。app code からの VariantStrIter 直接利用は確認されていないが、transitive dependency 内の到達可能性まで否定する根拠にはしない。**2026-08-21 調査**: gtk-rs/gtk3-rs#857 は 2026-08-16 に close し master は活発に開発中だが、glib は **0.23.0-alpha (git 依存、crates.io 未 release)** で stable line は 0.18.x のまま → bump 可能な stable release がまだ存在しない。**2026-08-22 再確認**: gtk (GTK3 line) の stable は 0.18.2 のまま (2024-12-09 が最終) で状況不変。Tauri v2 / tao / wry 側の追従状況を monitor し、gtk3-rs の stable release 後に再評価。**現時点では dismiss (no_plan_to_fix) せず tracking 継続** |
 
 ### 低
 
@@ -131,9 +140,10 @@ PR #62-#68 を sequential chain (各 rebase → CI 全 green → squash merge) �
    - **PR #37/#40 の実機 smoke**: osascript 昇格での apply、wizard の「修復を試みる」ボタン・Ready 画面の「Nix を削除」ボタン (confirm dialog)
    - uninstall → cleanup
    - 通れば ADR-0001 を `Accepted` へ昇格
-2. **release/v0.2.0-rc.6** (Final Acceptance PASS 後。現行 release は rc.5): RELEASE.md checklist に沿って release branch → main → tag。rc.6 は **managed source 同梱 + `schneeforge-release.json` asset (PR #50) + provenance attestation (PR #67) の最初の release**。`SCHNEEFORGE_BOOTSTRAP_VERSION` bump + **README の Stable ワンライナー URL を新 tag へ差し替え** (bats test が検知する) + musl asset の実機確認 (Nix-less dry-run) + tag push 後 `gh attestation verify` で attest 実生成を確認
-3. Phase 2 残作業:
+2. **release/v0.2.0-rc.6** (Final Acceptance PASS 後。現行 release は rc.5): RELEASE.md checklist に沿って release branch → main → tag。rc.6 は **managed source 同梱 + `schneeforge-release.json` asset (PR #50) + provenance attestation (PR #67) + CLI self-update (PR #70) の最初の release**。`SCHNEEFORGE_BOOTSTRAP_VERSION` bump + **README の Stable ワンライナー URL を新 tag へ差し替え** (bats test が検知する) + musl asset の実機確認 (Nix-less dry-run) + tag push 後 `gh attestation verify` で attest 実生成を確認
+3. Phase 2/E 残作業:
    - #17 DMG bundle + LGPL-2.1 法務 ADR: **ADR-0002 起票済み** (Accepted provisionally)。実装 (bundle 同梱・offline 経路、`add-dmg-offline-bundle-licensing` tasks 4.x) は弁護士確認後の別 change
+   - GUI 内自己更新 (Phase E 残件): tauri-plugin-updater (minisign 鍵管理 + `latest.json` 必須) か手動案内維持かは user の設計判断。CLI 側は #70 で完了
 4. 残デグレ対応:
    - glib advisory (Dependabot #2): gtk3-rs#857 と Tauri v2 側の追従を monitor、upstream release 後に再評価
 
