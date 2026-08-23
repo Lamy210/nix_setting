@@ -97,8 +97,14 @@ Phase E 残件の self-update を実装 (PR #70 / 2401c50 + archive #71 / 653fc1
 
 - **`schneeforge self-update`**: channel の最新 tag 解決 (`git ls-remote --tags` → `latest_tag_for_channel`) → release binary asset download → `CHECKSUMS.txt` との sha256 突合 → 実行 binary と同一 directory の temp file + rename による atomic 置換。検証失敗時は実行 binary を変更しない (fail-closed)。権限なしは `sudo` / install.sh 案内の structured error (自動昇格なし)
 - **core `self_update.rs`**: 純関数 (platform asset 選択 / checksums parse / plan / URL 構築) と effect (`run`) を分離し hermetic test 化 (dashboard と同じ分離方針)。platform gating は install.sh と同一 (darwin aarch64 / linux x86_64)。URL は `SCHNEEFORGE_REPO_URL` 規約 (fork 対応)
-- **設計判断**: GUI 内自己更新 (tauri-plugin-updater) は minisign 鍵管理 + `latest.json` asset が必須で既存の SHA256SUMS + provenance モデルと別系統の署名基盤が増えるため**別 change で判断**。GUI は notify-only 継続 (`dash-update` の案内文)。**設計提案 `add-gui-app-self-update` を merge 済み (PR #74)** — 推奨は Step 1 = Releases link button 先行 / Step 2 = tauri-plugin-updater を鍵管理方針決定後に導入。Open Questions 4 件 (鍵管理・Linux 対象外・latest.json 生成方式・タイミング) が user 判断待ち
+- **設計判断**: GUI 内自己更新 (tauri-plugin-updater) は minisign 鍵管理 + `latest.json` asset が必須で既存の SHA256SUMS + provenance モデルと別系統の署名基盤が増えるため**別 change で判断**。**設計提案 `add-gui-app-self-update` を merge 済み (PR #74)** — 推奨は Step 1 = Releases link button 先行 / Step 2 = tauri-plugin-updater を鍵管理方針決定後に導入。Open Questions 4 件 (鍵管理・Linux 対象外・latest.json 生成方式・タイミング) が user 判断待ち (Step 1 は PR #81 で実装済み、下記)
 - test: core 11 件 (asset 選択 / parse / plan / fs 置換) + cli 3 件 (help 列挙 / tag 無し origin / non-github origin の fail-closed、network 不要)
+
+### rc.7 後 follow-up: Homebrew tap 更新 + GUI 自己更新 Step 1 (2026-08-22 merge 済み, develop 5bb41cd)
+
+- **Homebrew tap を rc.7 へ更新** ([homebrew-tap#1](https://github.com/Lamy210/homebrew-tap/pull/1) / 85001c1 merge 済み): repo root の `schneeforge.rb` の url / version / sha256 を rc.7 に差し替え (sha256 は release CHECKSUMS.txt と突合済み)。`brew install schneeforge` で rc.7 が入る。`brew audit --strict` は macOS 実機で未実施 (Final Acceptance のタイミングで確認推奨)
+- **RELEASE.md の tap 節を実態に修正 (PR #80 / f133e3d)**: formula path を repo root の `schneeforge.rb` へ (`Formula/` は存在しない)、`on_arm`/`on_intel` セレクタ・edge formula の記述を未提供の実態へ
+- **GUI 自己更新 Step 1 = Releases link button (PR #81 / 5bb41cd + archive)**: Dashboard の update 案内に「GitHub Releases を開く」button (`update_available && available` 時のみ表示)。`open_release` command が core の純関数 `release_page_url` (`<repo>/releases/tag/v<version>`、`SCHNEEFORGE_REPO_URL` fork 対応) で URL を組み立て `tauri-plugin-opener` で既定 browser で開く。鍵・asset・pipeline 変更なし。回帰 test は DOM id × JS 参照 × backend command の 3 層静的検証
 
 ## 進行中
 
@@ -134,7 +140,7 @@ Phase E 残件の self-update を実装 (PR #70 / 2401c50 + archive #71 / 653fc1
 | # | 問題 | 対応 |
 |---|------|------|
 | — | バージョン文字列の同期（現在 `0.2.0-rc.7`。Cargo.toml / tauri.conf.json / packages.nix / install.sh） | **rc.7 で 10 箇所 bump 済み**。次回 release で同様に (RELEASE.md checklist) |
-| — | Homebrew tap (Lamy210/homebrew-tap) の formula が v0.2.0-rc.1 で停止 | rc.2-rc.5 は tap 更新なし。rc.7 で追従するか stable (v1.0) まで待つかは user 判断。formula は `Formula/` 配下ではなく repo root の `schneeforge.rb` (RELEASE.md の記述と相違あり) |
+| — | Homebrew tap (Lamy210/homebrew-tap) の formula が v0.2.0-rc.1 で停止 | **解消** (2026-08-22): homebrew-tap#1 で rc.7 へ更新し merge 済み。RELEASE.md の tap 節記述も実態へ修正 (PR #80)。`brew audit --strict` は macOS 実機で未実施 |
 
 ## 次の作業（推奨順）
 
@@ -151,12 +157,9 @@ Phase E 残件の self-update を実装 (PR #70 / 2401c50 + archive #71 / 653fc1
    - uninstall → cleanup
    - 通れば ADR-0001 を `Accepted` へ昇格 + issue #16 close
 2. Phase 2/E 残作業:
-   - GUI 内自己更新 (Phase E 残件): **設計提案 merge 済み (PR #74 / `add-gui-app-self-update`)**。Step 1 (Releases link button) は鍵管理と独立に実装可。Step 2 (tauri-plugin-updater) は Open Questions (鍵管理方針・Linux 対象外・latest.json 生成・タイミング) の user 判断後に別 change
+   - GUI 内自己更新 (Phase E 残件): **Step 1 (Releases link button) 実装済み (PR #81)**。残りは Step 2 (tauri-plugin-updater) のみ — Open Questions (鍵管理方針・Linux 対象外・latest.json 生成・タイミング) の user 判断後に別 change
    - #17 DMG bundle + LGPL-2.1 法務 ADR: **ADR-0002 起票済み** (Accepted provisionally)。実装 (bundle 同梱・offline 経路、`add-dmg-offline-bundle-licensing` tasks 4.x) は弁護士確認後の別 change
 3. 残デグレ対応:
-   - glib advisory (Dependabot #2): gtk3-rs#857 と Tauri v2 側の追従を monitor、upstream release 後に再評価
-4. Homebrew tap 更新 (v0.2.0-rc.7): `Lamy210/homebrew-tap` の `schneeforge.rb` (root 直、rc.1 停止中)。version/url/sha256 差し替え + `brew audit --strict`。実施 timing は user 判断
-4. 残デグレ対応:
    - glib advisory (Dependabot #2): gtk3-rs#857 と Tauri v2 側の追従を monitor、upstream release 後に再評価
 
 ※ issue #14/#15 は close 済み。#16 は Final Acceptance 済み次第 close、#17 は弁護士確認後に close。

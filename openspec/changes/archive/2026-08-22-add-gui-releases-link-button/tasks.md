@@ -25,4 +25,4 @@
 ## 5. 検証 / PR
 
 - [x] 5.1 local 検証: workspace `cargo test` / `clippy` / `fmt` + desktop lib.rs の rustfmt parse 検査 + `openspec validate --all`
-- [ ] 5.2 feature branch → PR (base develop) → CI (macos-check で desktop compile を含む全 gate green)
+- [x] 5.2 feature branch → PR (base develop) → CI (macos-check で desktop compile を含む全 gate green)
