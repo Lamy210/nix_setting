@@ -781,3 +781,33 @@ fn self_update_fails_closed_for_non_github_origin() {
         .stderr(predicate::str::contains("owner/repo"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// channel の最新が利用中の版より古い場合 (state 未初期化で channel が
+/// stable default、実行版が rc の場合等) は downgrade せず、その旨を
+/// 正しく表示する。channel 最新 tag (v0.0.1) は local origin で用意
+/// (UpToDate で終わるため network 不要)
+#[test]
+fn self_update_reports_newer_than_channel_latest() {
+    if !git_available() {
+        eprintln!("skipping: git not available");
+        return;
+    }
+    if !self_update_platform_supported() {
+        eprintln!("skipping: no release binary for this platform");
+        return;
+    }
+    let dir = cli_dir("self-update-older-latest");
+    let origin = origin_repo(&dir, &["v0.0.1"]);
+    let state = state_dir("self-update-older-latest");
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("self-update")
+        .env("XDG_STATE_HOME", &state)
+        .env("SCHNEEFORGE_REPO_URL", &origin)
+        .assert()
+        .success()
+        // 「利用中の版 (channel 最新) が最新です」の誤表示が出ないこと
+        .stdout(predicate::str::contains("更新しません"))
+        .stdout(predicate::str::contains("channel の最新は 0.0.1"))
+        .stdout(predicate::str::contains("利用中の版 (0."));
+    let _ = std::fs::remove_dir_all(&dir);
+}
