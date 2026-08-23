@@ -135,3 +135,22 @@ Linux は nix で導入した GUI 自体も `nix flake update` 相当で更新�
   serialize key × DOM id の regression test (rc.3 事故対策と同型)
 - macOS 実機 e2e: 興味のある経路は ①正常置換+relaunch ②署名 mismatch
   (改竄 .tar.gz) で中止 ③network 断で「後で」fallback
+
+## 7. 決定記録 (2026-08-23, user 承認)
+
+Open Questions 4 件の決定。Step 2 の実装 change (v0.3) はこの決定に基づく:
+
+1. **鍵管理**: 2 重保管・長期鍵 — GitHub Actions secret
+   (`TAURI_SIGNING_PRIVATE_KEY` + password) と user 私有 (password
+   manager 等) の offline backup。初回鍵は長期運用前提、rotation は
+   破洩時のみ (交代は 2 release にまたがる手順)
+2. **Linux GUI**: updater 対象外 (notify-only / link 案内継続)。nix
+   配布のため `schneeforge update` で更新される
+3. **latest.json**: release workflow 自前生成 — core に tag → json の
+   純関数 + unit test (§6 の検証戦略どおり)
+4. **タイミング**: v0.3 で導入 (Final Acceptance (rc.7) PASS 後)
+
+Step 1 (B(1)) は `add-gui-releases-link-button` として実装・merge 済み
+(PR #81 / #82)。本 change は decision material としての役割を完了した
+ため、この決定記録をもって archive する。Step 2 の実装は上記決定を
+前提とした別 change を v0.3 の時点で起票する。
