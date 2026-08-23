@@ -100,11 +100,12 @@ Phase E 残件の self-update を実装 (PR #70 / 2401c50 + archive #71 / 653fc1
 - **設計判断**: GUI 内自己更新 (tauri-plugin-updater) は minisign 鍵管理 + `latest.json` asset が必須で既存の SHA256SUMS + provenance モデルと別系統の署名基盤が増えるため**別 change で判断**。**設計提案 `add-gui-app-self-update` を merge 済み (PR #74)** — 推奨は Step 1 = Releases link button 先行 / Step 2 = tauri-plugin-updater を鍵管理方針決定後に導入。Open Questions 4 件は **2026-08-23 に全て決定** (Step 1 は PR #81 で実装済み、Step 2 の決定内容は下記)
 - test: core 11 件 (asset 選択 / parse / plan / fs 置換) + cli 3 件 (help 列挙 / tag 無し origin / non-github origin の fail-closed、network 不要)
 
-### rc.7 後 follow-up: Homebrew tap 更新 + GUI 自己更新 Step 1 (2026-08-22 merge 済み, develop 5bb41cd)
+### rc.7 後 follow-up: Homebrew tap 更新 + GUI 自己更新 Step 1 + self-update 表示 fix (2026-08-23 merge 済み, develop 2f1e9be)
 
 - **Homebrew tap を rc.7 へ更新** ([homebrew-tap#1](https://github.com/Lamy210/homebrew-tap/pull/1) / 85001c1 merge 済み): repo root の `schneeforge.rb` の url / version / sha256 を rc.7 に差し替え (sha256 は release CHECKSUMS.txt と突合済み)。`brew install schneeforge` で rc.7 が入る。`brew audit --strict` は macOS 実機で未実施 (Final Acceptance のタイミングで確認推奨)
 - **RELEASE.md の tap 節を実態に修正 (PR #80 / f133e3d)**: formula path を repo root の `schneeforge.rb` へ (`Formula/` は存在しない)、`on_arm`/`on_intel` セレクタ・edge formula の記述を未提供の実態へ
 - **GUI 自己更新 Step 1 = Releases link button (PR #81 / 5bb41cd + archive)**: Dashboard の update 案内に「GitHub Releases を開く」button (`update_available && available` 時のみ表示)。`open_release` command が core の純関数 `release_page_url` (`<repo>/releases/tag/v<version>`、`SCHNEEFORGE_REPO_URL` fork 対応) で URL を組み立て `tauri-plugin-opener` で既定 browser で開く。鍵・asset・pipeline 変更なし。回帰 test は DOM id × JS 参照 × backend command の 3 層静的検証
+- **self-update の UpToDate 誤表示 fix (PR #84 / 2f1e9be, 2026-08-23)**: state 未初期化で channel が stable default のとき、rc 版実行中でも「利用中の版 (0.1.0) が最新です」のように **channel の最新 tag を実行版と誤表示**していた (rc.7 binary での smoke test で発見。挙動は downgrade しないので安全)。`UpToDate { version }` が channel の最新 tag であり実行版とは限らないため、`version == current` 比較で分岐して「channel の最新は X ですが更新しません」と正しく表示。回帰 test `self_update_reports_newer_than_channel_latest` 追加 (network 不要)。**rc.7 binary には本 fix が無い**ため、Final Acceptance で `self-update` を実行すると旧の誤表示が出る可能性がある (実害なし・次回 release で解消)
 
 ### GUI 自己更新 Step 2 の設計判断確定 (2026-08-23)
 
