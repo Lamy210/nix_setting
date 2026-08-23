@@ -350,7 +350,15 @@ fn self_update(tc: &ToolInventory) -> Result {
     println!("最新 release を確認中 (channel: {channel})...");
     match run_self_update(git, env!("CARGO_PKG_VERSION"), &channel).map_err(|e| e.to_string())? {
         SelfUpdateStatus::UpToDate { version } => {
-            println!("利用中の版 ({version}) が最新です");
+            // `version` は channel の最新 tag であり利用中の版とは限らない
+            // (例: state 未初期化で channel が stable default のとき rc 版が
+            // stable の最新より新しい)。downgrade はしない旨を出す
+            let current = env!("CARGO_PKG_VERSION");
+            if version == current {
+                println!("利用中の版 ({version}) が最新です");
+            } else {
+                println!("channel の最新は {version} ですが、利用中の版 ({current}) はより新しいため更新しません");
+            }
         }
         SelfUpdateStatus::Updated { from, to, exe } => {
             println!("更新しました: {from} → {to}");
