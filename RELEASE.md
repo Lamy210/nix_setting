@@ -134,4 +134,4 @@ edge 用 formula（`schneeforge-edge.rb`、`head` 機能で `main` HEAD をロ�
 
 - 最新 release: `v0.2.0-rc.7`（2026-08-22。rc.6 は release job の `attest build provenance` が `attestations: write` 権限不足で失敗したため tag 削除のうえ切り直し (fix: PR #76)。**managed release source (v2 §7) を同梱する最初の release** — fresh install が clone なしの managed source 経路。`schneeforge-release.json` asset・SLSA provenance attestation・CLI self-update の同梱もこの release から。asset 6 個の CHECKSUMS 全一致・attestation は 1 bundle が全 asset を subject 保持を検証済み）
 - 次候補: 未定（macOS Final Acceptance (rc.7, `docs/testing/macOS-final-acceptance-checklist.md` gate A-J) の結果次第 — PASS なら stable `v0.2.0` への道筋、issue があれば fix + 次 RC）
-- `develop` 未リリース差分: rc.7 後の follow-up のみ（Homebrew tap 更新・RELEASE.md/STATUS.md の docs・GUI 自己更新 Step 1 (Releases link button, PR #81)）。詳細は `docs/STATUS.md`
+- `develop` 未リリース差分: rc.7 後の follow-up のみ（Homebrew tap 更新・RELEASE.md/STATUS.md の docs・GUI 自己更新 Step 1 (Releases link button, PR #81)・CLI self-update の UpToDate 誤表示 fix (PR #84 — channel の最新 tag を実行版と誤表示しない。次回 release から同梱)）。詳細は `docs/STATUS.md`
