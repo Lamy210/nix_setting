@@ -171,6 +171,15 @@ jobs:
             schneeforge-release.json
             CHECKSUMS.txt
 
+      # Schnee 配信 platform (SchneeSoftwareDistribution) の命名規約 asset。
+      # cosign keyless 署名 (identity = 当 workflow) + SLSA provenance + SPDX
+      # SBOM を artifact ごとに生成し、platform と同じ identity pin で自己検証
+      # する (失敗時は release を作らない)。GitHub native attestation とは
+      # 別経路 (人手の gh attestation verify 用) として併存する
+      - name: generate attestation bundles (cosign, platform convention)
+        run: |
+          ./scripts/ci/attest-release-assets.sh "${{ github.ref_name }}" "${{ github.sha }}" dist/*/*
+
       - name: create release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
@@ -179,6 +188,7 @@ jobs:
             sbom.cdx.json
             schneeforge-release.json
             CHECKSUMS.txt
+            attestations/*
           generate_release_notes: true
           # -rc / -beta tag は prerelease 扱いにし releases/latest API が
           # rc を返さないようにする (install.sh が rc を拾わないようにするため)

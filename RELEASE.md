@@ -93,6 +93,7 @@ macOS 実機の full フローは [Final Acceptance 手順書](./docs/testing/ma
 - [ ] **README の Stable ワンライナー URL を今回の tag に差し替え**（`raw.githubusercontent.com/Lamy210/nix_setting/vX.Y.Z/install.sh`。Stable は「script 取得元 tag == pin 先 release」の一致が意味になるため、bump 忘れは test `install-sh.bats` の stable URL 検査で検知される）
 - [ ] Linux asset が musl static であることを release note の CI log で確認（`verify static binary` step）
 - [ ] provenance: `attest build provenance` step が asset 全て (CLI / DMG / SBOM / `schneeforge-release.json` / CHECKSUMS.txt) を attest した。検証は `gh attestation verify --repo Lamy210/nix_setting <file>`（attest 導入 tag 以降。attestation は release asset とは別に attestations API へ保存される）
+- [ ] attestation bundle: `generate attestation bundles` step が配布 artifact ごとに `<asset>.sig.bundle` / `<asset>.provenance.bundle`（CLI は `<asset>.spdx.json` も）を生成し、identity pin 自己検証 gate を通過した（bundle 導入 tag 以降。Schnee 配信 platform 向けの cosign 形式で、GitHub native attestation とは別経路として併存）
 
 ## リリースノートの必須記載
 
