@@ -34,44 +34,44 @@ mkdir -p "$OUT_DIR"
 cosign() { nix run nixpkgs#cosign -- "$@"; }
 
 for artifact in "$@"; do
-	name="$(basename "$artifact")"
-	echo "==> attesting ${name}"
+  name="$(basename "$artifact")"
+  echo "==> attesting ${name}"
 
-	# 1. cosign 署名 bundle (keyless。証明書 SAN = release workflow identity)
-	cosign sign-blob --yes --bundle "${OUT_DIR}/${name}.sig.bundle" "$artifact"
+  # 1. cosign 署名 bundle (keyless。証明書 SAN = release workflow identity)
+  cosign sign-blob --yes --bundle "${OUT_DIR}/${name}.sig.bundle" "$artifact"
 
-	# 2. SLSA v0.2 provenance bundle (subject は cosign が blob から設定)
-	python3 "$REPO_ROOT/scripts/ci/slsa_predicate.py" \
-		"$TAG" "$SOURCE_SHA" "refs/tags/${TAG}" "${OUT_DIR}/${name}.predicate.json"
-	cosign attest-blob \
-		--yes \
-		--type slsaprovenance \
-		--predicate "${OUT_DIR}/${name}.predicate.json" \
-		--bundle "${OUT_DIR}/${name}.provenance.bundle" \
-		"$artifact"
+  # 2. SLSA v0.2 provenance bundle (subject は cosign が blob から設定)
+  python3 "$REPO_ROOT/scripts/ci/slsa_predicate.py" \
+    "$TAG" "$SOURCE_SHA" "refs/tags/${TAG}" "${OUT_DIR}/${name}.predicate.json"
+  cosign attest-blob \
+    --yes \
+    --type slsaprovenance \
+    --predicate "${OUT_DIR}/${name}.predicate.json" \
+    --bundle "${OUT_DIR}/${name}.provenance.bundle" \
+    "$artifact"
 
-	# 3. SPDX SBOM (CLI binary のみ。syft は UDIF (DMG) を scan できない)
-	case "$name" in
-	*.dmg) echo "    (skip SBOM: syft cannot scan DMG)" ;;
-	*)
-		nix run nixpkgs#syft -- scan "$artifact" -o "spdx-json=${OUT_DIR}/${name}.spdx.json" >/dev/null
-		;;
-	esac
+  # 3. SPDX SBOM (CLI binary のみ。syft は UDIF (DMG) を scan できない)
+  case "$name" in
+  *.dmg) echo "    (skip SBOM: syft cannot scan DMG)" ;;
+  *)
+    nix run nixpkgs#syft -- scan "$artifact" -o "spdx-json=${OUT_DIR}/${name}.spdx.json" >/dev/null
+    ;;
+  esac
 
-	# 4. 自己検証 gate (platform と同じ pin。失敗したら release を出さない)
-	cosign verify-blob \
-		--bundle "${OUT_DIR}/${name}.sig.bundle" \
-		--certificate-identity-regexp "$IDENTITY_REGEXP" \
-		--certificate-oidc-issuer "$OIDC_ISSUER" \
-		"$artifact"
-	cosign verify-blob-attestation \
-		--bundle "${OUT_DIR}/${name}.provenance.bundle" \
-		--certificate-identity-regexp "$IDENTITY_REGEXP" \
-		--certificate-oidc-issuer "$OIDC_ISSUER" \
-		"$artifact"
+  # 4. 自己検証 gate (platform と同じ pin。失敗したら release を出さない)
+  cosign verify-blob \
+    --bundle "${OUT_DIR}/${name}.sig.bundle" \
+    --certificate-identity-regexp "$IDENTITY_REGEXP" \
+    --certificate-oidc-issuer "$OIDC_ISSUER" \
+    "$artifact"
+  cosign verify-blob-attestation \
+    --bundle "${OUT_DIR}/${name}.provenance.bundle" \
+    --certificate-identity-regexp "$IDENTITY_REGEXP" \
+    --certificate-oidc-issuer "$OIDC_ISSUER" \
+    "$artifact"
 
-	# predicate は attest-blob の入力用なので release asset には含めない
-	rm -f "${OUT_DIR}/${name}.predicate.json"
+  # predicate は attest-blob の入力用なので release asset には含めない
+  rm -f "${OUT_DIR}/${name}.predicate.json"
 done
 
 echo "generated attestation assets:"
