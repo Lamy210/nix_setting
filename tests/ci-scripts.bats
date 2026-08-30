@@ -104,3 +104,28 @@ extract_rpaths() {
   # tauri 2.x は bundle 時に triple suffix を除去する
   grep -q 'MacOS/schneeforge-cli' scripts/ci/build-release-macos-dmg.sh
 }
+
+# scripts/ci/slsa_predicate.py の出力構造検証 (add-release-attestation-bundles)。
+# cosign 署名は OIDC 依存で PR CI では実行できないため、純粋 logic である
+# predicate 生成のみ dummy 値で検証する (D6)
+DUMMY_SHA="0123456789abcdef0123456789abcdef01234567"
+
+@test "slsa predicate contains builder id, materials sha1 and entrypoint" {
+  tmp="$(mktemp -d)"
+  python3 scripts/ci/slsa_predicate.py v9.9.9-rc.9 "$DUMMY_SHA" "refs/tags/v9.9.9-rc.9" "$tmp/predicate.json"
+  python3 - "$tmp/predicate.json" "$DUMMY_SHA" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    p = json.load(f)
+assert p["builder"]["id"] == "https://github.com/Lamy210/nix_setting/.github/workflows/release.yml@refs/tags/v9.9.9-rc.9", p["builder"]
+assert p["materials"][0]["digest"]["sha1"] == sys.argv[2], p["materials"]
+assert p["invocation"]["configSource"]["entryPoint"] == ".github/workflows/release.yml"
+assert p["invocation"]["configSource"]["digest"]["sha1"] == sys.argv[2]
+PY
+}
+
+@test "slsa predicate rejects malformed source sha" {
+  tmp="$(mktemp -d)"
+  run python3 scripts/ci/slsa_predicate.py v9.9.9 "not-a-sha" "refs/tags/v9.9.9" "$tmp/predicate.json"
+  [ "$status" -ne 0 ]
+}
