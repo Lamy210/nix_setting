@@ -16,7 +16,7 @@ SchneeForge (codename `nix_setting`) — Declarative Developer Workstation Manag
 
 ### Code Style
 - Rust: `cargo fmt` + `cargo clippy -D warnings`
-- Nix: `nixfmt` via treefmt, statinix / deadnix lint
+- Nix: `nixfmt` via treefmt, statix / deadnix lint
 - Shell: shellcheck (strict), shfmt
 - YAML / JSON: prettier
 - Conventional Commits (`feat:` / `fix:` / `chore:` / `docs:` / `refactor:`)
@@ -29,17 +29,20 @@ SchneeForge (codename `nix_setting`) — Declarative Developer Workstation Manag
 - ADR は `docs/adr/` で管理 (lightweight ADR / Michael Nygard 形式)。
 
 ### Testing Strategy
-- Rust: `cargo test --all` (98+ unit tests in core, 9 in cli)
-- Shell: bats (`tests/resolve-tools.bats`)
+- Rust: `cargo test --all`
+- Shell: bats (`tests/*.bats`)
 - Smoke: Docker container (Linux x86_64) / disposable macOS aarch64
-- OpenSpec: `openspec validate --strict`
+- OpenSpec: `openspec validate <change-id> --strict` + `openspec validate --all --strict`
 - CI gate: lint / fmt / clippy / cargo test / nix flake check / openspec validate
 
 ### Git Workflow
-- `develop` が開発統合先。feature ブランチ (`feat/*`, `fix/*`, `docs/*`) → PR → squash merge。
-- `main` は直接 push 禁止 (branch protection)。`release/*` 経由のみ merge 可。
-- リリースフロー: `release/vX.Y.Z` ブランチ → `main` へ PR → tag push → workflow 発火 → `develop` へ back-merge。
-- OpenSpec change は proposal → 実装 → **archive (PR 前)** → PR の順 (archive 済みの change を specs/ へ反映した上で PR を出す)。
+- `develop` が開発統合先。topic branch (`feat/*`, `fix/*`, `refactor/*`, `docs/*`, `test/*`, `chore/*`) は `develop` から切り、PR で **squash merge** する。
+- `main` / `develop` は直接 push 禁止 (branch protection)。1 PR = 1 concern を維持する。
+- リリースフロー: `develop` → `release/vX.Y.Z` → `main` PR は **merge commit** → tag push → release workflow → `main` → `develop` back-merge PR も **merge commit**。
+- release / back-merge に squash または rebase merge を使用しない。過去の diverged history を直すための force push / history rewrite も行わない。
+- OpenSpec change は proposal/design/delta spec/tasks → strict validation → proposal approval → 実装 → 実装 PR を `develop` へ merge → **別 `chore/archive-*` PR で archive + main spec sync** の順に進める。
+- tooling-only change で main spec を更新しない archive のみ `openspec archive <change-id> --skip-specs --yes` を許可する。
+- CI required-check migration は新しい aggregator を既存 required checks と並行稼働させ、安定確認前に既存 contexts を削除しない。
 
 ## Domain Context
 - macOS は APFS Volume に Nix store を置く (nix-darwin 標準構成)。
@@ -57,6 +60,6 @@ SchneeForge (codename `nix_setting`) — Declarative Developer Workstation Manag
 - **NixOS/nix-installer**: Managed Nix provider (ADR-0001)。version-pinned で GitHub Releases から取得。
 - **NixOS/nixpkgs**: パッケージソース。
 - **LnL7/nix-darwin**: macOS system management。
-- **Glanvia/home-manager**: dotfiles / per-user packages。
+- **nix-community/home-manager**: dotfiles / per-user packages。
 - **Lamy210/homebrew-tap**: Homebrew formula 配布先 (本体 repo とは分離)。
 - **Cloudflare**: docs / landing (将来)。
