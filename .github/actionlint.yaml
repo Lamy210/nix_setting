@@ -1,0 +1,5 @@
+# GitHub runner-images exposes `xcode-27` as a hosted Public Preview label,
+# but actionlint 1.7.12 does not include it in its built-in hosted-runner list yet.
+self-hosted-runner:
+  labels:
+    - xcode-27
