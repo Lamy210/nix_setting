@@ -1,7 +1,8 @@
 # gui-dashboard Specification
 
 ## Purpose
-TBD - created by archiving change add-gui-dashboard. Update Purpose after archive.
+SchneeForge Desktop の Dashboard で、現在適用中の version / profile / channel / revision と取得可能な release 情報を安全に可視化し、offline 時も診断可能な状態を保ちながら更新有無と GitHub Releases への導線を提供する。
+
 ## Requirements
 ### Requirement: Dashboard 情報の提供
 
@@ -77,9 +78,3 @@ button を表示し、押下で available release の page を既定 browser で
 - **WHEN** ユーザーが button を押す
 - **THEN** `open_release` command が available version を受けて実行され、
   `v<version>` tag の release page が既定 browser で開く
-
-#### Scenario: 開けなかった場合は error を表示する
-
-- **WHEN** opener が URL を開けない (関連付け無し等)
-- **THEN** CommandOutput の失敗として error が表示され、GUI は稼働を続ける
-
