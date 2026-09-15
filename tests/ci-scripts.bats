@@ -140,26 +140,31 @@ PY
 
 # --- check.yml critical-path contract (refactor-ci-critical-path) ---
 
-@test "rust required check fans out to three workers and aggregates fail-closed" {
+@test "rust required check fans out to two workers and aggregates fail-closed" {
   workflow=.github/workflows/check.yml
   grep -q '^  rust-quality:$' "$workflow"
-  grep -q '^  rust-cli-smoke:$' "$workflow"
-  grep -q '^  rust-desktop-smoke:$' "$workflow"
+  grep -q '^  rust-build-smoke:$' "$workflow"
+  ! grep -q '^  rust-cli-smoke:$' "$workflow"
+  ! grep -q '^  rust-desktop-smoke:$' "$workflow"
   grep -q '^  rust-check:$' "$workflow"
 
   rust_check_block="$(workflow_job_block rust-check)"
-  echo "$rust_check_block" | grep -q 'needs: \[rust-quality, rust-cli-smoke, rust-desktop-smoke\]'
+  echo "$rust_check_block" | grep -q 'needs: \[rust-quality, rust-build-smoke\]'
   echo "$rust_check_block" | grep -q 'if:.*always()'
   echo "$rust_check_block" | grep -q 'needs.rust-quality.result'
-  echo "$rust_check_block" | grep -q 'needs.rust-cli-smoke.result'
-  echo "$rust_check_block" | grep -q 'needs.rust-desktop-smoke.result'
+  echo "$rust_check_block" | grep -q 'needs.rust-build-smoke.result'
 }
 
-@test "Tauri system packages are isolated to desktop Rust worker" {
+@test "build smoke owns Tauri deps and uses desktop compile gate" {
   workflow=.github/workflows/check.yml
   [ "$(grep -c 'libwebkit2gtk-4.1-dev' "$workflow")" -eq 1 ]
-  desktop_block="$(workflow_job_block rust-desktop-smoke)"
-  echo "$desktop_block" | grep -q 'libwebkit2gtk-4.1-dev'
+  build_block="$(workflow_job_block rust-build-smoke)"
+  quality_block="$(workflow_job_block rust-quality)"
+  echo "$build_block" | grep -q 'libwebkit2gtk-4.1-dev'
+  echo "$build_block" | grep -q 'cargo build --release -p schneeforge'
+  echo "$build_block" | grep -q 'cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml'
+  ! echo "$build_block" | grep -q 'cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml'
+  ! echo "$quality_block" | grep -q 'libwebkit2gtk-4.1-dev'
 }
 
 @test "shadow ci-required aggregates the existing seven required contexts" {
