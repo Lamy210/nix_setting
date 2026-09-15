@@ -154,7 +154,7 @@ nix flake check
 
 ## 現在進行中
 
-- `openspec/changes/refactor-development-workflow/` — OpenSpec / branch / release / CI protection migration の規約整合
 - `openspec/changes/add-dmg-offline-bundle-licensing/` — 法務確認待ち
+- 次: `refactor-ci-critical-path` — 本 archive PR merge 後に `develop` から別作業ブランチを切って起票する
 - 状態・既知のデグレ・次の作業は [docs/STATUS.md](./docs/STATUS.md) を参照（セッション開始時に必ず読む）
 - リリース運用は [RELEASE.md](./RELEASE.md) を参照
