@@ -16,6 +16,15 @@ extract_rpaths() {
   '
 }
 
+workflow_job_block() {
+  local job="$1"
+  awk -v header="  ${job}:" '
+    $0 == header { in_job = 1; print; next }
+    in_job && $0 ~ /^  [a-zA-Z0-9_-]+:$/ { exit }
+    in_job { print }
+  ' .github/workflows/check.yml
+}
+
 @test "otool gate pattern rejects indented /nix/store dependency" {
   output="$(printf 'result/bin/schneeforge:\n\t/nix/store/xxxx-libfoo.dylib (compatibility version)\n' \
     | grep -E "$NIX_STORE_PATTERN")"
@@ -138,7 +147,7 @@ PY
   grep -q '^  rust-desktop-smoke:$' "$workflow"
   grep -q '^  rust-check:$' "$workflow"
 
-  rust_check_block="$(awk '/^  rust-check:$/,/^  [a-zA-Z0-9_-]+:$/' "$workflow")"
+  rust_check_block="$(workflow_job_block rust-check)"
   echo "$rust_check_block" | grep -q 'needs: \[rust-quality, rust-cli-smoke, rust-desktop-smoke\]'
   echo "$rust_check_block" | grep -q 'if:.*always()'
   echo "$rust_check_block" | grep -q 'needs.rust-quality.result'
@@ -149,13 +158,12 @@ PY
 @test "Tauri system packages are isolated to desktop Rust worker" {
   workflow=.github/workflows/check.yml
   [ "$(grep -c 'libwebkit2gtk-4.1-dev' "$workflow")" -eq 1 ]
-  desktop_block="$(awk '/^  rust-desktop-smoke:$/,/^  [a-zA-Z0-9_-]+:$/' "$workflow")"
+  desktop_block="$(workflow_job_block rust-desktop-smoke)"
   echo "$desktop_block" | grep -q 'libwebkit2gtk-4.1-dev'
 }
 
 @test "shadow ci-required aggregates the existing seven required contexts" {
-  workflow=.github/workflows/check.yml
-  ci_required_block="$(awk '/^  ci-required:$/,/^  [a-zA-Z0-9_-]+:$/' "$workflow")"
+  ci_required_block="$(workflow_job_block ci-required)"
   [ -n "$ci_required_block" ]
   echo "$ci_required_block" | grep -q 'if:.*always()'
   for job in openspec-check flake-check rust-check lint bootstrap-test managed-nix-e2e release-artifact-check; do
