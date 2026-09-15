@@ -1,0 +1,35 @@
+name: macos-preview-canary
+
+on:
+  push:
+    branches: [develop]
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  xcode-27-canary:
+    runs-on: xcode-27
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: macOS / Xcode diagnostics
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+
+      - name: nix flake check
+        run: nix flake check --allow-import-from-derivation
+
+      - name: evaluate Darwin configuration
+        run: |
+          nix eval .#homeConfigurations.darwin-aarch64.activationPackage.drvPath
+          nix eval .#darwinConfigurations.darwin-aarch64.system.drvPath
