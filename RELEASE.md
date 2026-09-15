@@ -14,6 +14,7 @@ develop     開発統合。topic branch の merge 先
 - feature ブランチを `main` へ直接 PR しない
 - `release/*` → `main` は **merge commit** を使用する（squash / rebase 禁止）
 - release 後の `main` → `develop` back-merge も **merge commit** を使用する（squash / rebase 禁止）
+- back-merge は `main` 自体を head にした PR とし、`chore/*` topic branch に複製しない
 - 過去の diverged history を直す目的で force push / history rewrite を行わない
 
 ## リリースフロー
@@ -34,15 +35,12 @@ git checkout main && git pull
 git tag -a vX.Y.Z -m "SchneeForge vX.Y.Z"
 git push origin vX.Y.Z    # この push が release workflow を発火
 
-# 5. main を develop へ PR で back-merge（merge commit 固定）
-git checkout -b chore/back-merge-vX.Y.Z main
-git push -u origin chore/back-merge-vX.Y.Z
-gh pr create --base develop --head chore/back-merge-vX.Y.Z --title "chore: back-merge vX.Y.Z"
+# 5. main 自体を head にして develop へ back-merge PR（merge commit 固定）
+gh pr create --base develop --head main --title "chore: back-merge vX.Y.Z"
 # review + required checks green 後、merge commit で統合する
 
-# 6. release / back-merge ブランチを削除
+# 6. release branch を削除
 git push origin --delete release/vX.Y.Z
-git push origin --delete chore/back-merge-vX.Y.Z
 
 # 7. Homebrew tap を更新（下記「Homebrew tap 更新」参照）
 ```
@@ -63,7 +61,7 @@ git push origin --delete chore/back-merge-vX.Y.Z
 
 ### CI / 品質ゲート（全ジョブ green 必須）
 
-- [ ] `openspec-check`: OpenSpec validation が成功
+- [ ] `openspec-check`: `openspec validate --all --strict --no-interactive` が成功
 - [ ] `flake-check`: `nix flake check --allow-import-from-derivation`
 - [ ] `flake-check`: `homeConfigurations.linux.activationPackage` が build できる
 - [ ] `flake-check`: `homeConfigurations.linux-arm.activationPackage` が eval できる
