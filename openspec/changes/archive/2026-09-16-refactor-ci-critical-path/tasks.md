@@ -38,4 +38,4 @@
 
 - [x] 6.1 Review the final workflow diff for required-context name drift and fail-open behavior.
 - [x] 6.2 Open a conventional-commit draft PR to `develop` from `refactor/ci-critical-path` (#90).
-- [ ] 6.3 Merge only after existing required checks are green; archive this OpenSpec change in a separate `chore/archive-refactor-ci-critical-path` PR afterwards.
+- [x] 6.3 Merge only after existing required checks are green; archive this OpenSpec change in a separate `chore/archive-refactor-ci-critical-path` PR afterwards.
