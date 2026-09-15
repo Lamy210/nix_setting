@@ -189,10 +189,17 @@ jobs:
       - name: cargo clippy
         run: nix develop --command cargo clippy -- -D warnings
 
-  rust-cli-smoke:
+  rust-build-smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      # Linux desktop compile gate requires WebKit/GTK headers. Keep these out of
+      # rust-quality; the macOS release-artifact-check remains the full bundle gate.
+      - name: install Tauri system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev
 
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
         with:
@@ -204,45 +211,28 @@ jobs:
           ./target/release/schneeforge --version
           ./target/release/schneeforge doctor
 
-  rust-desktop-smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-
-      - name: install Tauri system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev
-
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-
-      - name: desktop build smoke
-        # CLI sidecar (externalBin) の stage 元として debug build した CLI が
-        # 必要 (build script は <repo>/target/<profile>/schneeforge を参照する)
-        run: |
-          nix develop --command cargo build -p schneeforge
-          nix develop --command cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - name: desktop compile smoke
+        # Full link/bundle coverage is already required in release-artifact-check via
+        # the release workflow's macOS DMG build script. Linux keeps a compile gate
+        # without paying a second cold full desktop link/build on another runner.
+        run: nix develop --command cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
 
   # Branch protection はこの既存 context 名を required として参照している。
   # Worker の failure/cancel/skip を全て fail-closed で集約する。
   rust-check:
-    needs: [rust-quality, rust-cli-smoke, rust-desktop-smoke]
+    needs: [rust-quality, rust-build-smoke]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
       - name: require all Rust workers
         env:
           RUST_QUALITY: ${{ needs.rust-quality.result }}
-          RUST_CLI_SMOKE: ${{ needs.rust-cli-smoke.result }}
-          RUST_DESKTOP_SMOKE: ${{ needs.rust-desktop-smoke.result }}
+          RUST_BUILD_SMOKE: ${{ needs.rust-build-smoke.result }}
         run: |
           set -euo pipefail
           printf 'rust-quality=%s\n' "$RUST_QUALITY"
-          printf 'rust-cli-smoke=%s\n' "$RUST_CLI_SMOKE"
-          printf 'rust-desktop-smoke=%s\n' "$RUST_DESKTOP_SMOKE"
-          for result in "$RUST_QUALITY" "$RUST_CLI_SMOKE" "$RUST_DESKTOP_SMOKE"; do
+          printf 'rust-build-smoke=%s\n' "$RUST_BUILD_SMOKE"
+          for result in "$RUST_QUALITY" "$RUST_BUILD_SMOKE"; do
             if [ "$result" != "success" ]; then
               echo "ERROR: a Rust CI worker did not succeed" >&2
               exit 1
@@ -268,7 +258,7 @@ jobs:
         run: nix run nixpkgs#bats -- tests/resolve-tools.bats
 
       # v2 P1: schneeforge update の source kind dispatch の実 binary smoke。
-      # binary は rust-cli-smoke と同じ release build を local で作る
+      # binary は rust-build-smoke と同じ release build を local で作る
       - name: bats test (source update dispatch)
         run: |
           nix develop --command cargo build --release -p schneeforge
