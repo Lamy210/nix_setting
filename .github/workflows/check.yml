@@ -215,7 +215,7 @@ jobs:
         # Full link/bundle coverage is already required in release-artifact-check via
         # the release workflow's macOS DMG build script. Linux keeps a compile gate
         # without paying a second cold full desktop link/build on another runner.
-        run: nix develop --command cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+        run: nix develop --command cargo check --release --manifest-path apps/desktop/src-tauri/Cargo.toml
 
   # Branch protection はこの既存 context 名を required として参照している。
   # Worker の failure/cancel/skip を全て fail-closed で集約する。
