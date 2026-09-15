@@ -46,7 +46,7 @@ Add tests equivalent to:
   echo "$block" | grep -q 'xcode: /Applications/Xcode_26.3.app/Contents/Developer'
   echo "$block" | grep -q 'os: macos-26'
   echo "$block" | grep -q 'xcode: /Applications/Xcode_26.6.app/Contents/Developer'
-  echo "$block" | grep -q 'DEVELOPER_DIR: \${{ matrix.xcode }}'
+  echo "$block" | grep -Fq "DEVELOPER_DIR: \${{ matrix.xcode }}"
 }
 
 @test "macos-check aggregates stable matrix fail-closed and stays out of ci-required" {
@@ -60,7 +60,6 @@ Add tests equivalent to:
 }
 
 @test "shipping macOS paths pin macos-26 and Xcode 26.6" {
-  check=.github/workflows/check.yml
   release=.github/workflows/release.yml
   release_artifact="$(workflow_job_block release-artifact-check)"
   echo "$release_artifact" | grep -q 'runs-on: macos-26'
@@ -70,7 +69,7 @@ Add tests equivalent to:
 }
 
 @test "active macOS build paths do not use macos-latest" {
-  run grep -n 'runs-on: macos-latest\|os: macos-latest' .github/workflows/check.yml .github/workflows/release.yml
+  run grep -nE 'runs-on: macos-latest|os: macos-latest' .github/workflows/check.yml .github/workflows/release.yml
   [ "$status" -ne 0 ]
 }
 
@@ -79,6 +78,8 @@ Add tests equivalent to:
   [ -f "$workflow" ]
   grep -q 'xcode-27' "$workflow"
   run grep -q 'pull_request:' "$workflow"
+  [ "$status" -ne 0 ]
+  run grep -q 'continue-on-error: true' "$workflow"
   [ "$status" -ne 0 ]
   run grep -q 'xcode-27' .github/workflows/check.yml .github/workflows/release.yml
   [ "$status" -ne 0 ]
@@ -132,8 +133,10 @@ Use this structure:
         run: |
           sw_vers
           uname -m
+          printf 'DEVELOPER_DIR=%s\n' "$DEVELOPER_DIR"
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
+          xcrun --find clang
       - name: nix flake check
         run: nix flake check --allow-import-from-derivation
       - name: build macos home-manager
@@ -204,8 +207,10 @@ Add a diagnostic step before building artifacts:
         run: |
           sw_vers
           uname -m
+          printf 'DEVELOPER_DIR=%s\n' "$DEVELOPER_DIR"
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
+          xcrun --find clang
 ```
 
 - [ ] **Step 2: Pin release workflow CLI matrix row**
@@ -219,14 +224,7 @@ Replace the macOS row with:
             xcode: /Applications/Xcode_26.6.app/Contents/Developer
 ```
 
-At job level set:
-
-```yaml
-    env:
-      DEVELOPER_DIR: ${{ matrix.xcode || '' }}
-```
-
-If expression fallback is rejected by actionlint, set `DEVELOPER_DIR` only on macOS steps instead of job-level env.
+Set `DEVELOPER_DIR` only on macOS diagnostics/build/package steps so the Linux matrix row does not need an `xcode` value.
 
 - [ ] **Step 3: Pin DMG release job**
 
@@ -239,7 +237,7 @@ If expression fallback is rejected by actionlint, set `DEVELOPER_DIR` only on ma
 
 - [ ] **Step 4: Add release diagnostics and preserve build scripts unchanged**
 
-Use `sw_vers`, `uname -m`, `xcodebuild -version`, and `xcrun --sdk macosx --show-sdk-version`; do not change `scripts/ci/build-release-macos-cli.sh` or `scripts/ci/build-release-macos-dmg.sh`.
+Use `sw_vers`, `uname -m`, selected Xcode path, `xcodebuild -version`, `xcrun --sdk macosx --show-sdk-version`, and `xcrun --find clang`; do not change `scripts/ci/build-release-macos-cli.sh` or `scripts/ci/build-release-macos-dmg.sh`.
 
 - [ ] **Step 5: Verify GREEN for release-pin tests**
 
@@ -263,10 +261,11 @@ git commit -m "ci: pin macOS release toolchain"
 
 **Files:**
 - Create: `.github/workflows/macos-preview-canary.yml`
+- Create: `.github/actionlint.yaml` while actionlint lacks the hosted `xcode-27` label in its built-in list
 - Test: `tests/ci-scripts.bats`
 
 **Interfaces:**
-- Produces: non-PR preview signal only.
+- Produces: non-PR preview signal only; canary failures remain visibly red without blocking PR gates.
 
 - [ ] **Step 1: Create the preview workflow**
 
@@ -286,15 +285,16 @@ permissions:
 jobs:
   xcode-27-canary:
     runs-on: xcode-27
-    continue-on-error: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: macOS / Xcode diagnostics
         run: |
           sw_vers
           uname -m
+          printf 'selected-xcode=%s\n' "$(xcode-select -p)"
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
+          xcrun --find clang
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
       - name: nix flake check
         run: nix flake check --allow-import-from-derivation
@@ -303,6 +303,8 @@ jobs:
           nix eval .#homeConfigurations.darwin-aarch64.activationPackage.drvPath
           nix eval .#darwinConfigurations.darwin-aarch64.system.drvPath
 ```
+
+Register `xcode-27` in `.github/actionlint.yaml` as a known runner label until actionlint's built-in hosted-runner list catches up; do not globally suppress runner-label errors.
 
 - [ ] **Step 2: Run actionlint and Bats**
 
@@ -318,7 +320,7 @@ Expected: all macOS matrix contract tests PASS.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add .github/workflows/macos-preview-canary.yml tests/ci-scripts.bats
+git add .github/workflows/macos-preview-canary.yml .github/actionlint.yaml tests/ci-scripts.bats
 git commit -m "ci: add Xcode 27 preview canary"
 ```
 
