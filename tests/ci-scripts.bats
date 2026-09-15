@@ -50,8 +50,9 @@ workflow_job_block() {
 }
 
 @test "LC_RPATH extraction allows /usr/local/lib rpath" {
-  run sh -c "printf 'Load command 12\n      cmd LC_RPATH\n      cmdsize 32\n      path /usr/local/lib (offset 12)\n' | grep -q '^/nix/store/'"
-  [ "$status" -ne 0 ]
+  output="$(printf 'Load command 12\n      cmd LC_RPATH\n      cmdsize 32\n      path /usr/local/lib (offset 12)\n' \
+    | extract_rpaths)"
+  [ "$output" = "/usr/local/lib" ]
 }
 
 # readelf INTERP gate と同等の検査 (Linux static binary)
