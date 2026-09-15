@@ -171,6 +171,17 @@ PY
   [ "$status" -ne 0 ]
 }
 
+@test "flake gate evaluates developer profile and realizes minimal profile" {
+  flake_block="$(workflow_job_block flake-check)"
+  echo "$flake_block" | grep -q 'nix flake check --allow-import-from-derivation'
+  echo "$flake_block" | grep -q 'nix eval .#homeConfigurations.linux.activationPackage.drvPath'
+  echo "$flake_block" | grep -q 'nix eval .#homeConfigurations.linux-arm.activationPackage.drvPath'
+  echo "$flake_block" | grep -Fq 'nix build .#homeConfigurations.linux.activationPackage --override-input profile "path:$PWD/tests/fixtures/profile-minimal.nix"'
+  grep -q 'profile = "minimal"' tests/fixtures/profile-minimal.nix
+  run grep -Eq 'run: nix build \.#homeConfigurations\.linux\.activationPackage$' <<<"$flake_block"
+  [ "$status" -ne 0 ]
+}
+
 @test "shadow ci-required aggregates the existing seven required contexts" {
   ci_required_block="$(workflow_job_block ci-required)"
   [ -n "$ci_required_block" ]
