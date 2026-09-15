@@ -154,7 +154,9 @@ nix flake check
 
 ## 現在進行中
 
+- `openspec/changes/refactor-ci-critical-path/` — PR #90 で最終検証中。required critical path は baseline 479s → 327s（31.7%短縮）を実測済み。merge 後は別 `chore/archive-refactor-ci-critical-path` PR で archive する
 - `openspec/changes/add-dmg-offline-bundle-licensing/` — 法務確認待ち
-- 次: `refactor-ci-critical-path` — 本 archive PR merge 後に `develop` から別作業ブランチを切って起票する
+- `refactor-development-workflow` は 2026-09-16 に archive 済み
+- 次: `add-macos-compatibility-matrix` — PR #90 と archive 完了後に別 change として開始する
 - 状態・既知のデグレ・次の作業は [docs/STATUS.md](./docs/STATUS.md) を参照（セッション開始時に必ず読む）
 - リリース運用は [RELEASE.md](./RELEASE.md) を参照

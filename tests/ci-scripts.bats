@@ -16,6 +16,15 @@ extract_rpaths() {
   '
 }
 
+workflow_job_block() {
+  local job="$1"
+  awk -v header="  ${job}:" '
+    $0 == header { in_job = 1; print; next }
+    in_job && $0 ~ /^  [a-zA-Z0-9_-]+:$/ { exit }
+    in_job { print }
+  ' .github/workflows/check.yml
+}
+
 @test "otool gate pattern rejects indented /nix/store dependency" {
   output="$(printf 'result/bin/schneeforge:\n\t/nix/store/xxxx-libfoo.dylib (compatibility version)\n' \
     | grep -E "$NIX_STORE_PATTERN")"
@@ -41,9 +50,9 @@ extract_rpaths() {
 }
 
 @test "LC_RPATH extraction allows /usr/local/lib rpath" {
-  run sh -c "printf 'Load command 12\n      cmd LC_RPATH\n      cmdsize 32\n      path /usr/local/lib (offset 12)\n' \
-    | extract_rpaths | grep '^/nix/store/'"
-  [ "$status" -ne 0 ]
+  output="$(printf 'Load command 12\n      cmd LC_RPATH\n      cmdsize 32\n      path /usr/local/lib (offset 12)\n' \
+    | extract_rpaths)"
+  [ "$output" = "/usr/local/lib" ]
 }
 
 # readelf INTERP gate と同等の検査 (Linux static binary)
@@ -128,4 +137,57 @@ PY
   tmp="$(mktemp -d)"
   run python3 scripts/ci/slsa_predicate.py v9.9.9 "not-a-sha" "refs/tags/v9.9.9" "$tmp/predicate.json"
   [ "$status" -ne 0 ]
+}
+
+# --- check.yml critical-path contract (refactor-ci-critical-path) ---
+
+@test "rust required check fans out to two workers and aggregates fail-closed" {
+  workflow=.github/workflows/check.yml
+  grep -q '^  rust-quality:$' "$workflow"
+  grep -q '^  rust-build-smoke:$' "$workflow"
+  run grep -q '^  rust-cli-smoke:$' "$workflow"
+  [ "$status" -ne 0 ]
+  run grep -q '^  rust-desktop-smoke:$' "$workflow"
+  [ "$status" -ne 0 ]
+  grep -q '^  rust-check:$' "$workflow"
+
+  rust_check_block="$(workflow_job_block rust-check)"
+  echo "$rust_check_block" | grep -q 'needs: \[rust-quality, rust-build-smoke\]'
+  echo "$rust_check_block" | grep -q 'if:.*always()'
+  echo "$rust_check_block" | grep -q 'needs.rust-quality.result'
+  echo "$rust_check_block" | grep -q 'needs.rust-build-smoke.result'
+}
+
+@test "build smoke owns Tauri deps and uses desktop compile gate" {
+  workflow=.github/workflows/check.yml
+  [ "$(grep -c 'libwebkit2gtk-4.1-dev' "$workflow")" -eq 1 ]
+  build_block="$(workflow_job_block rust-build-smoke)"
+  quality_block="$(workflow_job_block rust-quality)"
+  echo "$build_block" | grep -q 'libwebkit2gtk-4.1-dev'
+  echo "$build_block" | grep -q 'cargo build --release -p schneeforge'
+  echo "$build_block" | grep -q 'cargo check --release --manifest-path apps/desktop/src-tauri/Cargo.toml'
+  run grep -q 'cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml' <<<"$build_block"
+  [ "$status" -ne 0 ]
+  run grep -q 'libwebkit2gtk-4.1-dev' <<<"$quality_block"
+  [ "$status" -ne 0 ]
+}
+
+@test "flake gate evaluates developer profile and realizes minimal profile" {
+  flake_block="$(workflow_job_block flake-check)"
+  echo "$flake_block" | grep -q 'nix flake check --allow-import-from-derivation'
+  echo "$flake_block" | grep -q 'nix eval .#homeConfigurations.linux.activationPackage.drvPath'
+  echo "$flake_block" | grep -q 'nix eval .#homeConfigurations.linux-arm.activationPackage.drvPath'
+  echo "$flake_block" | grep -Fq "nix build .#homeConfigurations.linux.activationPackage --override-input profile \"path:\$PWD/tests/fixtures/profile-minimal.nix\""
+  grep -q 'profile = "minimal"' tests/fixtures/profile-minimal.nix
+  run grep -Eq 'run: nix build \.#homeConfigurations\.linux\.activationPackage$' <<<"$flake_block"
+  [ "$status" -ne 0 ]
+}
+
+@test "shadow ci-required aggregates the existing seven required contexts" {
+  ci_required_block="$(workflow_job_block ci-required)"
+  [ -n "$ci_required_block" ]
+  echo "$ci_required_block" | grep -q 'if:.*always()'
+  for job in openspec-check flake-check rust-check lint bootstrap-test managed-nix-e2e release-artifact-check; do
+    echo "$ci_required_block" | grep -q "needs.$job.result"
+  done
 }

@@ -12,7 +12,7 @@
 | Rust core | actions / discovery / diagnostics / manifest / repo / state / time / tool / lock / operations / process / bootstrap / self_update（+ 303 unit tests） |
 | CLI | 12 コマンド（core 委譲のみの adapter 化済み / `with_toolchain` wrapper） |
 | Tauri GUI | 診断 Status + First Run Wizard + 非同期コマンド + CSP + 状態機械 + Plan/Verify ボタン + `fix-path-env-rs` による macOS PATH 補正 |
-| OpenSpec | `gui-normalization` / runtime hardening / managed source / release supply-chain 等を archive 済み。active change は下記「進行中」を参照 |
+| OpenSpec | `gui-normalization` / runtime hardening / managed source / release supply-chain / development workflow hardening 等を archive 済み。active change は下記「進行中」を参照 |
 
 ### gui-normalization（63/63 完了・PR #4 merge 済み）
 
@@ -112,11 +112,29 @@ PR #62-#68 を sequential chain で merge。
 - **latest.json**: release workflow 自前生成
 - **タイミング**: v0.3 で別 change
 
+### 開発ワークフロー hardening（2026-09-16 archive 済み）
+
+- topic → `develop` は squash merge、`release/*` → `main` と `main` → `develop` back-merge は merge commit に統一
+- OpenSpec archive は実装 PR merge 後の separate `chore/archive-*` PR に統一
+- `main` / `develop` の既存 diverged history は rewrite/force push せず、今後の ancestry を merge commit で維持
+- `AGENTS.md` / `CONTRIBUTING.md` / `RELEASE.md` / OpenSpec workflow を同期
+
+### CI critical-path optimization（PR #90 最終検証）
+
+- Rust required gate を `rust-quality` / `rust-build-smoke` の2 workerへ分割し、既存 required context `rust-check` は fail-closed aggregator として維持
+- Linux desktop smoke は CLI sidecar と同じ release profile の `cargo check --release` に変更し、full DMG/Tauri build は required `release-artifact-check` に集約
+- shadow `ci-required` を追加し、現行 required 7 contexts を fail-closed で集約（server-side branch protection は本 change では変更しない）
+- Linux required `flake-check` は default `developer` profile を derivation evaluation、supported `minimal` profile を actual realization。product default は `developer` のまま
+- baseline run #378: required critical path 479s / old `rust-check` 448s
+- final measured run #397: current required critical path **327s（31.7%短縮）**、Rust runner total **443s**。目標 `<=359s` / `<=537.6s` をともに達成
+- `flake-check` は 387s級のボトルネックから61sまで短縮。Terraform source build を毎PRのrequired Linux realizationから外しつつ、default developer evaluationは維持
+- PR #90 merge 後は separate `chore/archive-refactor-ci-critical-path` PR で OpenSpec archive/spec sync を行う
+
 ## 進行中
 
 | 項目 | 進捗 | 場所 |
 |------|------|------|
-| **開発ワークフロー hardening** | **2026-09-16 着手**。OpenSpec archive 順序、topic/release/back-merge の merge method、required-check migration を統一。次の CI/macOS/Windows change の前提 | `openspec/changes/refactor-development-workflow/` |
+| **CI critical-path optimization** | PR #90 最終CI / review待ち。性能目標は run #397 で達成済み。merge後に別archive PR | `openspec/changes/refactor-ci-critical-path/` |
 | DMG offline bundle 法務 ADR (issue #17) | ADR-0002 起票済み。実装は弁護士確認後 | `openspec/changes/add-dmg-offline-bundle-licensing/` |
 | macOS Apple Silicon Final Acceptance | rc.7 での実機 acceptance 未完了 | `docs/testing/macOS-final-acceptance-checklist.md` |
 
@@ -142,28 +160,23 @@ PR #62-#68 を sequential chain で merge。
 
 ## 次の作業（推奨順）
 
-1. **`refactor-development-workflow` 完了**
-   - OpenSpec / AGENTS / CONTRIBUTING / RELEASE / STATUS の整合
-   - topic → develop = squash、release/back-merge = merge commit を固定
-   - archive は実装 PR merge 後の separate PR に統一
-2. **`refactor-ci-critical-path`**
-   - `openspec validate --all --strict`
-   - macOS release artifact job の分割
-   - `ci-required` aggregator を追加（既存 required contexts は先に外さない）
-   - cache / path filter / duplicated build の削減を計測して最適化
-3. **`add-macos-compatibility-matrix`**
+1. **PR #90 `refactor-ci-critical-path` を完了**
+   - latest head で OpenSpec strict / lint / Rust / flake / release artifact / E2E を再度 green にする
+   - final diff review 後に `develop` へ squash merge
+   - merge 後、`chore/archive-refactor-ci-critical-path` PR で archive + spec sync
+2. **`add-macos-compatibility-matrix`**
    - macOS 15 + 対応可能な Xcode version
    - macOS 26 + Xcode 26.6
    - `macos-latest` 依存を減らし OS/Xcode を明示
    - Flutter/iOS doctor に Xcode / SDK / simulator runtime diagnostics を追加検討
-4. **`add-windows-wsl2-platform`**
+3. **`add-windows-wsl2-platform`**
    - Windows host と Nix execution backend を分離
    - WSL2 Linux を Nix execution target とする
    - Windows compile portability audit (`std::env::split_paths`, Unix-only paths/permissions/locking 等)
    - Windows-native package manager backend は初期 scope 外
-5. **macOS Apple Silicon Final Acceptance**
+4. **macOS Apple Silicon Final Acceptance**
    - rc.7 を使い `docs/testing/macOS-final-acceptance-checklist.md` gate A-J を実施
-6. Phase 2/E 残作業
+5. Phase 2/E 残作業
    - GUI self-update Step 2 (v0.3)
    - #17 DMG bundle + LGPL-2.1 法務確認後の実装
 

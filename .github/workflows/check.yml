@@ -38,8 +38,13 @@ jobs:
       - name: nix flake check
         run: nix flake check --allow-import-from-derivation
 
-      - name: build linux home-manager
-        run: nix build .#homeConfigurations.linux.activationPackage
+      # Preserve evaluation coverage for the product default (developer) profile,
+      # but do not realize its entire upstream package closure on every PR.
+      - name: eval default developer linux home-manager
+        run: nix eval .#homeConfigurations.linux.activationPackage.drvPath
+
+      - name: build minimal linux home-manager
+        run: nix build .#homeConfigurations.linux.activationPackage --override-input profile "path:$PWD/tests/fixtures/profile-minimal.nix"
 
       - name: eval linux-arm home-manager
         run: nix eval .#homeConfigurations.linux-arm.activationPackage.drvPath
@@ -169,11 +174,33 @@ jobs:
           fi
           echo "OK: no raw tool spawns"
 
-  rust-check:
+  rust-quality:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: cargo test
+        # operations tests share a process-global file lock. Keep the test harness
+        # serial until those tests consistently inject per-test OperationLock paths.
+        run: nix develop --command cargo test -- --test-threads=1
+
+      - name: cargo fmt check
+        run: nix develop --command cargo fmt -- --check
+
+      - name: cargo clippy
+        run: nix develop --command cargo clippy -- -D warnings
+
+  rust-build-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      # Linux desktop compile gate requires WebKit/GTK headers. Keep these out of
+      # rust-quality; the macOS release-artifact-check remains the full bundle gate.
       - name: install Tauri system deps
         run: |
           sudo apt-get update
@@ -183,27 +210,39 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
-      - name: cargo test
-        run: nix develop --command cargo test
-
-      - name: cargo fmt check
-        run: nix develop --command cargo fmt -- --check
-
-      - name: cargo clippy
-        run: nix develop --command cargo clippy -- -D warnings
-
       - name: CLI artifact smoke
         run: |
           nix develop --command cargo build --release -p schneeforge
           ./target/release/schneeforge --version
           ./target/release/schneeforge doctor
 
-      - name: desktop build smoke
-        # CLI sidecar (externalBin) の stage 元として debug build した CLI が
-        # 必要 (build script は <repo>/target/<profile>/schneeforge を参照する)
+      - name: desktop compile smoke
+        # Full link/bundle coverage is already required in release-artifact-check via
+        # the release workflow's macOS DMG build script. Linux keeps a compile gate
+        # without paying a second cold full desktop link/build on another runner.
+        run: nix develop --command cargo check --release --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+  # Branch protection はこの既存 context 名を required として参照している。
+  # Worker の failure/cancel/skip を全て fail-closed で集約する。
+  rust-check:
+    needs: [rust-quality, rust-build-smoke]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: require all Rust workers
+        env:
+          RUST_QUALITY: ${{ needs.rust-quality.result }}
+          RUST_BUILD_SMOKE: ${{ needs.rust-build-smoke.result }}
         run: |
-          nix develop --command cargo build -p schneeforge
-          nix develop --command cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml
+          set -euo pipefail
+          printf 'rust-quality=%s\n' "$RUST_QUALITY"
+          printf 'rust-build-smoke=%s\n' "$RUST_BUILD_SMOKE"
+          for result in "$RUST_QUALITY" "$RUST_BUILD_SMOKE"; do
+            if [ "$result" != "success" ]; then
+              echo "ERROR: a Rust CI worker did not succeed" >&2
+              exit 1
+            fi
+          done
 
   bootstrap-test:
     runs-on: ubuntu-latest
@@ -224,7 +263,7 @@ jobs:
         run: nix run nixpkgs#bats -- tests/resolve-tools.bats
 
       # v2 P1: schneeforge update の source kind dispatch の実 binary smoke。
-      # binary は rust-check job と同じ release build を local で作る
+      # binary は rust-build-smoke と同じ release build を local で作る
       - name: bats test (source update dispatch)
         run: |
           nix develop --command cargo build --release -p schneeforge
@@ -343,3 +382,49 @@ jobs:
         run: |
           cp -r "templates/${{ matrix.template }}" /tmp/template-dev
           cd /tmp/template-dev && nix develop --command true
+
+  # Shadow candidate for a future branch-protection migration. This job is not
+  # configured as required by this change; it only demonstrates stable aggregation.
+  ci-required:
+    needs:
+      - openspec-check
+      - flake-check
+      - rust-check
+      - lint
+      - bootstrap-test
+      - managed-nix-e2e
+      - release-artifact-check
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: require all current required checks
+        env:
+          OPENSPEC_CHECK: ${{ needs.openspec-check.result }}
+          FLAKE_CHECK: ${{ needs.flake-check.result }}
+          RUST_CHECK: ${{ needs.rust-check.result }}
+          LINT: ${{ needs.lint.result }}
+          BOOTSTRAP_TEST: ${{ needs.bootstrap-test.result }}
+          MANAGED_NIX_E2E: ${{ needs.managed-nix-e2e.result }}
+          RELEASE_ARTIFACT_CHECK: ${{ needs.release-artifact-check.result }}
+        run: |
+          set -euo pipefail
+          printf 'openspec-check=%s\n' "$OPENSPEC_CHECK"
+          printf 'flake-check=%s\n' "$FLAKE_CHECK"
+          printf 'rust-check=%s\n' "$RUST_CHECK"
+          printf 'lint=%s\n' "$LINT"
+          printf 'bootstrap-test=%s\n' "$BOOTSTRAP_TEST"
+          printf 'managed-nix-e2e=%s\n' "$MANAGED_NIX_E2E"
+          printf 'release-artifact-check=%s\n' "$RELEASE_ARTIFACT_CHECK"
+          for result in \
+            "$OPENSPEC_CHECK" \
+            "$FLAKE_CHECK" \
+            "$RUST_CHECK" \
+            "$LINT" \
+            "$BOOTSTRAP_TEST" \
+            "$MANAGED_NIX_E2E" \
+            "$RELEASE_ARTIFACT_CHECK"; do
+            if [ "$result" != "success" ]; then
+              echo "ERROR: a required CI job did not succeed" >&2
+              exit 1
+            fi
+          done
