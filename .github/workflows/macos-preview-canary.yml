@@ -13,7 +13,6 @@ permissions:
 jobs:
   xcode-27-canary:
     runs-on: xcode-27
-    continue-on-error: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
@@ -21,8 +20,10 @@ jobs:
         run: |
           sw_vers
           uname -m
+          printf 'selected-xcode=%s\n' "$(xcode-select -p)"
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
+          xcrun --find clang
 
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
 
