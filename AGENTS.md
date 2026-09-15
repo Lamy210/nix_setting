@@ -28,7 +28,7 @@ SchneeForge（Declarative Developer Workstation Manager）の開発ルール。�
 ### 開始時
 
 1. [docs/STATUS.md](./docs/STATUS.md) を読む（現在の状態・既知のデグレ・次の作業）
-2. [openspec/changes/](./openspec/changes/) の進行中 change を `openspec status` で確認
+2. [openspec/changes/](./openspec/changes/) の進行中 change を `openspec list` / `openspec status --change <name>` で確認
 3. MCP の memory サーバ（`search_nodes`）で前セッションのメモリを検索
 
 ### 終了時
@@ -38,51 +38,72 @@ SchneeForge（Declarative Developer Workstation Manager）の開発ルール。�
 
 ## 開発フロー: OpenSpec + ブランチ + PR を必ず使う
 
-main へ直接コミットしない。必ず feature branch → PR → レビュー → merge とする。
+`main` / `develop` へ直接コミットしない。topic branch → PR → review → merge とする。
 
 ```bash
 # 1. 現状確認
 openspec list                    # 進行中の change 一覧
 openspec status --change <name>  # アーティファクト進捗
 
-# 2. ブランチを作成
+# 2. develop から topic branch を作成
+git checkout develop
 git checkout -b feat/<kebab-case-name>
 
 # 3. OpenSpec change を作成
 openspec new change <kebab-case-name>
-# → proposal.md → design.md → specs/ → tasks.md の順に書く
-# → openspec validate <name> が通るまで実装しない
+# → proposal.md → design.md → specs/ → tasks.md
+# → openspec validate <name> --strict が通るまで実装しない
+# → proposal 承認後に実装へ進む
 
 # 4. tasks.md の順に実装（チェックを付ける）
 
-# 5. コミット（conventional commits）
+# 5. 品質ゲート
+openspec validate --all --strict
+cargo test
+cargo clippy -- -D warnings
+cargo fmt -- --check
+nix flake check
+
+# 6. コミット（conventional commits）
 git commit -m "feat: ..."
 
-# 6. 完了時にアーカイブ（feature ブランチ上で。develop へ直接 push しない）
-openspec archive <name>
-git add -A && git commit -m "chore: archive <name> + sync specs"
+# 7. 実装 PR を develop へ作成
+# topic PR は squash merge
+gh pr create --base develop --title "feat: ..."
 
-# 7. PR を作成してレビュー後に merge
-gh pr create --title "feat: ..."
-# → レビュー → merge
+# 8. 実装 PR merge 後、develop から archive branch を作成
+git checkout develop && git pull
+git checkout -b chore/archive-<name>
+openspec archive <name> --yes
+git add -A && git commit -m "chore: archive <name> + sync specs"
+gh pr create --base develop --title "chore: archive <name>"
 ```
 
 ## ブランチ・コミット規約
 
 | 種別 | プレフィックス | 例 |
 |------|---------------|-----|
-| ブランチ | feat/ fix/ refactor/ docs/ test/ chore/ | `feat/gui-diagnostics` |
+| Topic branch | feat/ fix/ refactor/ docs/ test/ chore/ | `feat/gui-diagnostics` |
+| Archive branch | chore/archive- | `chore/archive-gui-diagnostics` |
+| Release branch | release/ | `release/v0.3.0` |
 | コミット | feat: fix: refactor: docs: test: chore: | `fix: resolve button dispatch bug` |
 
-- **main へ直接 push しない**。必ず PR を挟む
+- **main / develop へ直接 push しない**。必ず PR を挟む
 - 1 PR = 1 関心事（feature / fix / refactor を混ぜない）
 - PR タイトルは conventional commits 形式
+- topic branch → `develop` は **squash merge**
+- `release/vX.Y.Z` → `main` は **merge commit**（squash / rebase 禁止）
+- release 後の `main` → `develop` back-merge は **merge commit**（squash / rebase 禁止）
+- 過去の diverged history を直すための force push / history rewrite はしない
 
 ## OpenSpec の必須条件
 
-- 機能追加・変更には必ず OpenSpec change を伴う（spec の無い実装はしない）
+- 機能追加・breaking change・architecture change・behavior-changing optimization・security pattern change には OpenSpec change を伴う
 - requirement には SHALL/MUST、Scenario には WHEN/THEN を必ず含める
-- `openspec validate --all` が通るまで実装を始めない
+- `openspec validate <change-id> --strict` と `openspec validate --all --strict` が通ること
+- proposal 承認前に実装を開始しない
+- change の archive は実装 PR merge 後に別 `chore/archive-*` PR で行う
+- tooling-only で main spec を変更しない archive のみ `openspec archive <change-id> --skip-specs --yes` を許可する
 - 手書きの `docs/*.md` spec は作らない（OpenSpec の changes/ を使う）
 
 ## アーキテクチャ
@@ -91,7 +112,7 @@ gh pr create --title "feat: ..."
 schneeforge-core (crates/core)   ← 実ロジック唯一の置き場
   ├── actions     (apply/rollback/scan/upgrade)
   ├── discovery   (detect_target/Platform/Architecture/tool検出)
-  ├── manifest    (config.toml)
+  ├── manifest    (schneeforge.toml)
   ├── repo        (repository解決)
   ├── state       (state.json)
   └── time        (時刻)
@@ -113,24 +134,27 @@ Desktop (apps/desktop)           ← Tauri 2。core を呼ぶだけ
 ## 品質ゲート（コミット前にローカル実行）
 
 ```bash
+openspec validate --all --strict
 cargo test
 cargo clippy -- -D warnings
 cargo fmt -- --check
 nix flake check
-openspec validate --all
 ```
 
 ## コードレビューチェックリスト
 
-- [ ] OpenSpec change が存在し `openspec validate --all` が通る
+- [ ] OpenSpec change が存在し `openspec validate --all --strict` が通る
+- [ ] proposal が承認済み
 - [ ] 実ロジックが core にあり、CLI/GUI に重複していない
 - [ ] テストが追加・更新されている
 - [ ] conventional commits 形式
 - [ ] 1 PR = 1 関心事
 - [ ] 既存テスト・CI が green
+- [ ] merge method が branch 種別に合っている
 
 ## 現在進行中
 
-- `openspec/changes/gui-normalization/` — GUI を動く installer へ（tasks.md 63件、Phase 1 の Core Foundation から着手）
+- `openspec/changes/refactor-development-workflow/` — OpenSpec / branch / release / CI protection migration の規約整合
+- `openspec/changes/add-dmg-offline-bundle-licensing/` — 法務確認待ち
 - 状態・既知のデグレ・次の作業は [docs/STATUS.md](./docs/STATUS.md) を参照（セッション開始時に必ず読む）
 - リリース運用は [RELEASE.md](./RELEASE.md) を参照
