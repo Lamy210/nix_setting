@@ -164,7 +164,7 @@ PY
   quality_block="$(workflow_job_block rust-quality)"
   echo "$build_block" | grep -q 'libwebkit2gtk-4.1-dev'
   echo "$build_block" | grep -q 'cargo build --release -p schneeforge'
-  echo "$build_block" | grep -q 'cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml'
+  echo "$build_block" | grep -q 'cargo check --release --manifest-path apps/desktop/src-tauri/Cargo.toml'
   run grep -q 'cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml' <<<"$build_block"
   [ "$status" -ne 0 ]
   run grep -q 'libwebkit2gtk-4.1-dev' <<<"$quality_block"
