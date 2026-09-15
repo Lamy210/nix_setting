@@ -49,12 +49,29 @@ jobs:
       - name: eval linux-arm home-manager
         run: nix eval .#homeConfigurations.linux-arm.activationPackage.drvPath
 
-  macos-check:
-    runs-on: macos-latest
+  macos-stable:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            xcode: /Applications/Xcode_26.3.app/Contents/Developer
+          - os: macos-26
+            xcode: /Applications/Xcode_26.6.app/Contents/Developer
+    runs-on: ${{ matrix.os }}
+    env:
+      DEVELOPER_DIR: ${{ matrix.xcode }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+
+      - name: macOS / Xcode diagnostics
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
 
       - name: nix flake check
         run: nix flake check --allow-import-from-derivation
@@ -65,8 +82,21 @@ jobs:
       - name: build nix-darwin system
         run: nix build .#darwinConfigurations.darwin-aarch64.system
 
-      # release artifact 経路の検証は独立 job `release-artifact-check` が担う
-      # (同一 script で二重実行しない)
+  macos-check:
+    needs: [macos-stable]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: require stable macOS matrix
+        env:
+          MACOS_STABLE: ${{ needs.macos-stable.result }}
+        run: |
+          set -euo pipefail
+          printf 'macos-stable=%s\n' "$MACOS_STABLE"
+          if [ "$MACOS_STABLE" != "success" ]; then
+            echo "ERROR: stable macOS matrix did not succeed" >&2
+            exit 1
+          fi
 
   # release artifact を tag push 後に初めて build しない原則。
   # release workflow と同一の scripts/ci/*.sh で build し smoke する
@@ -74,7 +104,9 @@ jobs:
   # build し gate する。DMG は RC.4 まで nix build 経路のまま /nix/store link が
   # 検出されず release されていたため、ここで完成品検査まで回す
   release-artifact-check:
-    runs-on: macos-latest
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
@@ -83,6 +115,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: macos-release
+
+      - name: macOS / Xcode diagnostics
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
 
       - name: build + smoke + portability gate (same script as release workflow)
         run: ./scripts/ci/build-release-macos-cli.sh
@@ -134,15 +173,8 @@ jobs:
         run: nix run nixpkgs#deadnix -- --fail .
 
       - name: forbid raw tool spawns
-        # tool.rs 以外で Command::new("nix") 等の文字列リテラル spawn を禁止する。
-        # 全ての操作は Toolchain の解決済みパスを経由しなければならない。
-        # 詳細: openspec/changes/runtime-tool-resolution-hardening/specs/tool-resolution/spec.md
-        # 例外: tool.rs (resolver 本体), crates/cli/tests/ (テストヘルパ)
         run: |
           set -euo pipefail
-          # Rust 側: tool.rs と CLI テストヘルパ以外で文字列リテラル spawn を使っていないか検出
-          # コメント行（// で始まるか /// doc comment、行内 /* ... */ ）は除外
-          # 仕様: tool-resolution spec "文字列リテラル spawn の禁止"
           rust_hits=$(grep -rnE 'Command::new\("(nix|git|brew|nh)"|run_(capture|stream)\("(nix|git|brew|nh)"|command_succeeds\("(nix|git|brew|nh)"' crates apps 2>/dev/null \
             | grep -v 'crates/core/src/tool.rs' \
             | grep -v 'crates/cli/tests/' \
@@ -157,9 +189,6 @@ jobs:
             echo "$rust_hits" >&2
             exit 1
           fi
-          # shell 側: install.sh / bootstrap.sh で直接 nix/git/brew を呼んでいないか
-          # [$] を使うことで shellcheck SC2016 を回避しつつ $NIX_BIN リテラルを grep
-          # `schneeforge ... nix install` は CLI subcommand 引数 (tool spawn ではない) のため除外
           shell_hits=$(grep -nE '(^| )nix |(^| )git |(^| )brew ' install.sh bootstrap.sh 2>/dev/null \
             | grep -v '^#' \
             | grep -v '[$]NIX_BIN' \
@@ -178,19 +207,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-
       - name: cargo test
-        # operations tests share a process-global file lock. Keep the test harness
-        # serial until those tests consistently inject per-test OperationLock paths.
         run: nix develop --command cargo test -- --test-threads=1
-
       - name: cargo fmt check
         run: nix develop --command cargo fmt -- --check
-
       - name: cargo clippy
         run: nix develop --command cargo clippy -- -D warnings
 
@@ -198,32 +221,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-
-      # Linux desktop compile gate requires WebKit/GTK headers. Keep these out of
-      # rust-quality; the macOS release-artifact-check remains the full bundle gate.
       - name: install Tauri system deps
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev
-
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-
       - name: CLI artifact smoke
         run: |
           nix develop --command cargo build --release -p schneeforge
           ./target/release/schneeforge --version
           ./target/release/schneeforge doctor
-
       - name: desktop compile smoke
-        # Full link/bundle coverage is already required in release-artifact-check via
-        # the release workflow's macOS DMG build script. Linux keeps a compile gate
-        # without paying a second cold full desktop link/build on another runner.
         run: nix develop --command cargo check --release --manifest-path apps/desktop/src-tauri/Cargo.toml
 
-  # Branch protection はこの既存 context 名を required として参照している。
-  # Worker の failure/cancel/skip を全て fail-closed で集約する。
   rust-check:
     needs: [rust-quality, rust-build-smoke]
     if: ${{ always() }}
@@ -248,73 +260,45 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-
       - name: bats test (bootstrap)
         run: nix run nixpkgs#bats -- tests/bootstrap.bats
-
       - name: bats test (install.sh Managed Nix 経路)
         run: nix run nixpkgs#bats -- tests/install-sh.bats
-
       - name: bats test (resolve-tools)
         run: nix run nixpkgs#bats -- tests/resolve-tools.bats
-
-      # v2 P1: schneeforge update の source kind dispatch の実 binary smoke。
-      # binary は rust-build-smoke と同じ release build を local で作る
       - name: bats test (source update dispatch)
         run: |
           nix develop --command cargo build --release -p schneeforge
           nix run nixpkgs#bats -- tests/source-update.bats
-
       - name: bats test (ci-scripts gate patterns)
         run: nix run nixpkgs#bats -- tests/ci-scripts.bats
-
-      # pin 済み nix-installer 実 binary との invocation contract 検証
-      # (install <plan> positional / SHA256 pin / --plan long flag 不在)
       - name: bats test (managed-nix contract)
         run: nix run nixpkgs#bats -- tests/managed-nix-contract.bats
-
       - name: nix-unit test
         run: nix run nixpkgs#nix-unit -- tests/nix-unit.nix
 
-  # issue #14: Linux x86_64 Docker E2E smoke。Nix-less Ubuntu container で
-  # schneeforge CLI の install → doctor → uninstall full flow を検証する。
-  # host 側 bats が docker CLI を叩く (DinD 不要)。
-  #
-  # binary は release.yml と同じ musl static build を使う。「CI で build できる」
-  # と「release binary が Nix-less machine で動く」は別物だったため (v0.2.0-rc.1
-  # の Linux asset が /nix/store interpreter 向きで exit 127)、E2E が検証する
-  # binary を release artifact と同一構成に固定する。
   managed-nix-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-
       - name: install musl toolchain
         run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
-
       - uses: Swatinem/rust-cache@v2
         with:
           key: musl
-
-      # release.yml と同一 script で build + smoke + static INTERP gate
-      # (PR CI と release workflow の build 経路 drift が RC.1/RC.2 両方の事故原因)
       - name: build schneeforge (release, musl static, same script as release workflow)
         run: ./scripts/ci/build-release-linux-cli.sh
-
       - name: stage binary at target/release
         run: |
           mkdir -p target/release
           cp target/x86_64-unknown-linux-musl/release/schneeforge target/release/schneeforge
-
       - name: bats test (managed-nix E2E, Docker)
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq bats
@@ -326,14 +310,11 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
-
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-
       - name: trufflehog scan
         run: nix run nixpkgs#trufflehog -- filesystem . --only-verified
-
       - name: scan for image files
         run: |
           echo "=== scanning for image files ==="
@@ -345,14 +326,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-
       - name: default devShell
         run: nix develop --command echo "maintenance shell ready"
-
       - name: runtime smoke (named shells)
         run: |
           nix develop .#go --command bash -c 'command -v go && go version'
@@ -367,24 +345,19 @@ jobs:
         template: [devenv, node, python, rust, flutter]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-
       - name: ${{ matrix.template }} template validate
         run: |
           cp -r "templates/${{ matrix.template }}" /tmp/template-test
           cd /tmp/template-test && nix flake metadata --json > /dev/null
-
       - name: ${{ matrix.template }} devShell
         if: matrix.template != 'devenv'
         run: |
           cp -r "templates/${{ matrix.template }}" /tmp/template-dev
           cd /tmp/template-dev && nix develop --command true
 
-  # Shadow candidate for a future branch-protection migration. This job is not
-  # configured as required by this change; it only demonstrates stable aggregation.
   ci-required:
     needs:
       - openspec-check
