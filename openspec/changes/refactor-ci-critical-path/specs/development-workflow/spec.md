@@ -5,7 +5,7 @@
 Rust CI を並列化するとき、GitHub branch protection が要求する `rust-check` context 名を維持しなければならない (MUST)。実処理を worker job へ分割しても、external merge gate としての `rust-check` は継続して生成されなければならない (MUST)。
 
 #### Scenario: Rust worker を fan-out する
-- **WHEN** Rust quality / CLI smoke / desktop smoke を独立 job に分割する
+- **WHEN** Rust quality / build smoke を独立 job に分割する
 - **THEN** workflow は引き続き `rust-check` context を生成する
 - **AND** GitHub branch protection の server-side required context を同時変更しない
 
@@ -14,7 +14,7 @@ Rust CI を並列化するとき、GitHub branch protection が要求する `rus
 `rust-check` aggregator は Rust worker 全件の完了後に必ず評価され、全 worker が `success` の場合のみ success にならなければならない (MUST)。worker が failure、cancelled、skipped のいずれかなら `rust-check` は failure にならなければならない (MUST)。
 
 #### Scenario: 全 Rust worker が成功する
-- **WHEN** `rust-quality`, `rust-cli-smoke`, `rust-desktop-smoke` がすべて success になる
+- **WHEN** `rust-quality` と `rust-build-smoke` がすべて success になる
 - **THEN** `rust-check` は success になる
 
 #### Scenario: Rust worker が non-success になる
@@ -22,17 +22,24 @@ Rust CI を並列化するとき、GitHub branch protection が要求する `rus
 - **THEN** `rust-check` は failure になる
 - **AND** dependent-job skip によって merge gate が曖昧にならない
 
-### Requirement: Desktop dependency isolation
+### Requirement: Desktop dependency isolation and artifact gate separation
 
-Tauri/GTK の Linux system dependencies は desktop build smoke を実行する worker のみに install しなければならない (MUST)。root Cargo workspace の core/CLI quality gate と CLI smoke は desktop 専用 system dependency install を要求してはならない (MUST NOT)。
+Tauri/GTK の Linux system dependencies は desktop compile smoke を実行する worker のみに install しなければならない (MUST)。root Cargo workspace の core/CLI quality gate は desktop 専用 system dependency install を要求してはならない (MUST NOT)。Linux desktop gate は compile coverage を提供し、release artifact の full build coverage は required `release-artifact-check` が継続して提供しなければならない (MUST)。
 
 #### Scenario: Core/CLI quality worker を実行する
-- **WHEN** `rust-quality` または `rust-cli-smoke` が実行される
+- **WHEN** `rust-quality` が実行される
 - **THEN** Tauri/GTK apt dependency install を実行しない
 
-#### Scenario: Desktop smoke worker を実行する
-- **WHEN** `rust-desktop-smoke` が実行される
-- **THEN** desktop build に必要な Tauri/GTK system dependencies を install してから build する
+#### Scenario: Build smoke worker を実行する
+- **WHEN** `rust-build-smoke` が実行される
+- **THEN** CLI release smoke を実行する
+- **AND** desktop build に必要な Tauri/GTK system dependencies を install する
+- **AND** Linux desktop manifest を `cargo check` で compile gate する
+
+#### Scenario: Full desktop artifact gate を実行する
+- **WHEN** required `release-artifact-check` が実行される
+- **THEN** release workflow と同一 script による macOS DMG/Tauri full build を継続する
+- **AND** Linux build-smoke 側で同一目的の full desktop build を重複実行しない
 
 ### Requirement: Unified required-check candidate
 
@@ -64,3 +71,8 @@ CI critical path optimization は変更前後の実測を記録し、wall-clock 
 - **THEN** baseline と required critical path elapsed time を比較する
 - **AND** Rust worker + aggregator の elapsed runner time 合計を比較する
 - **AND** 25%以上の critical-path 短縮と +20%以内の runner-time 増加を目標値として結果を記録する
+
+#### Scenario: Fan-out が runner-time guard を超過する
+- **WHEN** worker + aggregator の runner time が baseline 比 +20% を超える
+- **THEN** その分割案を高速化完了として採用してはならない
+- **AND** worker granularity または duplicated build を再設計して再計測する
