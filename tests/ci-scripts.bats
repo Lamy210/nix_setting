@@ -217,7 +217,6 @@ PY
 }
 
 @test "shipping macOS paths pin macos-26 and Xcode 26.6" {
-  check=.github/workflows/check.yml
   release=.github/workflows/release.yml
   release_artifact="$(workflow_job_block release-artifact-check)"
   echo "$release_artifact" | grep -q 'runs-on: macos-26'
@@ -236,6 +235,8 @@ PY
   [ -f "$workflow" ]
   grep -q 'xcode-27' "$workflow"
   run grep -q 'pull_request:' "$workflow"
+  [ "$status" -ne 0 ]
+  run grep -q 'continue-on-error: true' "$workflow"
   [ "$status" -ne 0 ]
   run grep -q 'xcode-27' .github/workflows/check.yml .github/workflows/release.yml
   [ "$status" -ne 0 ]
