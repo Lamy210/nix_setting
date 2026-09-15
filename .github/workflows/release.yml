@@ -16,17 +16,14 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             artifact: schneeforge-x86_64-linux
-          - os: macos-latest
+          - os: macos-26
             target: aarch64-darwin
             artifact: schneeforge-aarch64-darwin
+            xcode: /Applications/Xcode_26.6.app/Contents/Developer
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-      # --- Linux (musl static) ---
-      # `nix build` 産 binary は ELF interpreter が /nix/store/... 向きになり、
-      # Nix 未導入 machine (install.sh の想定環境) で実行できないため、
-      # host rustc + musl target で完全 static にする。
       - name: install musl toolchain
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
@@ -36,8 +33,6 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl
 
-      # build / smoke / static INTERP gate は scripts/ci/ に共通化
-      # (PR CI の release-artifact-check と同一 script。drift が rc.2 事故の原因)
       - name: build binary (musl static, same script as PR CI)
         if: runner.os == 'Linux'
         run: ./scripts/ci/build-release-linux-cli.sh
@@ -49,24 +44,32 @@ jobs:
           cp target/x86_64-unknown-linux-musl/release/schneeforge "dist/${{ matrix.artifact }}"
           "dist/${{ matrix.artifact }}" --version
 
-      # --- macOS (host cargo build) ---
-      # `nix build` 産 binary は /nix/store の libiconv に link し、
-      # Nix 未導入 Mac (install.sh の想定環境) で起動できないため、
-      # host toolchain で build する (Linux musl と同じ理由)。
+      - name: macOS / Xcode diagnostics
+        if: runner.os == 'macOS'
+        env:
+          DEVELOPER_DIR: ${{ matrix.xcode }}
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+
       - uses: dtolnay/rust-toolchain@stable
         if: runner.os == 'macOS'
 
       - uses: Swatinem/rust-cache@v2
         if: runner.os == 'macOS'
 
-      # build / smoke / otool+LC_RPATH portability gate は scripts/ci/ に共通化
-      # (PR CI の release-artifact-check と同一 script。drift が rc.1/rc.2 事故の原因)
       - name: build binary (macOS, same script as PR CI)
         if: runner.os == 'macOS'
+        env:
+          DEVELOPER_DIR: ${{ matrix.xcode }}
         run: ./scripts/ci/build-release-macos-cli.sh
 
       - name: package binary (macOS)
         if: runner.os == 'macOS'
+        env:
+          DEVELOPER_DIR: ${{ matrix.xcode }}
         run: |
           mkdir -p dist
           cp target/release/schneeforge "dist/${{ matrix.artifact }}"
@@ -78,11 +81,10 @@ jobs:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.artifact }}
 
-  # DMG も CLI と同じく host cargo + pinned Tauri CLI で build し、mount した
-  # .app 内 binary に portability gate をかける (RC.4 の /nix/store libiconv 事故の
-  # 再発防止。script は check.yml release-artifact-check と同一)
   build-dmg:
-    runs-on: macos-latest
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
@@ -92,8 +94,13 @@ jobs:
         with:
           key: macos-release-dmg
 
-      # build + gate は scripts/ci/build-release-macos-dmg.sh に共通化
-      # (PR CI の release-artifact-check と同一 script。drift が事故原因)
+      - name: macOS / Xcode diagnostics
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+
       - name: build DMG (host toolchain, same script as PR CI)
         run: ./scripts/ci/build-release-macos-dmg.sh
 
@@ -106,11 +113,6 @@ jobs:
   release:
     needs: [build-binaries, build-dmg]
     runs-on: ubuntu-latest
-    # job level で上書き: attestation に必要な OIDC (id-token) と
-    # attestation 永続化 API の権限 (attestations) は release job のみに
-    # 付与する (build job へは渡さない)。attestations: write が無いと
-    # "Failed to persist attestation: Resource not accessible by integration"
-    # で失敗する (v0.2.0-rc.6 の事故)
     permissions:
       contents: write
       id-token: write
@@ -157,11 +159,6 @@ jobs:
             echo "revision: ${{ github.sha }}"
           } > CHECKSUMS.txt
 
-      # Phase E (supply chain): この release の asset 全てに SLSA build
-      # provenance を attest する (checksums 生成後・release 作成前。失敗時は
-      # release を作らない)。検証は upstream nix-installer と対称の
-      # `gh attestation verify --repo Lamy210/nix_setting <file>`。過去
-      # release への遡及 attest はしない (design.md D5)
       - name: attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
@@ -171,11 +168,6 @@ jobs:
             schneeforge-release.json
             CHECKSUMS.txt
 
-      # Schnee 配信 platform (SchneeSoftwareDistribution) の命名規約 asset。
-      # cosign keyless 署名 (identity = 当 workflow) + SLSA provenance + SPDX
-      # SBOM を artifact ごとに生成し、platform と同じ identity pin で自己検証
-      # する (失敗時は release を作らない)。GitHub native attestation とは
-      # 別経路 (人手の gh attestation verify 用) として併存する
       - name: generate attestation bundles (cosign, platform convention)
         run: |
           ./scripts/ci/attest-release-assets.sh "${{ github.ref_name }}" "${{ github.sha }}" dist/*/*
@@ -190,6 +182,4 @@ jobs:
             CHECKSUMS.txt
             attestations/*
           generate_release_notes: true
-          # -rc / -beta tag は prerelease 扱いにし releases/latest API が
-          # rc を返さないようにする (install.sh が rc を拾わないようにするため)
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
