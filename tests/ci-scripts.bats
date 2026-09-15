@@ -41,8 +41,7 @@ extract_rpaths() {
 }
 
 @test "LC_RPATH extraction allows /usr/local/lib rpath" {
-  run sh -c "printf 'Load command 12\n      cmd LC_RPATH\n      cmdsize 32\n      path /usr/local/lib (offset 12)\n' \
-    | extract_rpaths | grep '^/nix/store/'"
+  run sh -c "printf 'Load command 12\n      cmd LC_RPATH\n      cmdsize 32\n      path /usr/local/lib (offset 12)\n' | grep -q '^/nix/store/'"
   [ "$status" -ne 0 ]
 }
 
@@ -128,4 +127,38 @@ PY
   tmp="$(mktemp -d)"
   run python3 scripts/ci/slsa_predicate.py v9.9.9 "not-a-sha" "refs/tags/v9.9.9" "$tmp/predicate.json"
   [ "$status" -ne 0 ]
+}
+
+# --- check.yml critical-path contract (refactor-ci-critical-path) ---
+
+@test "rust required check fans out to three workers and aggregates fail-closed" {
+  workflow=.github/workflows/check.yml
+  grep -q '^  rust-quality:$' "$workflow"
+  grep -q '^  rust-cli-smoke:$' "$workflow"
+  grep -q '^  rust-desktop-smoke:$' "$workflow"
+  grep -q '^  rust-check:$' "$workflow"
+
+  rust_check_block="$(awk '/^  rust-check:$/,/^  [a-zA-Z0-9_-]+:$/' "$workflow")"
+  echo "$rust_check_block" | grep -q 'needs: \[rust-quality, rust-cli-smoke, rust-desktop-smoke\]'
+  echo "$rust_check_block" | grep -q 'if:.*always()'
+  echo "$rust_check_block" | grep -q 'needs.rust-quality.result'
+  echo "$rust_check_block" | grep -q 'needs.rust-cli-smoke.result'
+  echo "$rust_check_block" | grep -q 'needs.rust-desktop-smoke.result'
+}
+
+@test "Tauri system packages are isolated to desktop Rust worker" {
+  workflow=.github/workflows/check.yml
+  [ "$(grep -c 'libwebkit2gtk-4.1-dev' "$workflow")" -eq 1 ]
+  desktop_block="$(awk '/^  rust-desktop-smoke:$/,/^  [a-zA-Z0-9_-]+:$/' "$workflow")"
+  echo "$desktop_block" | grep -q 'libwebkit2gtk-4.1-dev'
+}
+
+@test "shadow ci-required aggregates the existing seven required contexts" {
+  workflow=.github/workflows/check.yml
+  ci_required_block="$(awk '/^  ci-required:$/,/^  [a-zA-Z0-9_-]+:$/' "$workflow")"
+  [ -n "$ci_required_block" ]
+  echo "$ci_required_block" | grep -q 'if:.*always()'
+  for job in openspec-check flake-check rust-check lint bootstrap-test managed-nix-e2e release-artifact-check; do
+    echo "$ci_required_block" | grep -q "needs.$job.result"
+  done
 }
