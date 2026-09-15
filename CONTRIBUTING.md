@@ -99,13 +99,12 @@ git checkout main && git pull
 git tag -a vX.Y.Z -m "SchneeForge vX.Y.Z"
 git push origin vX.Y.Z
 
-# 5. main を develop へ PR で back-merge。merge commit 固定
-git checkout -b chore/back-merge-vX.Y.Z main
-git push -u origin chore/back-merge-vX.Y.Z
-gh pr create --base develop --head chore/back-merge-vX.Y.Z --title "chore: back-merge vX.Y.Z"
+# 5. main 自体を head にして develop へ back-merge PR。merge commit 固定
+gh pr create --base develop --head main --title "chore: back-merge vX.Y.Z"
 # review + required checks green 後、merge commit を使用
 
-# 6. release / back-merge branch を削除
+# 6. release branch を削除
+git push origin --delete release/vX.Y.Z
 ```
 
 ## コミット規約（conventional commits）
@@ -140,7 +139,7 @@ gh pr create --base develop --head chore/back-merge-vX.Y.Z --title "chore: back-
 ## 品質ゲート（CI）
 
 ```
-openspec-check   openspec validate --all
+openspec-check   openspec validate --all --strict
 flake-check      nix flake check + Linux build
 macos-check      nix-darwin + HM build
 rust-check       cargo test / fmt / clippy
@@ -148,14 +147,14 @@ lint             statix / deadnix / actionlint / shellcheck
 secret-scan      trufflehog
 ```
 
-> OpenSpec の目標ゲートは `openspec validate --all --strict`。CI 側の strict 化は follow-up `refactor-ci-critical-path` で実施する。
+> `openspec-check` はこの workflow hardening から strict validation を enforce する。CI topology の分割・`ci-required` aggregator は follow-up `refactor-ci-critical-path` で扱う。
 
 ## OpenSpec の必須条件
 
 - 機能追加・breaking change・architecture change・behavior-changing optimization・security pattern change には OpenSpec change を伴う
 - requirement には SHALL/MUST、Scenario には WHEN/THEN
 - 対象 change は `openspec validate <change-id> --strict` を通す
-- repository 全体は `openspec validate --all --strict` を目標 gate とする
+- repository 全体は `openspec validate --all --strict` を gate とする
 - proposal approval 前に実装しない
 - archive は実装 PR merge 後の separate PR で行う
 - 手書き `docs/*.md` spec は作らない
