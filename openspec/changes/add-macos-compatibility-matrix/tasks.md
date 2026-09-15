@@ -3,7 +3,7 @@
 - [x] 1.1 Verify current Apple Xcode/macOS support and GitHub runner image availability using primary sources.
 - [x] 1.2 Define stable compatibility/current lanes, preview canary isolation, release toolchain pinning, failure modes, and rollback in `design.md`.
 - [x] 1.3 Add `development-workflow` delta requirements for explicit macOS/Xcode contracts.
-- [ ] 1.4 Run `openspec validate add-macos-compatibility-matrix --strict` and `openspec validate --all --strict`.
+- [x] 1.4 Run `openspec validate add-macos-compatibility-matrix --strict` and `openspec validate --all --strict`.
 
 ## 2. Stable macOS matrix
 
