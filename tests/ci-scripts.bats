@@ -203,7 +203,7 @@ PY
   echo "$block" | grep -q 'xcode: /Applications/Xcode_26.3.app/Contents/Developer'
   echo "$block" | grep -q 'os: macos-26'
   echo "$block" | grep -q 'xcode: /Applications/Xcode_26.6.app/Contents/Developer'
-  echo "$block" | grep -Fq 'DEVELOPER_DIR: ${{ matrix.xcode }}'
+  echo "$block" | grep -Fq "DEVELOPER_DIR: \${{ matrix.xcode }}"
 }
 
 @test "macos-check aggregates stable matrix fail-closed and stays out of ci-required" {
