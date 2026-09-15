@@ -24,7 +24,7 @@ Rust CI を並列化するとき、GitHub branch protection が要求する `rus
 
 ### Requirement: Desktop dependency isolation and artifact gate separation
 
-Tauri/GTK の Linux system dependencies は desktop compile smoke を実行する worker のみに install しなければならない (MUST)。root Cargo workspace の core/CLI quality gate は desktop 専用 system dependency install を要求してはならない (MUST NOT)。Linux desktop gate は compile coverage を提供し、release artifact の full build coverage は required `release-artifact-check` が継続して提供しなければならない (MUST)。
+Tauri/GTK の Linux system dependencies は desktop compile smoke を実行する worker のみに install しなければならない (MUST)。root Cargo workspace の core/CLI quality gate は desktop 専用 system dependency install を要求してはならない (MUST NOT)。Linux desktop gate は CLI sidecar build profile と一致する release-profile compile coverage を提供し、release artifact の full build coverage は required `release-artifact-check` が継続して提供しなければならない (MUST)。
 
 #### Scenario: Core/CLI quality worker を実行する
 - **WHEN** `rust-quality` が実行される
@@ -34,12 +34,32 @@ Tauri/GTK の Linux system dependencies は desktop compile smoke を実行す�
 - **WHEN** `rust-build-smoke` が実行される
 - **THEN** CLI release smoke を実行する
 - **AND** desktop build に必要な Tauri/GTK system dependencies を install する
-- **AND** Linux desktop manifest を `cargo check` で compile gate する
+- **AND** Linux desktop manifest を `cargo check --release` で compile gate する
+- **AND** CLI sidecar source と desktop compile の Cargo profile を一致させる
 
 #### Scenario: Full desktop artifact gate を実行する
 - **WHEN** required `release-artifact-check` が実行される
 - **THEN** release workflow と同一 script による macOS DMG/Tauri full build を継続する
 - **AND** Linux build-smoke 側で同一目的の full desktop build を重複実行しない
+
+### Requirement: Required Linux Home Manager coverage separation
+
+required `flake-check` は product default `developer` profile の Linux Home Manager activation derivation を評価しなければならない (MUST)。同時に、supported `minimal` profile を明示的な profile input override で actual realization しなければならない (MUST)。この CI optimization のために product manifest の default profile を変更してはならない (MUST NOT)。
+
+#### Scenario: Default developer profile を検証する
+- **WHEN** required `flake-check` が Linux configuration を検証する
+- **THEN** default `developer` profile の `homeConfigurations.linux.activationPackage.drvPath` を evaluation する
+- **AND** module/config/derivation construction error は required gate を failure にする
+
+#### Scenario: Minimal profile を actual realization する
+- **WHEN** required `flake-check` が Linux Home Manager build smoke を実行する
+- **THEN** CI fixture で `minimal` profile を `--override-input profile` に明示指定する
+- **AND** `homeConfigurations.linux.activationPackage` を `nix build` して actual realization を検証する
+
+#### Scenario: Product default を保持する
+- **WHEN** CI realization target を `minimal` に override する
+- **THEN** `schneeforge.toml` の default `developer` を変更しない
+- **AND** override はその CI build invocation のみに適用する
 
 ### Requirement: Unified required-check candidate
 
@@ -76,3 +96,8 @@ CI critical path optimization は変更前後の実測を記録し、wall-clock 
 - **WHEN** worker + aggregator の runner time が baseline 比 +20% を超える
 - **THEN** その分割案を高速化完了として採用してはならない
 - **AND** worker granularity または duplicated build を再設計して再計測する
+
+#### Scenario: Critical-path target を満たさない
+- **WHEN** runner-time guard は満たすが required critical path の短縮率が25%未満である
+- **THEN** その状態を高速化完了として扱ってはならない
+- **AND** 次の dominant required gate を計測して再設計する
