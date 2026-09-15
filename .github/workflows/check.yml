@@ -23,8 +23,8 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
-      - name: openspec validate
-        run: nix run nixpkgs#openspec -- validate --all --no-interactive
+      - name: openspec validate (strict)
+        run: nix run nixpkgs#openspec -- validate --all --strict --no-interactive
 
   flake-check:
     runs-on: ubuntu-latest
