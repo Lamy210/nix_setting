@@ -38,8 +38,13 @@ jobs:
       - name: nix flake check
         run: nix flake check --allow-import-from-derivation
 
-      - name: build linux home-manager
-        run: nix build .#homeConfigurations.linux.activationPackage
+      # Preserve evaluation coverage for the product default (developer) profile,
+      # but do not realize its entire upstream package closure on every PR.
+      - name: eval default developer linux home-manager
+        run: nix eval .#homeConfigurations.linux.activationPackage.drvPath
+
+      - name: build minimal linux home-manager
+        run: nix build .#homeConfigurations.linux.activationPackage --override-input profile "path:$PWD/tests/fixtures/profile-minimal.nix"
 
       - name: eval linux-arm home-manager
         run: nix eval .#homeConfigurations.linux-arm.activationPackage.drvPath
