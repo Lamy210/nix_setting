@@ -144,8 +144,10 @@ PY
   workflow=.github/workflows/check.yml
   grep -q '^  rust-quality:$' "$workflow"
   grep -q '^  rust-build-smoke:$' "$workflow"
-  ! grep -q '^  rust-cli-smoke:$' "$workflow"
-  ! grep -q '^  rust-desktop-smoke:$' "$workflow"
+  run grep -q '^  rust-cli-smoke:$' "$workflow"
+  [ "$status" -ne 0 ]
+  run grep -q '^  rust-desktop-smoke:$' "$workflow"
+  [ "$status" -ne 0 ]
   grep -q '^  rust-check:$' "$workflow"
 
   rust_check_block="$(workflow_job_block rust-check)"
@@ -163,8 +165,10 @@ PY
   echo "$build_block" | grep -q 'libwebkit2gtk-4.1-dev'
   echo "$build_block" | grep -q 'cargo build --release -p schneeforge'
   echo "$build_block" | grep -q 'cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml'
-  ! echo "$build_block" | grep -q 'cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml'
-  ! echo "$quality_block" | grep -q 'libwebkit2gtk-4.1-dev'
+  run grep -q 'cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml' <<<"$build_block"
+  [ "$status" -ne 0 ]
+  run grep -q 'libwebkit2gtk-4.1-dev' <<<"$quality_block"
+  [ "$status" -ne 0 ]
 }
 
 @test "shadow ci-required aggregates the existing seven required contexts" {
