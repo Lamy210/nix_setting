@@ -97,11 +97,7 @@ pub fn validate_wsl_repo_path(repo: &str) -> Result<()> {
     let drive_letter = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
     let unc_path = repo.starts_with("\\\\") || repo.starts_with("//");
 
-    if repo.is_empty()
-        || drive_letter
-        || unc_path
-        || repo.contains('\\')
-        || !repo.starts_with('/')
+    if repo.is_empty() || drive_letter || unc_path || repo.contains('\\') || !repo.starts_with('/')
     {
         return Err(Error::Precondition(format!(
             "Windows --repo must be an absolute Linux path inside WSL (for example /home/user/project), got '{repo}'"
