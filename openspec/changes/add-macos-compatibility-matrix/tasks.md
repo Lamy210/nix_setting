@@ -35,11 +35,11 @@
 
 ## 6. Verification / measurement
 
-- [ ] 6.1 Run workflow static gates (`actionlint`, shell/Bats contract tests) and relevant local tests.
-- [ ] 6.2 Confirm both stable macOS lanes complete successfully on the implementation PR and `macos-check` aggregates them fail-closed.
-- [ ] 6.3 Confirm `release-artifact-check` succeeds on `macos-26` + Xcode 26.6 and release workflow uses the same explicit host/toolchain contract.
-- [ ] 6.4 Confirm the Xcode 27 preview canary is absent from pull-request execution and cannot affect current required checks.
-- [ ] 6.5 Record before/after macOS wall-clock and runner elapsed totals; if stable matrix total persistently exceeds roughly 2.5x the previous single lane, re-evaluate compatibility-lane cadence/coverage before declaring completion.
-- [ ] 6.6 Run full required CI, shadow `ci-required`, and final diff review; confirm no server-side branch-protection settings changed.
-- [x] 6.7 Open the implementation PR to `develop`, obtain review, and squash merge only after latest-head checks are green.
+- [x] 6.1 Run workflow static gates (`actionlint`, shell/Bats contract tests) and relevant tests; run #424 passed OpenSpec strict, actionlint, ShellCheck, Bats, Rust, flake and E2E gates.
+- [x] 6.2 Confirm both stable macOS lanes complete successfully on the implementation PR and `macos-check` aggregates them fail-closed; run #424 passed both lanes and the aggregator, while an earlier cancelled run demonstrated the non-success path fails closed.
+- [x] 6.3 Confirm `release-artifact-check` succeeds on `macos-26` + Xcode 26.6 and release workflow uses the same explicit host/toolchain contract; run #424 passed CLI, DMG and release-metadata verification.
+- [x] 6.4 Confirm the Xcode 27 preview canary is absent from pull-request execution and cannot affect current required checks; no `xcode-27-canary` job was created for run #424 and no stable/release job depends on it.
+- [x] 6.5 Record before/after macOS wall-clock and runner elapsed totals. Previous single-lane baseline: 544s. Run #424: `macos-15` about 635s, `macos-26` about 591s, combined about 1227s (2.26x baseline) with parallel wall-clock about 636s; this is below the 2.5x / 1360s guard.
+- [x] 6.6 Run full required CI, shadow `ci-required`, and final diff review; run #424 passed all current required contexts plus `ci-required`, and review found no Critical/Important blocker or server-side branch-protection change.
+- [ ] 6.7 Open the implementation PR to `develop`, obtain review, and squash merge only after the final latest-head checks are green.
 - [ ] 6.8 After implementation merge, create `chore/archive-add-macos-compatibility-matrix` from latest `develop`, archive with spec sync, validate, and merge the separate archive PR.
