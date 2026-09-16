@@ -41,5 +41,5 @@
 - [x] 6.4 Confirm the Xcode 27 preview canary is absent from pull-request execution and cannot affect current required checks; no `xcode-27-canary` job was created for run #424 and no stable/release job depends on it.
 - [x] 6.5 Record before/after macOS wall-clock and runner elapsed totals. Previous single-lane baseline: 544s. Run #424: `macos-15` about 635s, `macos-26` about 591s, combined about 1227s (2.26x baseline) with parallel wall-clock about 636s; this is below the 2.5x / 1360s guard.
 - [x] 6.6 Run full required CI, shadow `ci-required`, and final diff review; run #424 passed all current required contexts plus `ci-required`, and review found no Critical/Important blocker or server-side branch-protection change.
-- [ ] 6.7 Open the implementation PR to `develop`, obtain review, and squash merge only after the final latest-head checks are green.
-- [ ] 6.8 After implementation merge, create `chore/archive-add-macos-compatibility-matrix` from latest `develop`, archive with spec sync, validate, and merge the separate archive PR.
+- [x] 6.7 Open the implementation PR to `develop`, obtain review, and squash merge only after the final latest-head checks are green; PR #93 passed run #428 and was squash merged as `4501d2503d65f84148a6910ea24d700c36568f63`.
+- [x] 6.8 After implementation merge, create `chore/archive-add-macos-compatibility-matrix`, archive the change with main-spec sync, and open a separate archive PR; merge remains gated on that PR's latest-head required checks.
