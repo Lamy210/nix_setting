@@ -119,6 +119,60 @@ pub fn build_wsl_argv(distro: &str, forwarded: &[String]) -> Vec<String> {
     args
 }
 
+/// Remove launcher-only WSL selector arguments before forwarding to the Linux helper.
+///
+/// A literal `--` terminates launcher option processing; arguments after that
+/// marker are preserved byte-for-byte at the Rust `String` level.
+pub fn strip_wsl_distro_args(raw: &[String]) -> Result<Vec<String>> {
+    let mut forwarded = Vec::with_capacity(raw.len());
+    let mut index = 0;
+    let mut passthrough = false;
+
+    while index < raw.len() {
+        let arg = &raw[index];
+        if passthrough {
+            forwarded.push(arg.clone());
+            index += 1;
+            continue;
+        }
+
+        if arg == "--" {
+            passthrough = true;
+            forwarded.push(arg.clone());
+            index += 1;
+            continue;
+        }
+
+        if arg == "--wsl-distro" {
+            let value = raw.get(index + 1).ok_or_else(|| {
+                Error::Precondition("--wsl-distro requires a non-empty distribution name".into())
+            })?;
+            if value.trim().is_empty() || value == "--" {
+                return Err(Error::Precondition(
+                    "--wsl-distro requires a non-empty distribution name".into(),
+                ));
+            }
+            index += 2;
+            continue;
+        }
+
+        if let Some(value) = arg.strip_prefix("--wsl-distro=") {
+            if value.trim().is_empty() {
+                return Err(Error::Precondition(
+                    "--wsl-distro requires a non-empty distribution name".into(),
+                ));
+            }
+            index += 1;
+            continue;
+        }
+
+        forwarded.push(arg.clone());
+        index += 1;
+    }
+
+    Ok(forwarded)
+}
+
 /// Derive the launcher host platform from Rust's OS identifier.
 pub fn detect_host_platform_for(os: &str) -> HostPlatform {
     match os {
