@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 mod windows_backend;
 
 use std::ffi::OsString;
