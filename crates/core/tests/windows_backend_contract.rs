@@ -63,13 +63,6 @@ fn wsl_argv_preserves_metacharacters_as_distinct_arguments() {
     let forwarded = vec!["apply".into(), "a b;$(x)".into()];
     assert_eq!(
         build_wsl_argv("Ubuntu Dev", &forwarded),
-        vec![
-            "-d",
-            "Ubuntu Dev",
-            "--",
-            "schneeforge",
-            "apply",
-            "a b;$(x)",
-        ]
+        vec!["-d", "Ubuntu Dev", "--", "schneeforge", "apply", "a b;$(x)",]
     );
 }
