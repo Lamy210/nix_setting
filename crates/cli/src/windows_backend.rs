@@ -2,7 +2,7 @@ use std::process::Command;
 
 use schneeforge_core::execution::{
     build_wsl_argv, decode_wsl_output, parse_wsl_inventory, select_wsl2, validate_backend_info,
-    validate_wsl_repo_path, BackendInfo, HostPlatform,
+    validate_wsl_repo_path, BackendInfo, HostPlatform, SelectedWsl, WslDistro, WslSelectionSource,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,6 +12,13 @@ pub(crate) enum DispatchKind {
     WindowsDoctor,
     WindowsSelfUpdateUnsupported,
     Delegate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum EarlyDispatch {
+    ContinueNative,
+    Doctor(String),
+    Exit(i32),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -154,6 +161,66 @@ pub(crate) fn delegated_exit_code(code: Option<i32>) -> Result<i32, String> {
     code.ok_or_else(|| "delegated WSL command terminated without an exit code".to_owned())
 }
 
+pub(crate) fn dispatch(
+    host: HostPlatform,
+    args: &[String],
+    env_selector: Option<&str>,
+) -> Result<EarlyDispatch, String> {
+    let mut runtime = SystemWslRuntime;
+    dispatch_with_runtime(
+        &mut runtime,
+        host,
+        args,
+        env_selector,
+        env!("CARGO_PKG_VERSION"),
+    )
+}
+
+fn dispatch_with_runtime<R: WslRuntime>(
+    runtime: &mut R,
+    host: HostPlatform,
+    args: &[String],
+    env_selector: Option<&str>,
+    expected_app_version: &str,
+) -> Result<EarlyDispatch, String> {
+    match classify_dispatch(host, args) {
+        DispatchKind::Native | DispatchKind::LocalHelpOrVersion => {
+            Ok(EarlyDispatch::ContinueNative)
+        }
+        DispatchKind::WindowsSelfUpdateUnsupported => Err(
+            "Windows self-update is not supported yet; update the Windows launcher and WSL helper together using a future coordinated release mechanism"
+                .to_owned(),
+        ),
+        DispatchKind::WindowsDoctor => {
+            let parsed = parse_launcher_args(args)?;
+            Ok(EarlyDispatch::Doctor(windows_doctor_with_runtime(
+                runtime,
+                &parsed,
+                env_selector,
+                expected_app_version,
+            )))
+        }
+        DispatchKind::Delegate => {
+            let parsed = parse_launcher_args(args)?;
+            delegate_with_runtime(runtime, &parsed, env_selector, expected_app_version)
+                .map(EarlyDispatch::Exit)
+        }
+    }
+}
+
+fn capture_failure(operation: &str, output: &ProcessOutput) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let detail = stderr.trim();
+    if detail.is_empty() {
+        format!("{operation} failed with exit code {:?}", output.code)
+    } else {
+        format!(
+            "{operation} failed with exit code {:?}: {detail}",
+            output.code
+        )
+    }
+}
+
 fn capture_checked<R: WslRuntime>(
     runtime: &mut R,
     argv: &[String],
@@ -163,13 +230,46 @@ fn capture_checked<R: WslRuntime>(
     if output.code == Some(0) {
         return Ok(output);
     }
+    Err(capture_failure(operation, &output))
+}
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    Err(format!(
-        "{operation} failed with exit code {:?}: {}",
-        output.code,
-        stderr.trim()
-    ))
+fn load_wsl_inventory<R: WslRuntime>(runtime: &mut R) -> Result<Vec<WslDistro>, String> {
+    let quiet_args = vec!["--list".to_owned(), "--quiet".to_owned()];
+    let verbose_args = vec!["--list".to_owned(), "--verbose".to_owned()];
+    let quiet = capture_checked(runtime, &quiet_args, "WSL distribution listing")?;
+    let verbose = capture_checked(runtime, &verbose_args, "WSL verbose distribution listing")?;
+    let quiet = decode_wsl_output(&quiet.stdout).map_err(|error| error.to_string())?;
+    let verbose = decode_wsl_output(&verbose.stdout).map_err(|error| error.to_string())?;
+    parse_wsl_inventory(&quiet, &verbose)
+        .map(|inventory| inventory.distros)
+        .map_err(|error| error.to_string())
+}
+
+fn select_from_distros(
+    distros: Vec<WslDistro>,
+    cli_selector: Option<&str>,
+    env_selector: Option<&str>,
+) -> Result<(Vec<WslDistro>, SelectedWsl), String> {
+    let inventory = schneeforge_core::execution::WslInventory {
+        distros: distros.clone(),
+    };
+    let selected = select_wsl2(&inventory, cli_selector, env_selector)
+        .map_err(|error| error.to_string())?;
+    Ok((distros, selected))
+}
+
+fn probe_helper<R: WslRuntime>(
+    runtime: &mut R,
+    distro: &str,
+    expected_app_version: &str,
+) -> Result<BackendInfo, String> {
+    let helper_args = build_wsl_argv(distro, &["__backend-info".to_owned()]);
+    let helper = capture_checked(runtime, &helper_args, "WSL helper compatibility probe")?;
+    let helper = decode_wsl_output(&helper.stdout).map_err(|error| error.to_string())?;
+    let helper = serde_json::from_str::<BackendInfo>(helper.trim())
+        .map_err(|error| format!("invalid WSL helper compatibility response: {error}"))?;
+    validate_backend_info(&helper, expected_app_version).map_err(|error| error.to_string())?;
+    Ok(helper)
 }
 
 fn delegate_with_runtime<R: WslRuntime>(
@@ -182,25 +282,99 @@ fn delegate_with_runtime<R: WslRuntime>(
         validate_wsl_repo_path(repo).map_err(|error| error.to_string())?;
     }
 
-    let quiet_args = vec!["--list".to_owned(), "--quiet".to_owned()];
-    let verbose_args = vec!["--list".to_owned(), "--verbose".to_owned()];
-    let quiet = capture_checked(runtime, &quiet_args, "WSL distribution listing")?;
-    let verbose = capture_checked(runtime, &verbose_args, "WSL verbose distribution listing")?;
-    let quiet = decode_wsl_output(&quiet.stdout).map_err(|error| error.to_string())?;
-    let verbose = decode_wsl_output(&verbose.stdout).map_err(|error| error.to_string())?;
-    let inventory = parse_wsl_inventory(&quiet, &verbose).map_err(|error| error.to_string())?;
-    let selected = select_wsl2(&inventory, parsed.wsl_distro.as_deref(), env_selector)
-        .map_err(|error| error.to_string())?;
-
-    let helper_args = build_wsl_argv(&selected.distro, &["__backend-info".to_owned()]);
-    let helper = capture_checked(runtime, &helper_args, "WSL helper compatibility probe")?;
-    let helper = decode_wsl_output(&helper.stdout).map_err(|error| error.to_string())?;
-    let helper = serde_json::from_str::<BackendInfo>(helper.trim())
-        .map_err(|error| format!("invalid WSL helper compatibility response: {error}"))?;
-    validate_backend_info(&helper, expected_app_version).map_err(|error| error.to_string())?;
+    let distros = load_wsl_inventory(runtime)?;
+    let (_, selected) = select_from_distros(
+        distros,
+        parsed.wsl_distro.as_deref(),
+        env_selector,
+    )?;
+    probe_helper(runtime, &selected.distro, expected_app_version)?;
 
     let delegated_args = build_wsl_argv(&selected.distro, &parsed.forwarded);
     delegated_exit_code(runtime.status(&delegated_args)?)
+}
+
+fn windows_doctor_with_runtime<R: WslRuntime>(
+    runtime: &mut R,
+    parsed: &LauncherArgs,
+    env_selector: Option<&str>,
+    expected_app_version: &str,
+) -> String {
+    let mut report = String::from("=== doctor ===\n\n[host]\n  host: windows\n\n[wsl]\n");
+
+    let distros = match load_wsl_inventory(runtime) {
+        Ok(distros) => {
+            report.push_str("  available: yes\n");
+            for distro in &distros {
+                report.push_str("  - ");
+                report.push_str(&distro.name);
+                report.push_str(": ");
+                match distro.version {
+                    Some(version) => report.push_str(&format!("WSL{version}")),
+                    None => report.push_str("WSL version unknown"),
+                }
+                if let Some(state) = &distro.state {
+                    report.push_str(&format!(" ({state}"));
+                    if distro.is_default {
+                        report.push_str(", default");
+                    }
+                    report.push_str(")\n");
+                } else if distro.is_default {
+                    report.push_str(" (default)\n");
+                } else {
+                    report.push('\n');
+                }
+            }
+            distros
+        }
+        Err(error) => {
+            report.push_str("  available: no\n");
+            report.push_str(&format!("  error: {error}\n\n[backend]\n  ready: no\n"));
+            return report;
+        }
+    };
+
+    let (_, selected) = match select_from_distros(
+        distros,
+        parsed.wsl_distro.as_deref(),
+        env_selector,
+    ) {
+        Ok(selection) => selection,
+        Err(error) => {
+            report.push_str(&format!("  selection error: {error}\n\n[backend]\n  ready: no\n"));
+            return report;
+        }
+    };
+
+    report.push_str(&format!(
+        "  selected: {} ({})\n\n[helper]\n",
+        selected.distro,
+        selection_source_label(selected.source)
+    ));
+
+    match probe_helper(runtime, &selected.distro, expected_app_version) {
+        Ok(helper) => {
+            report.push_str("  compatible: yes\n");
+            report.push_str(&format!(
+                "  version: {}\n  os: {}\n  arch: {}\n\n[backend]\n  ready: yes\n",
+                helper.app_version, helper.os, helper.arch
+            ));
+        }
+        Err(error) => {
+            report.push_str("  compatible: no\n");
+            report.push_str(&format!("  error: {error}\n\n[backend]\n  ready: no\n"));
+        }
+    }
+
+    report
+}
+
+fn selection_source_label(source: WslSelectionSource) -> &'static str {
+    match source {
+        WslSelectionSource::Cli => "cli",
+        WslSelectionSource::Environment => "environment",
+        WslSelectionSource::Default => "default",
+    }
 }
 
 fn command_name(args: &[String]) -> Option<&str> {
