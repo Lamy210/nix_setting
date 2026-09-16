@@ -1,6 +1,6 @@
 use schneeforge_core::execution::{
-    build_wsl_argv, validate_backend_info, validate_wsl_repo_path, BackendInfo,
-    BACKEND_PROTOCOL_VERSION,
+    build_wsl_argv, strip_wsl_distro_args, validate_backend_info, validate_wsl_repo_path,
+    BackendInfo, BACKEND_PROTOCOL_VERSION,
 };
 
 fn valid_backend() -> BackendInfo {
@@ -65,4 +65,39 @@ fn wsl_argv_preserves_metacharacters_as_distinct_arguments() {
         build_wsl_argv("Ubuntu Dev", &forwarded),
         vec!["-d", "Ubuntu Dev", "--", "schneeforge", "apply", "a b;$(x)",]
     );
+}
+
+#[test]
+fn launcher_only_wsl_selector_is_removed_before_forwarding() {
+    let separated = vec![
+        "--repo".into(),
+        "/home/alice/project".into(),
+        "--wsl-distro".into(),
+        "Ubuntu Dev".into(),
+        "apply".into(),
+    ];
+    assert_eq!(
+        strip_wsl_distro_args(&separated).unwrap(),
+        vec!["--repo", "/home/alice/project", "apply"]
+    );
+
+    let equals = vec!["apply".into(), "--wsl-distro=Debian".into()];
+    assert_eq!(strip_wsl_distro_args(&equals).unwrap(), vec!["apply"]);
+}
+
+#[test]
+fn malformed_wsl_selector_fails_closed() {
+    assert!(strip_wsl_distro_args(&["--wsl-distro".into()]).is_err());
+    assert!(strip_wsl_distro_args(&["--wsl-distro=".into(), "apply".into()]).is_err());
+}
+
+#[test]
+fn selector_like_argument_after_double_dash_is_preserved() {
+    let raw = vec![
+        "apply".into(),
+        "--".into(),
+        "--wsl-distro".into(),
+        "literal".into(),
+    ];
+    assert_eq!(strip_wsl_distro_args(&raw).unwrap(), raw);
 }
