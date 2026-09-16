@@ -4,6 +4,7 @@ pub mod dashboard;
 pub mod diagnostics;
 pub mod discovery;
 pub mod error;
+pub mod execution;
 pub mod lock;
 pub mod machine;
 pub mod managed_nix;
