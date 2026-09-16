@@ -1,7 +1,153 @@
+use schneeforge_core::execution::HostPlatform;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DispatchKind {
+    Native,
+    LocalHelpOrVersion,
+    WindowsDoctor,
+    WindowsSelfUpdateUnsupported,
+    Delegate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LauncherArgs {
+    pub(crate) wsl_distro: Option<String>,
+    pub(crate) repo: Option<String>,
+    pub(crate) forwarded: Vec<String>,
+}
+
+pub(crate) fn classify_dispatch(host: HostPlatform, args: &[String]) -> DispatchKind {
+    if !matches!(host, HostPlatform::Windows) {
+        return DispatchKind::Native;
+    }
+
+    if args
+        .iter()
+        .any(|arg| matches!(arg.as_str(), "--help" | "-h" | "--version" | "-V"))
+    {
+        return DispatchKind::LocalHelpOrVersion;
+    }
+
+    match command_name(args) {
+        Some("doctor") => DispatchKind::WindowsDoctor,
+        Some("self-update") => DispatchKind::WindowsSelfUpdateUnsupported,
+        Some("__backend-info") => DispatchKind::LocalHelpOrVersion,
+        Some(_) => DispatchKind::Delegate,
+        None => DispatchKind::LocalHelpOrVersion,
+    }
+}
+
+pub(crate) fn parse_launcher_args(args: &[String]) -> Result<LauncherArgs, String> {
+    let mut wsl_distro = None;
+    let mut repo = None;
+    let mut forwarded = Vec::with_capacity(args.len());
+    let mut index = 0;
+    let mut passthrough = false;
+
+    while index < args.len() {
+        let arg = &args[index];
+        if passthrough {
+            forwarded.push(arg.clone());
+            index += 1;
+            continue;
+        }
+
+        if arg == "--" {
+            passthrough = true;
+            forwarded.push(arg.clone());
+            index += 1;
+            continue;
+        }
+
+        if arg == "--wsl-distro" {
+            let value = args
+                .get(index + 1)
+                .ok_or_else(|| "--wsl-distro requires a distribution name".to_owned())?;
+            if value.trim().is_empty() || value == "--" {
+                return Err("--wsl-distro requires a non-empty distribution name".to_owned());
+            }
+            wsl_distro = Some(value.clone());
+            index += 2;
+            continue;
+        }
+
+        if let Some(value) = arg.strip_prefix("--wsl-distro=") {
+            if value.trim().is_empty() {
+                return Err("--wsl-distro requires a non-empty distribution name".to_owned());
+            }
+            wsl_distro = Some(value.to_owned());
+            index += 1;
+            continue;
+        }
+
+        if arg == "--repo" {
+            let value = args
+                .get(index + 1)
+                .ok_or_else(|| "--repo requires a path".to_owned())?;
+            repo = Some(value.clone());
+            forwarded.push(arg.clone());
+            forwarded.push(value.clone());
+            index += 2;
+            continue;
+        }
+
+        if let Some(value) = arg.strip_prefix("--repo=") {
+            repo = Some(value.to_owned());
+            forwarded.push(arg.clone());
+            index += 1;
+            continue;
+        }
+
+        forwarded.push(arg.clone());
+        index += 1;
+    }
+
+    Ok(LauncherArgs {
+        wsl_distro,
+        repo,
+        forwarded,
+    })
+}
+
+pub(crate) fn delegated_exit_code(code: Option<i32>) -> Result<i32, String> {
+    code.ok_or_else(|| "delegated WSL command terminated without an exit code".to_owned())
+}
+
+fn command_name(args: &[String]) -> Option<&str> {
+    let mut index = 0;
+    let mut passthrough = false;
+
+    while index < args.len() {
+        let arg = &args[index];
+        if passthrough {
+            return Some(arg.as_str());
+        }
+        if arg == "--" {
+            passthrough = true;
+            index += 1;
+            continue;
+        }
+        if matches!(arg.as_str(), "--wsl-distro" | "--repo") {
+            index += 2;
+            continue;
+        }
+        if arg.starts_with("--wsl-distro=") || arg.starts_with("--repo=") {
+            index += 1;
+            continue;
+        }
+        if arg.starts_with('-') {
+            index += 1;
+            continue;
+        }
+        return Some(arg.as_str());
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use schneeforge_core::execution::HostPlatform;
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_owned()).collect()
