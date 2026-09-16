@@ -50,8 +50,7 @@ workflow_job_block() {
 }
 
 @test "LC_RPATH extraction allows /usr/local/lib rpath" {
-  output="$(printf 'Load command 12\n      cmd LC_RPATH\n      cmdsize 32\n      path /usr/local/lib (offset 12)\n' \
-    | extract_rpaths)"
+  output="$(printf 'Load command 12\n      cmd LC_RPATH\n      cmdsize 32\n      path /usr/local/lib rpath' | extract_rpaths)"
   [ "$output" = "/usr/local/lib" ]
 }
 
@@ -239,5 +238,31 @@ PY
   run grep -q 'continue-on-error: true' "$workflow"
   [ "$status" -ne 0 ]
   run grep -q 'xcode-27' .github/workflows/check.yml .github/workflows/release.yml
+  [ "$status" -ne 0 ]
+}
+
+# --- Windows portability contract (add-windows-wsl2-platform) ---
+
+@test "windows-check is pinned, hermetic and non-required" {
+  workflow=.github/workflows/check.yml
+  grep -q '^  windows-check:$' "$workflow"
+
+  windows_check="$(workflow_job_block windows-check)"
+  echo "$windows_check" | grep -q 'runs-on: windows-2025'
+  echo "$windows_check" | grep -q 'cargo check --workspace'
+  echo "$windows_check" | grep -q 'cargo test -p schneeforge-core'
+  echo "$windows_check" | grep -q 'cargo test -p schneeforge --bin schneeforge'
+  echo "$windows_check" | grep -q 'cargo test -p schneeforge --test windows_cli_contract'
+  echo "$windows_check" | grep -q 'schneeforge.exe --version'
+  echo "$windows_check" | grep -q 'schneeforge.exe --help'
+
+  ci_required="$(workflow_job_block ci-required)"
+  run grep -q 'windows-check' <<<"$ci_required"
+  [ "$status" -ne 0 ]
+
+  release_artifact="$(workflow_job_block release-artifact-check)"
+  run grep -q 'windows-check' <<<"$release_artifact"
+  [ "$status" -ne 0 ]
+  run grep -q 'windows-check' .github/workflows/release.yml
   [ "$status" -ne 0 ]
 }
