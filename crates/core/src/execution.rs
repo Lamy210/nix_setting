@@ -76,9 +76,7 @@ pub fn decode_wsl_output(bytes: &[u8]) -> Result<String> {
         .filter(|byte| **byte == 0)
         .count();
     let looks_utf16le = has_utf16le_bom
-        || (payload.len().is_multiple_of(2)
-            && pair_count >= 2
-            && nul_high_bytes * 2 >= pair_count);
+        || (payload.len().is_multiple_of(2) && pair_count >= 2 && nul_high_bytes * 2 >= pair_count);
 
     let decoded = if looks_utf16le {
         if !payload.len().is_multiple_of(2) {
@@ -90,9 +88,8 @@ pub fn decode_wsl_output(bytes: &[u8]) -> Result<String> {
             .chunks_exact(2)
             .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
             .collect::<Vec<_>>();
-        String::from_utf16(&units).map_err(|e| {
-            Error::Precondition(format!("invalid UTF-16LE WSL output: {e}"))
-        })?
+        String::from_utf16(&units)
+            .map_err(|e| Error::Precondition(format!("invalid UTF-16LE WSL output: {e}")))?
     } else {
         std::str::from_utf8(bytes)
             .map_err(|e| Error::Precondition(format!("invalid WSL output encoding: {e}")))?
@@ -144,12 +141,8 @@ pub fn parse_wsl_inventory(quiet: &str, verbose: &str) -> Result<WslInventory> {
             .iter()
             .filter_map(|distro| {
                 line.strip_prefix(&distro.name).and_then(|suffix| {
-                    (suffix.is_empty()
-                        || suffix
-                            .chars()
-                            .next()
-                            .is_some_and(char::is_whitespace))
-                    .then_some(distro.name.as_str())
+                    (suffix.is_empty() || suffix.chars().next().is_some_and(char::is_whitespace))
+                        .then_some(distro.name.as_str())
                 })
             })
             .max_by_key(|name| name.len())
@@ -169,7 +162,11 @@ pub fn parse_wsl_inventory(quiet: &str, verbose: &str) -> Result<WslInventory> {
             None
         };
 
-        if let Some(distro) = inventory.distros.iter_mut().find(|distro| distro.name == name) {
+        if let Some(distro) = inventory
+            .distros
+            .iter_mut()
+            .find(|distro| distro.name == name)
+        {
             distro.is_default = is_default;
             distro.state = state;
             distro.version = version;
@@ -297,10 +294,7 @@ mod tests {
             bytes.extend_from_slice(&unit.to_le_bytes());
         }
 
-        assert_eq!(
-            decode_wsl_output(&bytes).unwrap(),
-            "Ubuntu\nUbuntu Dev\n"
-        );
+        assert_eq!(decode_wsl_output(&bytes).unwrap(), "Ubuntu\nUbuntu Dev\n");
     }
 
     #[test]
