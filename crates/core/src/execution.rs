@@ -1,3 +1,5 @@
+use crate::error::{Error, Result};
+
 /// Launcher process host platform.
 ///
 /// This is intentionally distinct from `discovery::Platform`, which models
@@ -17,6 +19,36 @@ pub enum ExecutionBackend {
     Wsl2 { distro: String },
 }
 
+/// One WSL distribution discovered from `wsl.exe` inventory output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WslDistro {
+    pub name: String,
+    pub is_default: bool,
+    pub state: Option<String>,
+    pub version: Option<u8>,
+}
+
+/// WSL distributions registered on the Windows host.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WslInventory {
+    pub distros: Vec<WslDistro>,
+}
+
+/// Source that selected the active WSL distribution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WslSelectionSource {
+    Cli,
+    Environment,
+    Default,
+}
+
+/// Deterministically selected WSL2 distribution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectedWsl {
+    pub distro: String,
+    pub source: WslSelectionSource,
+}
+
 /// Derive the launcher host platform from Rust's OS identifier.
 pub fn detect_host_platform_for(os: &str) -> HostPlatform {
     match os {
@@ -24,6 +56,185 @@ pub fn detect_host_platform_for(os: &str) -> HostPlatform {
         "linux" => HostPlatform::Linux,
         "windows" => HostPlatform::Windows,
         _ => HostPlatform::Unsupported,
+    }
+}
+
+/// Decode `wsl.exe` output which can be UTF-8 or UTF-16LE depending on the
+/// Windows/WSL invocation context.
+pub fn decode_wsl_output(bytes: &[u8]) -> Result<String> {
+    if bytes.is_empty() {
+        return Ok(String::new());
+    }
+
+    let has_utf16le_bom = bytes.starts_with(&[0xff, 0xfe]);
+    let payload = if has_utf16le_bom { &bytes[2..] } else { bytes };
+    let pair_count = payload.len() / 2;
+    let nul_high_bytes = payload
+        .iter()
+        .skip(1)
+        .step_by(2)
+        .filter(|byte| **byte == 0)
+        .count();
+    let looks_utf16le = has_utf16le_bom
+        || (payload.len().is_multiple_of(2)
+            && pair_count >= 2
+            && nul_high_bytes * 2 >= pair_count);
+
+    let decoded = if looks_utf16le {
+        if !payload.len().is_multiple_of(2) {
+            return Err(Error::Precondition(
+                "invalid UTF-16LE WSL output: odd byte count".into(),
+            ));
+        }
+        let units = payload
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect::<Vec<_>>();
+        String::from_utf16(&units).map_err(|e| {
+            Error::Precondition(format!("invalid UTF-16LE WSL output: {e}"))
+        })?
+    } else {
+        std::str::from_utf8(bytes)
+            .map_err(|e| Error::Precondition(format!("invalid WSL output encoding: {e}")))?
+            .to_owned()
+    };
+
+    Ok(decoded.replace("\r\n", "\n").replace('\r', "\n"))
+}
+
+/// Combine quiet and verbose WSL inventory output.
+///
+/// The quiet listing is authoritative for distribution names. Verbose output
+/// only enriches those names with default/state/version metadata, which avoids
+/// splitting distribution names on whitespace.
+pub fn parse_wsl_inventory(quiet: &str, verbose: &str) -> Result<WslInventory> {
+    let mut inventory = WslInventory {
+        distros: quiet
+            .lines()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(|name| WslDistro {
+                name: name.to_owned(),
+                is_default: false,
+                state: None,
+                version: None,
+            })
+            .collect(),
+    };
+
+    if inventory.distros.is_empty() {
+        return Err(Error::Precondition(
+            "no WSL distributions are registered".into(),
+        ));
+    }
+
+    for raw_line in verbose.lines() {
+        let mut line = raw_line.trim_start();
+        if line.is_empty() || (line.contains("NAME") && line.contains("VERSION")) {
+            continue;
+        }
+
+        let is_default = line.starts_with('*');
+        if is_default {
+            line = line[1..].trim_start();
+        }
+
+        let matched_name = inventory
+            .distros
+            .iter()
+            .filter_map(|distro| {
+                line.strip_prefix(&distro.name).and_then(|suffix| {
+                    (suffix.is_empty()
+                        || suffix
+                            .chars()
+                            .next()
+                            .is_some_and(char::is_whitespace))
+                    .then_some(distro.name.as_str())
+                })
+            })
+            .max_by_key(|name| name.len())
+            .map(str::to_owned);
+
+        let Some(name) = matched_name else {
+            continue;
+        };
+        let suffix = line[name.len()..].trim();
+        let fields = suffix.split_whitespace().collect::<Vec<_>>();
+        let version = fields.last().and_then(|field| field.parse::<u8>().ok());
+        let state = if version.is_some() && fields.len() > 1 {
+            Some(fields[..fields.len() - 1].join(" "))
+        } else if version.is_none() && !fields.is_empty() {
+            Some(fields.join(" "))
+        } else {
+            None
+        };
+
+        if let Some(distro) = inventory.distros.iter_mut().find(|distro| distro.name == name) {
+            distro.is_default = is_default;
+            distro.state = state;
+            distro.version = version;
+        }
+    }
+
+    Ok(inventory)
+}
+
+/// Select one registered WSL2 distro using CLI > environment > WSL default.
+pub fn select_wsl2(
+    inventory: &WslInventory,
+    cli_selector: Option<&str>,
+    env_selector: Option<&str>,
+) -> Result<SelectedWsl> {
+    let explicit = cli_selector
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(|name| (name, WslSelectionSource::Cli))
+        .or_else(|| {
+            env_selector
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(|name| (name, WslSelectionSource::Environment))
+        });
+
+    let (selected_name, source) = match explicit {
+        Some(selection) => selection,
+        None => {
+            let default = inventory
+                .distros
+                .iter()
+                .find(|distro| distro.is_default)
+                .ok_or_else(|| {
+                    Error::Precondition(
+                        "no default WSL distribution is selected; use --wsl-distro".into(),
+                    )
+                })?;
+            (default.name.as_str(), WslSelectionSource::Default)
+        }
+    };
+
+    let distro = inventory
+        .distros
+        .iter()
+        .find(|distro| distro.name == selected_name)
+        .ok_or_else(|| {
+            Error::Precondition(format!(
+                "WSL distribution '{selected_name}' is not registered"
+            ))
+        })?;
+
+    match distro.version {
+        Some(2) => Ok(SelectedWsl {
+            distro: distro.name.clone(),
+            source,
+        }),
+        Some(version) => Err(Error::Precondition(format!(
+            "WSL distribution '{}' uses WSL{version}; WSL2 is required",
+            distro.name
+        ))),
+        None => Err(Error::Precondition(format!(
+            "cannot determine WSL version for distribution '{}'",
+            distro.name
+        ))),
     }
 }
 
