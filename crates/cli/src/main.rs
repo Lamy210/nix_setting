@@ -1,3 +1,5 @@
+mod windows_backend;
+
 use std::ffi::OsString;
 
 use schneeforge_core::execution::{BackendInfo, BACKEND_PROTOCOL_VERSION};
