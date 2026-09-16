@@ -253,8 +253,8 @@ fn select_from_distros(
     let inventory = schneeforge_core::execution::WslInventory {
         distros: distros.clone(),
     };
-    let selected = select_wsl2(&inventory, cli_selector, env_selector)
-        .map_err(|error| error.to_string())?;
+    let selected =
+        select_wsl2(&inventory, cli_selector, env_selector).map_err(|error| error.to_string())?;
     Ok((distros, selected))
 }
 
@@ -283,11 +283,7 @@ fn delegate_with_runtime<R: WslRuntime>(
     }
 
     let distros = load_wsl_inventory(runtime)?;
-    let (_, selected) = select_from_distros(
-        distros,
-        parsed.wsl_distro.as_deref(),
-        env_selector,
-    )?;
+    let (_, selected) = select_from_distros(distros, parsed.wsl_distro.as_deref(), env_selector)?;
     probe_helper(runtime, &selected.distro, expected_app_version)?;
 
     let delegated_args = build_wsl_argv(&selected.distro, &parsed.forwarded);
@@ -334,17 +330,16 @@ fn windows_doctor_with_runtime<R: WslRuntime>(
         }
     };
 
-    let (_, selected) = match select_from_distros(
-        distros,
-        parsed.wsl_distro.as_deref(),
-        env_selector,
-    ) {
-        Ok(selection) => selection,
-        Err(error) => {
-            report.push_str(&format!("  selection error: {error}\n\n[backend]\n  ready: no\n"));
-            return report;
-        }
-    };
+    let (_, selected) =
+        match select_from_distros(distros, parsed.wsl_distro.as_deref(), env_selector) {
+            Ok(selection) => selection,
+            Err(error) => {
+                report.push_str(&format!(
+                    "  selection error: {error}\n\n[backend]\n  ready: no\n"
+                ));
+                return report;
+            }
+        };
 
     report.push_str(&format!(
         "  selected: {} ({})\n\n[helper]\n",
