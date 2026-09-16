@@ -147,10 +147,64 @@ fn command_name(args: &[String]) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
     use super::*;
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_owned()).collect()
+    }
+
+    fn output(code: i32, stdout: &str) -> ProcessOutput {
+        ProcessOutput {
+            code: Some(code),
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: Vec::new(),
+        }
+    }
+
+    #[derive(Default)]
+    struct FakeRuntime {
+        captures: VecDeque<(Vec<String>, ProcessOutput)>,
+        statuses: VecDeque<(Vec<String>, Option<i32>)>,
+        seen: Vec<Vec<String>>,
+    }
+
+    impl FakeRuntime {
+        fn with_capture(mut self, expected: &[&str], result: ProcessOutput) -> Self {
+            self.captures.push_back((args(expected), result));
+            self
+        }
+
+        fn with_status(mut self, expected: &[&str], code: Option<i32>) -> Self {
+            self.statuses.push_back((args(expected), code));
+            self
+        }
+    }
+
+    impl WslRuntime for FakeRuntime {
+        fn capture(&mut self, argv: &[String]) -> Result<ProcessOutput, String> {
+            self.seen.push(argv.to_vec());
+            let (expected, result) = self
+                .captures
+                .pop_front()
+                .expect("unexpected capture call");
+            assert_eq!(argv, expected);
+            Ok(result)
+        }
+
+        fn status(&mut self, argv: &[String]) -> Result<Option<i32>, String> {
+            self.seen.push(argv.to_vec());
+            let (expected, code) = self.statuses.pop_front().expect("unexpected status call");
+            assert_eq!(argv, expected);
+            Ok(code)
+        }
+    }
+
+    fn compatible_backend_json(version: &str) -> String {
+        format!(
+            r#"{{"protocol_version":1,"app_version":"{version}","os":"linux","arch":"x86_64"}}"#
+        )
     }
 
     #[test]
@@ -231,5 +285,147 @@ mod tests {
         assert_eq!(delegated_exit_code(Some(23)).unwrap(), 23);
         assert_eq!(delegated_exit_code(Some(0)).unwrap(), 0);
         assert!(delegated_exit_code(None).is_err());
+    }
+
+    #[test]
+    fn delegation_runs_inventory_handshake_and_command_in_order() {
+        let version = env!("CARGO_PKG_VERSION");
+        let helper = compatible_backend_json(version);
+        let mut runtime = FakeRuntime::default()
+            .with_capture(&["--list", "--quiet"], output(0, "Ubuntu Dev\nDebian\n"))
+            .with_capture(
+                &["--list", "--verbose"],
+                output(0, "* Ubuntu Dev Running 2\n  Debian Stopped 2\n"),
+            )
+            .with_capture(
+                &["-d", "Ubuntu Dev", "--", "schneeforge", "__backend-info"],
+                output(0, &helper),
+            )
+            .with_status(
+                &[
+                    "-d",
+                    "Ubuntu Dev",
+                    "--",
+                    "schneeforge",
+                    "apply",
+                    "a b;$(x)",
+                ],
+                Some(23),
+            );
+        let parsed = LauncherArgs {
+            wsl_distro: Some("Ubuntu Dev".into()),
+            repo: None,
+            forwarded: args(&["apply", "a b;$(x)"]),
+        };
+
+        assert_eq!(
+            delegate_with_runtime(&mut runtime, &parsed, None, version).unwrap(),
+            23
+        );
+        assert!(runtime.captures.is_empty());
+        assert!(runtime.statuses.is_empty());
+    }
+
+    #[test]
+    fn windows_repo_path_is_rejected_before_wsl_is_invoked() {
+        let mut runtime = FakeRuntime::default();
+        let parsed = LauncherArgs {
+            wsl_distro: None,
+            repo: Some(r"C:\src\nix_setting".into()),
+            forwarded: args(&["status"]),
+        };
+
+        assert!(delegate_with_runtime(
+            &mut runtime,
+            &parsed,
+            None,
+            env!("CARGO_PKG_VERSION")
+        )
+        .is_err());
+        assert!(runtime.seen.is_empty());
+    }
+
+    #[test]
+    fn wsl1_is_rejected_before_helper_probe() {
+        let mut runtime = FakeRuntime::default()
+            .with_capture(&["--list", "--quiet"], output(0, "Legacy\n"))
+            .with_capture(
+                &["--list", "--verbose"],
+                output(0, "* Legacy Running 1\n"),
+            );
+        let parsed = LauncherArgs {
+            wsl_distro: None,
+            repo: None,
+            forwarded: args(&["status"]),
+        };
+
+        assert!(delegate_with_runtime(
+            &mut runtime,
+            &parsed,
+            None,
+            env!("CARGO_PKG_VERSION")
+        )
+        .is_err());
+        assert!(runtime.captures.is_empty());
+        assert!(runtime.statuses.is_empty());
+    }
+
+    #[test]
+    fn helper_version_mismatch_fails_before_delegated_command() {
+        let helper = compatible_backend_json("9.9.9");
+        let mut runtime = FakeRuntime::default()
+            .with_capture(&["--list", "--quiet"], output(0, "Ubuntu\n"))
+            .with_capture(
+                &["--list", "--verbose"],
+                output(0, "* Ubuntu Running 2\n"),
+            )
+            .with_capture(
+                &["-d", "Ubuntu", "--", "schneeforge", "__backend-info"],
+                output(0, &helper),
+            );
+        let parsed = LauncherArgs {
+            wsl_distro: None,
+            repo: None,
+            forwarded: args(&["apply"]),
+        };
+
+        assert!(delegate_with_runtime(
+            &mut runtime,
+            &parsed,
+            None,
+            env!("CARGO_PKG_VERSION")
+        )
+        .is_err());
+        assert!(runtime.statuses.is_empty());
+    }
+
+    #[test]
+    fn environment_selector_is_used_when_cli_selector_is_absent() {
+        let version = env!("CARGO_PKG_VERSION");
+        let helper = compatible_backend_json(version);
+        let mut runtime = FakeRuntime::default()
+            .with_capture(&["--list", "--quiet"], output(0, "Ubuntu\nDebian\n"))
+            .with_capture(
+                &["--list", "--verbose"],
+                output(0, "* Ubuntu Running 2\n  Debian Stopped 2\n"),
+            )
+            .with_capture(
+                &["-d", "Debian", "--", "schneeforge", "__backend-info"],
+                output(0, &helper),
+            )
+            .with_status(
+                &["-d", "Debian", "--", "schneeforge", "status"],
+                Some(0),
+            );
+        let parsed = LauncherArgs {
+            wsl_distro: None,
+            repo: None,
+            forwarded: args(&["status"]),
+        };
+
+        assert_eq!(
+            delegate_with_runtime(&mut runtime, &parsed, Some("Debian"), version).unwrap(),
+            0
+        );
     }
 }
