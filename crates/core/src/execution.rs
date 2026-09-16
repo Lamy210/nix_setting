@@ -49,6 +49,80 @@ pub struct SelectedWsl {
     pub source: WslSelectionSource,
 }
 
+/// Protocol spoken between the native Windows launcher and Linux helper.
+pub const BACKEND_PROTOCOL_VERSION: u32 = 1;
+
+/// Machine-readable identity returned by the Linux helper before delegation.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BackendInfo {
+    pub protocol_version: u32,
+    pub app_version: String,
+    pub os: String,
+    pub arch: String,
+}
+
+/// Validate that the selected Linux helper is compatible with this launcher.
+pub fn validate_backend_info(info: &BackendInfo, expected_app_version: &str) -> Result<()> {
+    if info.protocol_version != BACKEND_PROTOCOL_VERSION {
+        return Err(Error::Precondition(format!(
+            "WSL helper protocol mismatch: launcher expects {}, helper reports {}; update the WSL helper",
+            BACKEND_PROTOCOL_VERSION, info.protocol_version
+        )));
+    }
+    if info.app_version != expected_app_version {
+        return Err(Error::Precondition(format!(
+            "WSL helper version mismatch: launcher is {expected_app_version}, helper is {}; install the matching SchneeForge version in WSL",
+            info.app_version
+        )));
+    }
+    if info.os != "linux" {
+        return Err(Error::Precondition(format!(
+            "WSL helper reported unsupported execution OS '{}'; Linux is required",
+            info.os
+        )));
+    }
+    if !matches!(info.arch.as_str(), "x86_64" | "aarch64") {
+        return Err(Error::Precondition(format!(
+            "WSL helper reported unsupported architecture '{}'; x86_64 or aarch64 is required",
+            info.arch
+        )));
+    }
+    Ok(())
+}
+
+/// Validate an explicit Windows-launcher `--repo` value without translating it.
+pub fn validate_wsl_repo_path(repo: &str) -> Result<()> {
+    let repo = repo.trim();
+    let bytes = repo.as_bytes();
+    let drive_letter = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
+    let unc_path = repo.starts_with("\\\\") || repo.starts_with("//");
+
+    if repo.is_empty()
+        || drive_letter
+        || unc_path
+        || repo.contains('\\')
+        || !repo.starts_with('/')
+    {
+        return Err(Error::Precondition(format!(
+            "Windows --repo must be an absolute Linux path inside WSL (for example /home/user/project), got '{repo}'"
+        )));
+    }
+    Ok(())
+}
+
+/// Construct direct `wsl.exe` argv without any shell interpolation.
+pub fn build_wsl_argv(distro: &str, forwarded: &[String]) -> Vec<String> {
+    let mut args = Vec::with_capacity(forwarded.len() + 4);
+    args.extend([
+        "-d".to_owned(),
+        distro.to_owned(),
+        "--".to_owned(),
+        "schneeforge".to_owned(),
+    ]);
+    args.extend(forwarded.iter().cloned());
+    args
+}
+
 /// Derive the launcher host platform from Rust's OS identifier.
 pub fn detect_host_platform_for(os: &str) -> HostPlatform {
     match os {
