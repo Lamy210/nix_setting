@@ -253,6 +253,14 @@ mod tests {
         }
     }
 
+    fn output_err(code: i32, stderr: &str) -> ProcessOutput {
+        ProcessOutput {
+            code: Some(code),
+            stdout: Vec::new(),
+            stderr: stderr.as_bytes().to_vec(),
+        }
+    }
+
     #[derive(Default)]
     struct FakeRuntime {
         captures: VecDeque<(Vec<String>, ProcessOutput)>,
@@ -486,5 +494,50 @@ mod tests {
             delegate_with_runtime(&mut runtime, &parsed, Some("Debian"), version).unwrap(),
             0
         );
+    }
+
+    #[test]
+    fn windows_self_update_is_rejected_before_wsl_invocation() {
+        let mut runtime = FakeRuntime::default();
+        let result = dispatch_with_runtime(
+            &mut runtime,
+            HostPlatform::Windows,
+            &args(&["self-update"]),
+            None,
+            env!("CARGO_PKG_VERSION"),
+        );
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("self-update"));
+        assert!(runtime.seen.is_empty());
+    }
+
+    #[test]
+    fn windows_doctor_keeps_host_diagnostics_when_helper_is_missing() {
+        let mut runtime = FakeRuntime::default()
+            .with_capture(&["--list", "--quiet"], output(0, "Ubuntu\n"))
+            .with_capture(&["--list", "--verbose"], output(0, "* Ubuntu Running 2\n"))
+            .with_capture(
+                &["-d", "Ubuntu", "--", "schneeforge", "__backend-info"],
+                output_err(127, "schneeforge: not found"),
+            );
+
+        let outcome = dispatch_with_runtime(
+            &mut runtime,
+            HostPlatform::Windows,
+            &args(&["doctor"]),
+            None,
+            env!("CARGO_PKG_VERSION"),
+        )
+        .unwrap();
+
+        let EarlyDispatch::Doctor(report) = outcome else {
+            panic!("expected Windows doctor diagnostics");
+        };
+        assert!(report.contains("host: windows"));
+        assert!(report.contains("Ubuntu"));
+        assert!(report.contains("WSL2"));
+        assert!(report.contains("schneeforge: not found"));
+        assert!(runtime.statuses.is_empty());
     }
 }
