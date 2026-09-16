@@ -163,13 +163,19 @@ pub fn detect_arch_for(arch: &str) -> Architecture {
     }
 }
 
+fn path_dirs_from_os(path: &std::ffi::OsStr) -> Vec<String> {
+    std::env::split_paths(path)
+        .map(|entry| entry.to_string_lossy().into_owned())
+        .collect()
+}
+
 /// PATH から実行可能ファイルを探す (ToolResolver と同じ実行ビット判定に委譲)
 ///
 /// 注: 新しいコードは `ToolInventory` を使うこと。この関数は `verify` の zsh 等の
 /// inventory 外ツール探索のために残されている。
 pub fn which(cmd: &str) -> Option<String> {
-    let path_dirs: Vec<String> = std::env::var("PATH")
-        .map(|p| p.split(':').map(String::from).collect())
+    let path_dirs = std::env::var_os("PATH")
+        .map(|path| path_dirs_from_os(&path))
         .unwrap_or_default();
     crate::tool::find_executable(cmd, &path_dirs, &[])
 }
