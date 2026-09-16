@@ -49,12 +49,31 @@ jobs:
       - name: eval linux-arm home-manager
         run: nix eval .#homeConfigurations.linux-arm.activationPackage.drvPath
 
-  macos-check:
-    runs-on: macos-latest
+  macos-stable:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            xcode: /Applications/Xcode_26.3.app/Contents/Developer
+          - os: macos-26
+            xcode: /Applications/Xcode_26.6.app/Contents/Developer
+    runs-on: ${{ matrix.os }}
+    env:
+      DEVELOPER_DIR: ${{ matrix.xcode }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+
+      - name: macOS / Xcode diagnostics
+        run: |
+          sw_vers
+          uname -m
+          printf 'DEVELOPER_DIR=%s\n' "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          xcrun --find clang
 
       - name: nix flake check
         run: nix flake check --allow-import-from-derivation
@@ -68,13 +87,31 @@ jobs:
       # release artifact 経路の検証は独立 job `release-artifact-check` が担う
       # (同一 script で二重実行しない)
 
+  macos-check:
+    needs: [macos-stable]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: require stable macOS matrix
+        env:
+          MACOS_STABLE: ${{ needs.macos-stable.result }}
+        run: |
+          set -euo pipefail
+          printf 'macos-stable=%s\n' "$MACOS_STABLE"
+          if [ "$MACOS_STABLE" != "success" ]; then
+            echo "ERROR: stable macOS matrix did not succeed" >&2
+            exit 1
+          fi
+
   # release artifact を tag push 後に初めて build しない原則。
   # release workflow と同一の scripts/ci/*.sh で build し smoke する
   # macOS release artifacts 全部 (CLI + DMG) を release workflow と同一 script で
   # build し gate する。DMG は RC.4 まで nix build 経路のまま /nix/store link が
   # 検出されず release されていたため、ここで完成品検査まで回す
   release-artifact-check:
-    runs-on: macos-latest
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
@@ -83,6 +120,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: macos-release
+
+      - name: macOS / Xcode diagnostics
+        run: |
+          sw_vers
+          uname -m
+          printf 'DEVELOPER_DIR=%s\n' "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          xcrun --find clang
 
       - name: build + smoke + portability gate (same script as release workflow)
         run: ./scripts/ci/build-release-macos-cli.sh

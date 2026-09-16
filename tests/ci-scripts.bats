@@ -191,3 +191,53 @@ PY
     echo "$ci_required_block" | grep -q "needs.$job.result"
   done
 }
+
+# --- macOS compatibility matrix contract (add-macos-compatibility-matrix) ---
+
+@test "stable macOS matrix pins supported runner and Xcode pairs" {
+  workflow=.github/workflows/check.yml
+  grep -q '^  macos-stable:$' "$workflow"
+  block="$(workflow_job_block macos-stable)"
+  echo "$block" | grep -q 'fail-fast: false'
+  echo "$block" | grep -q 'os: macos-15'
+  echo "$block" | grep -q 'xcode: /Applications/Xcode_26.3.app/Contents/Developer'
+  echo "$block" | grep -q 'os: macos-26'
+  echo "$block" | grep -q 'xcode: /Applications/Xcode_26.6.app/Contents/Developer'
+  echo "$block" | grep -Fq "DEVELOPER_DIR: \${{ matrix.xcode }}"
+}
+
+@test "macos-check aggregates stable matrix fail-closed and stays out of ci-required" {
+  macos_check="$(workflow_job_block macos-check)"
+  echo "$macos_check" | grep -q 'needs: \[macos-stable\]'
+  echo "$macos_check" | grep -q 'if:.*always()'
+  echo "$macos_check" | grep -q 'needs.macos-stable.result'
+  ci_required="$(workflow_job_block ci-required)"
+  run grep -q 'macos-check' <<<"$ci_required"
+  [ "$status" -ne 0 ]
+}
+
+@test "shipping macOS paths pin macos-26 and Xcode 26.6" {
+  release=.github/workflows/release.yml
+  release_artifact="$(workflow_job_block release-artifact-check)"
+  echo "$release_artifact" | grep -q 'runs-on: macos-26'
+  echo "$release_artifact" | grep -q 'DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer'
+  grep -q 'os: macos-26' "$release"
+  grep -q '/Applications/Xcode_26.6.app/Contents/Developer' "$release"
+}
+
+@test "active macOS build paths do not use macos-latest" {
+  run grep -nE 'runs-on: macos-latest|os: macos-latest' .github/workflows/check.yml .github/workflows/release.yml
+  [ "$status" -ne 0 ]
+}
+
+@test "xcode 27 canary is isolated from pull requests and required gates" {
+  workflow=.github/workflows/macos-preview-canary.yml
+  [ -f "$workflow" ]
+  grep -q 'xcode-27' "$workflow"
+  run grep -q 'pull_request:' "$workflow"
+  [ "$status" -ne 0 ]
+  run grep -q 'continue-on-error: true' "$workflow"
+  [ "$status" -ne 0 ]
+  run grep -q 'xcode-27' .github/workflows/check.yml .github/workflows/release.yml
+  [ "$status" -ne 0 ]
+}

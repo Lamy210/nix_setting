@@ -16,9 +16,10 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             artifact: schneeforge-x86_64-linux
-          - os: macos-latest
+          - os: macos-26
             target: aarch64-darwin
             artifact: schneeforge-aarch64-darwin
+            xcode: /Applications/Xcode_26.6.app/Contents/Developer
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -53,6 +54,18 @@ jobs:
       # `nix build` 産 binary は /nix/store の libiconv に link し、
       # Nix 未導入 Mac (install.sh の想定環境) で起動できないため、
       # host toolchain で build する (Linux musl と同じ理由)。
+      - name: macOS / Xcode diagnostics
+        if: runner.os == 'macOS'
+        env:
+          DEVELOPER_DIR: ${{ matrix.xcode }}
+        run: |
+          sw_vers
+          uname -m
+          printf 'DEVELOPER_DIR=%s\n' "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          xcrun --find clang
+
       - uses: dtolnay/rust-toolchain@stable
         if: runner.os == 'macOS'
 
@@ -63,10 +76,14 @@ jobs:
       # (PR CI の release-artifact-check と同一 script。drift が rc.1/rc.2 事故の原因)
       - name: build binary (macOS, same script as PR CI)
         if: runner.os == 'macOS'
+        env:
+          DEVELOPER_DIR: ${{ matrix.xcode }}
         run: ./scripts/ci/build-release-macos-cli.sh
 
       - name: package binary (macOS)
         if: runner.os == 'macOS'
+        env:
+          DEVELOPER_DIR: ${{ matrix.xcode }}
         run: |
           mkdir -p dist
           cp target/release/schneeforge "dist/${{ matrix.artifact }}"
@@ -82,7 +99,9 @@ jobs:
   # .app 内 binary に portability gate をかける (RC.4 の /nix/store libiconv 事故の
   # 再発防止。script は check.yml release-artifact-check と同一)
   build-dmg:
-    runs-on: macos-latest
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
@@ -91,6 +110,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: macos-release-dmg
+
+      - name: macOS / Xcode diagnostics
+        run: |
+          sw_vers
+          uname -m
+          printf 'DEVELOPER_DIR=%s\n' "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          xcrun --find clang
 
       # build + gate は scripts/ci/build-release-macos-dmg.sh に共通化
       # (PR CI の release-artifact-check と同一 script。drift が事故原因)

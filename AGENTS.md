@@ -99,7 +99,7 @@ gh pr create --base develop --title "chore: archive <name>"
 ## OpenSpec の必須条件
 
 - 機能追加・breaking change・architecture change・behavior-changing optimization・security pattern change には OpenSpec change を伴う
-- requirement には SHALL/MUST、Scenario には WHEN/THEN を必ず含める
+- requirement には SHALL/MUST、Scenario には WHEN/THEN を必ず含む
 - `openspec validate <change-id> --strict` と `openspec validate --all --strict` が通ること
 - proposal 承認前に実装を開始しない
 - change の archive は実装 PR merge 後に別 `chore/archive-*` PR で行う
@@ -154,9 +154,10 @@ nix flake check
 
 ## 現在進行中
 
-- `openspec/changes/refactor-ci-critical-path/` — PR #90 で最終検証中。required critical path は baseline 479s → 327s（31.7%短縮）を実測済み。merge 後は別 `chore/archive-refactor-ci-critical-path` PR で archive する
+- `openspec/changes/add-macos-compatibility-matrix/` — PR #93 で実装中。stable lane は `macos-15` + Xcode 26.3 / `macos-26` + Xcode 26.6、Xcode 27 は PR 外の preview canary として分離する
 - `openspec/changes/add-dmg-offline-bundle-licensing/` — 法務確認待ち
 - `refactor-development-workflow` は 2026-09-16 に archive 済み
-- 次: `add-macos-compatibility-matrix` — PR #90 と archive 完了後に別 change として開始する
+- `refactor-ci-critical-path` は PR #90 + archive PR #92 で 2026-09-16 に archive/spec sync 済み
+- 次: `add-windows-wsl2-platform` — macOS compatibility matrix 完了後に別 change として開始する
 - 状態・既知のデグレ・次の作業は [docs/STATUS.md](./docs/STATUS.md) を参照（セッション開始時に必ず読む）
 - リリース運用は [RELEASE.md](./RELEASE.md) を参照

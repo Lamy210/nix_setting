@@ -119,7 +119,7 @@ PR #62-#68 を sequential chain で merge。
 - `main` / `develop` の既存 diverged history は rewrite/force push せず、今後の ancestry を merge commit で維持
 - `AGENTS.md` / `CONTRIBUTING.md` / `RELEASE.md` / OpenSpec workflow を同期
 
-### CI critical-path optimization（PR #90 最終検証）
+### CI critical-path optimization（2026-09-16 archive 済み）
 
 - Rust required gate を `rust-quality` / `rust-build-smoke` の2 workerへ分割し、既存 required context `rust-check` は fail-closed aggregator として維持
 - Linux desktop smoke は CLI sidecar と同じ release profile の `cargo check --release` に変更し、full DMG/Tauri build は required `release-artifact-check` に集約
@@ -128,13 +128,13 @@ PR #62-#68 を sequential chain で merge。
 - baseline run #378: required critical path 479s / old `rust-check` 448s
 - final measured run #397: current required critical path **327s（31.7%短縮）**、Rust runner total **443s**。目標 `<=359s` / `<=537.6s` をともに達成
 - `flake-check` は 387s級のボトルネックから61sまで短縮。Terraform source build を毎PRのrequired Linux realizationから外しつつ、default developer evaluationは維持
-- PR #90 merge 後は separate `chore/archive-refactor-ci-critical-path` PR で OpenSpec archive/spec sync を行う
+- 実装 PR #90 と archive/spec-sync PR #92 はともに squash merge 済み
 
 ## 進行中
 
 | 項目 | 進捗 | 場所 |
 |------|------|------|
-| **CI critical-path optimization** | PR #90 最終CI / review待ち。性能目標は run #397 で達成済み。merge後に別archive PR | `openspec/changes/refactor-ci-critical-path/` |
+| **macOS compatibility matrix** | PR #93 実装・CI検証中。stable は `macos-15` + Xcode 26.3 / `macos-26` + Xcode 26.6、shipping は `macos-26` + Xcode 26.6、Xcode 27 は PR 外 preview canary | `openspec/changes/add-macos-compatibility-matrix/` |
 | DMG offline bundle 法務 ADR (issue #17) | ADR-0002 起票済み。実装は弁護士確認後 | `openspec/changes/add-dmg-offline-bundle-licensing/` |
 | macOS Apple Silicon Final Acceptance | rc.7 での実機 acceptance 未完了 | `docs/testing/macOS-final-acceptance-checklist.md` |
 
@@ -160,23 +160,18 @@ PR #62-#68 を sequential chain で merge。
 
 ## 次の作業（推奨順）
 
-1. **PR #90 `refactor-ci-critical-path` を完了**
-   - latest head で OpenSpec strict / lint / Rust / flake / release artifact / E2E を再度 green にする
-   - final diff review 後に `develop` へ squash merge
-   - merge 後、`chore/archive-refactor-ci-critical-path` PR で archive + spec sync
-2. **`add-macos-compatibility-matrix`**
-   - macOS 15 + 対応可能な Xcode version
-   - macOS 26 + Xcode 26.6
-   - `macos-latest` 依存を減らし OS/Xcode を明示
-   - Flutter/iOS doctor に Xcode / SDK / simulator runtime diagnostics を追加検討
-3. **`add-windows-wsl2-platform`**
+1. **PR #93 `add-macos-compatibility-matrix` を完了**
+   - stable 2 lane / `macos-check` fail-closed aggregator / shipping pin / Xcode 27 preview canary を latest-head CI で検証
+   - single-lane baseline 544s に対し、stable 2 lane total が guard 約1360s以内か実測
+   - final diff review 後に `develop` へ squash mergeし、別 `chore/archive-add-macos-compatibility-matrix` PR で archive + spec sync
+2. **`add-windows-wsl2-platform`**
    - Windows host と Nix execution backend を分離
    - WSL2 Linux を Nix execution target とする
    - Windows compile portability audit (`std::env::split_paths`, Unix-only paths/permissions/locking 等)
    - Windows-native package manager backend は初期 scope 外
-4. **macOS Apple Silicon Final Acceptance**
+3. **macOS Apple Silicon Final Acceptance**
    - rc.7 を使い `docs/testing/macOS-final-acceptance-checklist.md` gate A-J を実施
-5. Phase 2/E 残作業
+4. Phase 2/E 残作業
    - GUI self-update Step 2 (v0.3)
    - #17 DMG bundle + LGPL-2.1 法務確認後の実装
 
