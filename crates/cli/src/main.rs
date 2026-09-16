@@ -1,9 +1,10 @@
-#[allow(dead_code)]
 mod windows_backend;
 
 use std::ffi::OsString;
 
-use schneeforge_core::execution::{BackendInfo, BACKEND_PROTOCOL_VERSION};
+use schneeforge_core::execution::{
+    detect_host_platform_for, BackendInfo, HostPlatform, BACKEND_PROTOCOL_VERSION,
+};
 
 #[allow(dead_code)]
 mod native_cli {
@@ -63,7 +64,42 @@ fn main() {
         return;
     }
 
+    let host = detect_host_platform_for(std::env::consts::OS);
+    if host == HostPlatform::Windows {
+        let launcher_args = match windows_launcher_args(&args) {
+            Ok(args) => args,
+            Err(error) => {
+                eprintln!("error: {error}");
+                std::process::exit(1);
+            }
+        };
+        let env_selector = std::env::var("SCHNEEFORGE_WSL_DISTRO").ok();
+        match windows_backend::dispatch(host, &launcher_args, env_selector.as_deref()) {
+            Ok(windows_backend::EarlyDispatch::ContinueNative) => {}
+            Ok(windows_backend::EarlyDispatch::Doctor(report)) => {
+                print!("{report}");
+                return;
+            }
+            Ok(windows_backend::EarlyDispatch::Exit(code)) => std::process::exit(code),
+            Err(error) => {
+                eprintln!("error: {error}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     native_cli::run(args);
+}
+
+fn windows_launcher_args(args: &[OsString]) -> Result<Vec<String>, String> {
+    args.iter()
+        .skip(1)
+        .map(|arg| {
+            arg.clone().into_string().map_err(|_| {
+                "Windows launcher arguments must be valid Unicode before WSL delegation".to_owned()
+            })
+        })
+        .collect()
 }
 
 fn is_backend_info_probe(args: &[OsString]) -> bool {
