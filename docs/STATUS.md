@@ -130,11 +130,20 @@ PR #62-#68 を sequential chain で merge。
 - `flake-check` は 387s級のボトルネックから61sまで短縮。Terraform source build を毎PRのrequired Linux realizationから外しつつ、default developer evaluationは維持
 - 実装 PR #90 と archive/spec-sync PR #92 はともに squash merge 済み
 
+### macOS compatibility matrix（2026-09-16 archive 済み）
+
+- stable compatibility lane: `macos-15` + Xcode 26.3、stable current/shipping lane: `macos-26` + Xcode 26.6
+- `macos-check` は stable 2 laneをfail-closedで集約し、既存required contextsは変更していない
+- `release-artifact-check` とtag releaseも `macos-26` + Xcode 26.6へpin
+- Xcode 27はPR外のpreview canaryとして分離し、required/release dependencyには入れていない
+- latest-head run #428でrequired 7 contexts、`ci-required`、release artifact、stable 2 lane、`macos-check`が全てgreen
+- old single-lane baseline 544sに対しstable 2 lane totalは約1227s（約2.26x）で、2.5x guard 1360s以内
+- 実装 PR #93 と archive/spec-sync PR #94 はともに squash merge 済み
+
 ## 進行中
 
 | 項目 | 進捗 | 場所 |
 |------|------|------|
-| **macOS compatibility matrix** | PR #93 実装・CI検証中。stable は `macos-15` + Xcode 26.3 / `macos-26` + Xcode 26.6、shipping は `macos-26` + Xcode 26.6、Xcode 27 は PR 外 preview canary | `openspec/changes/add-macos-compatibility-matrix/` |
 | DMG offline bundle 法務 ADR (issue #17) | ADR-0002 起票済み。実装は弁護士確認後 | `openspec/changes/add-dmg-offline-bundle-licensing/` |
 | macOS Apple Silicon Final Acceptance | rc.7 での実機 acceptance 未完了 | `docs/testing/macOS-final-acceptance-checklist.md` |
 
@@ -160,18 +169,15 @@ PR #62-#68 を sequential chain で merge。
 
 ## 次の作業（推奨順）
 
-1. **PR #93 `add-macos-compatibility-matrix` を完了**
-   - stable 2 lane / `macos-check` fail-closed aggregator / shipping pin / Xcode 27 preview canary を latest-head CI で検証
-   - single-lane baseline 544s に対し、stable 2 lane total が guard 約1360s以内か実測
-   - final diff review 後に `develop` へ squash mergeし、別 `chore/archive-add-macos-compatibility-matrix` PR で archive + spec sync
-2. **`add-windows-wsl2-platform`**
-   - Windows host と Nix execution backend を分離
-   - WSL2 Linux を Nix execution target とする
-   - Windows compile portability audit (`std::env::split_paths`, Unix-only paths/permissions/locking 等)
-   - Windows-native package manager backend は初期 scope 外
-3. **macOS Apple Silicon Final Acceptance**
+1. **`add-windows-wsl2-platform`**
+   - `HostPlatform::{MacOS,Linux,Windows}` と `ExecutionBackend::{Native,Wsl2{distro}}` を分離
+   - Windows hostからのNix操作はWSL2 Linux backendへ委譲し、Windows自体をNix systemとして扱わない
+   - WSL2 availability / distro / WSL versionを明示検出し、WSL未導入・WSL1のみ・distroなしはprecondition error
+   - Windows compile portability audit (`std::env::split_paths`, Unix-only paths/permissions/locking、HOME/PATH/sudo前提等)
+   - Windows-native package manager backend / Desktop GUI / WSL自動インストールは初期scope外
+2. **macOS Apple Silicon Final Acceptance**
    - rc.7 を使い `docs/testing/macOS-final-acceptance-checklist.md` gate A-J を実施
-4. Phase 2/E 残作業
+3. Phase 2/E 残作業
    - GUI self-update Step 2 (v0.3)
    - #17 DMG bundle + LGPL-2.1 法務確認後の実装
 

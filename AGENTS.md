@@ -154,10 +154,10 @@ nix flake check
 
 ## 現在進行中
 
-- `openspec/changes/add-macos-compatibility-matrix/` — PR #93 で実装中。stable lane は `macos-15` + Xcode 26.3 / `macos-26` + Xcode 26.6、Xcode 27 は PR 外の preview canary として分離する
 - `openspec/changes/add-dmg-offline-bundle-licensing/` — 法務確認待ち
+- `add-macos-compatibility-matrix` は実装 PR #93 + archive/spec-sync PR #94 で 2026-09-16 に完了・archive 済み
 - `refactor-development-workflow` は 2026-09-16 に archive 済み
 - `refactor-ci-critical-path` は PR #90 + archive PR #92 で 2026-09-16 に archive/spec sync 済み
-- 次: `add-windows-wsl2-platform` — macOS compatibility matrix 完了後に別 change として開始する
+- 次: `add-windows-wsl2-platform` — Windows host と WSL2 Nix execution backend を分離する別 change として開始する
 - 状態・既知のデグレ・次の作業は [docs/STATUS.md](./docs/STATUS.md) を参照（セッション開始時に必ず読む）
 - リリース運用は [RELEASE.md](./RELEASE.md) を参照
