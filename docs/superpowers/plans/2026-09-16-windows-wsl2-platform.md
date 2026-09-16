@@ -37,9 +37,9 @@
 - Produces: `detect_host_platform_for(os: &str) -> HostPlatform`
 - Existing `discovery::Platform` remains unchanged and Windows remains `Platform::Unsupported`.
 
-- [ ] **Step 1: Write failing host-model and PATH tests**
+- [ ] **Step 1: Write failing host-model tests**
 
-Add tests in `execution.rs` and `discovery.rs` equivalent to:
+Add tests in `execution.rs` equivalent to:
 
 ```rust
 #[test]
@@ -54,15 +54,13 @@ fn windows_host_selects_no_native_nix_target() {
 }
 ```
 
-Refactor `which` through a pure helper so Windows PATH semantics can be fixture-tested with `std::env::split_paths` rather than `split(':')`.
-
 - [ ] **Step 2: Run focused tests and verify RED**
 
-Run: `cargo test -p schneeforge-core execution::tests discovery::tests`
+Run: `cargo test -p schneeforge-core execution::tests`
 
-Expected: FAIL because `execution` types/functions do not exist and the old PATH implementation does not use platform-safe splitting.
+Expected: FAIL because `execution` types/functions do not exist.
 
-- [ ] **Step 3: Implement minimal host/backend model and PATH fix**
+- [ ] **Step 3: Implement minimal host/backend model**
 
 `execution.rs` starts with:
 
@@ -91,15 +89,41 @@ pub fn detect_host_platform_for(os: &str) -> HostPlatform {
 }
 ```
 
-Change PATH parsing to `std::env::split_paths` / a pure `find_executable_in_path` helper while preserving the existing executable-resolution contract.
+- [ ] **Step 4: Verify host model GREEN**
 
-- [ ] **Step 4: Run focused and core tests**
-
-Run: `cargo test -p schneeforge-core execution::tests discovery::tests && cargo test -p schneeforge-core`
+Run: `cargo test -p schneeforge-core execution::tests && cargo test -p schneeforge-core`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Write failing PATH-helper tests**
+
+Factor `which` through a pure helper `path_dirs_from_os(&OsStr) -> Vec<String>`. Add `#[cfg(unix)]` fixture coverage for colon-separated paths and `#[cfg(windows)]` coverage for semicolon-separated drive paths. This keeps the RED observable on Linux because the helper does not yet exist, while the Windows fixture later proves native Windows parsing on `windows-2025`.
+
+- [ ] **Step 6: Verify PATH helper RED**
+
+Run: `cargo test -p schneeforge-core discovery::tests`
+
+Expected: FAIL because `path_dirs_from_os` does not exist.
+
+- [ ] **Step 7: Implement PATH helper with `std::env::split_paths`**
+
+```rust
+fn path_dirs_from_os(path: &std::ffi::OsStr) -> Vec<String> {
+    std::env::split_paths(path)
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect()
+}
+```
+
+Use it from `which` via `std::env::var_os("PATH")`.
+
+- [ ] **Step 8: Run focused and core tests**
+
+Run: `cargo test -p schneeforge-core discovery::tests && cargo test -p schneeforge-core`
+
+Expected: PASS.
+
+- [ ] **Step 9: Commit**
 
 Commit message: `refactor(core): separate host and execution platform`
 
