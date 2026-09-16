@@ -205,12 +205,7 @@ mod tests {
         assert_eq!(parsed.repo.as_deref(), Some("/home/alice/nix setting"));
         assert_eq!(
             parsed.forwarded,
-            args(&[
-                "--repo",
-                "/home/alice/nix setting",
-                "apply",
-                "a b;$(x)"
-            ])
+            args(&["--repo", "/home/alice/nix setting", "apply", "a b;$(x)"])
         );
     }
 
