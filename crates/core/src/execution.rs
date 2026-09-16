@@ -34,7 +34,10 @@ mod tests {
     #[test]
     fn host_platform_distinguishes_windows_from_nix_platform() {
         assert_eq!(detect_host_platform_for("windows"), HostPlatform::Windows);
-        assert_eq!(crate::detect_platform_for("windows"), crate::Platform::Unsupported);
+        assert_eq!(
+            crate::detect_platform_for("windows"),
+            crate::Platform::Unsupported
+        );
     }
 
     #[test]
