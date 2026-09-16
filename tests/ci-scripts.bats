@@ -50,7 +50,8 @@ workflow_job_block() {
 }
 
 @test "LC_RPATH extraction allows /usr/local/lib rpath" {
-  output="$(printf 'Load command 12\n      cmd LC_RPATH\n      cmdsize 32\n      path /usr/local/lib rpath' | extract_rpaths)"
+  output="$(printf 'Load command 12\n      cmd LC_RPATH\n      cmdsize 32\n      path /usr/local/lib (offset 12)\n' \
+    | extract_rpaths)"
   [ "$output" = "/usr/local/lib" ]
 }
 
