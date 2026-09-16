@@ -1,4 +1,9 @@
-use schneeforge_core::execution::HostPlatform;
+use std::process::Command;
+
+use schneeforge_core::execution::{
+    build_wsl_argv, decode_wsl_output, parse_wsl_inventory, select_wsl2, validate_backend_info,
+    validate_wsl_repo_path, BackendInfo, HostPlatform,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DispatchKind {
@@ -14,6 +19,42 @@ pub(crate) struct LauncherArgs {
     pub(crate) wsl_distro: Option<String>,
     pub(crate) repo: Option<String>,
     pub(crate) forwarded: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProcessOutput {
+    code: Option<i32>,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+trait WslRuntime {
+    fn capture(&mut self, argv: &[String]) -> Result<ProcessOutput, String>;
+    fn status(&mut self, argv: &[String]) -> Result<Option<i32>, String>;
+}
+
+struct SystemWslRuntime;
+
+impl WslRuntime for SystemWslRuntime {
+    fn capture(&mut self, argv: &[String]) -> Result<ProcessOutput, String> {
+        let output = Command::new("wsl.exe")
+            .args(argv)
+            .output()
+            .map_err(|error| format!("failed to execute wsl.exe: {error}"))?;
+        Ok(ProcessOutput {
+            code: output.status.code(),
+            stdout: output.stdout,
+            stderr: output.stderr,
+        })
+    }
+
+    fn status(&mut self, argv: &[String]) -> Result<Option<i32>, String> {
+        Command::new("wsl.exe")
+            .args(argv)
+            .status()
+            .map(|status| status.code())
+            .map_err(|error| format!("failed to execute wsl.exe: {error}"))
+    }
 }
 
 pub(crate) fn classify_dispatch(host: HostPlatform, args: &[String]) -> DispatchKind {
@@ -111,6 +152,59 @@ pub(crate) fn parse_launcher_args(args: &[String]) -> Result<LauncherArgs, Strin
 
 pub(crate) fn delegated_exit_code(code: Option<i32>) -> Result<i32, String> {
     code.ok_or_else(|| "delegated WSL command terminated without an exit code".to_owned())
+}
+
+fn capture_checked<R: WslRuntime>(
+    runtime: &mut R,
+    argv: &[String],
+    operation: &str,
+) -> Result<ProcessOutput, String> {
+    let output = runtime.capture(argv)?;
+    if output.code == Some(0) {
+        return Ok(output);
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(format!(
+        "{operation} failed with exit code {:?}: {}",
+        output.code,
+        stderr.trim()
+    ))
+}
+
+fn delegate_with_runtime<R: WslRuntime>(
+    runtime: &mut R,
+    parsed: &LauncherArgs,
+    env_selector: Option<&str>,
+    expected_app_version: &str,
+) -> Result<i32, String> {
+    if let Some(repo) = parsed.repo.as_deref() {
+        validate_wsl_repo_path(repo).map_err(|error| error.to_string())?;
+    }
+
+    let quiet_args = vec!["--list".to_owned(), "--quiet".to_owned()];
+    let verbose_args = vec!["--list".to_owned(), "--verbose".to_owned()];
+    let quiet = capture_checked(runtime, &quiet_args, "WSL distribution listing")?;
+    let verbose = capture_checked(runtime, &verbose_args, "WSL verbose distribution listing")?;
+    let quiet = decode_wsl_output(&quiet.stdout).map_err(|error| error.to_string())?;
+    let verbose = decode_wsl_output(&verbose.stdout).map_err(|error| error.to_string())?;
+    let inventory = parse_wsl_inventory(&quiet, &verbose).map_err(|error| error.to_string())?;
+    let selected = select_wsl2(
+        &inventory,
+        parsed.wsl_distro.as_deref(),
+        env_selector,
+    )
+    .map_err(|error| error.to_string())?;
+
+    let helper_args = build_wsl_argv(&selected.distro, &["__backend-info".to_owned()]);
+    let helper = capture_checked(runtime, &helper_args, "WSL helper compatibility probe")?;
+    let helper = decode_wsl_output(&helper.stdout).map_err(|error| error.to_string())?;
+    let helper = serde_json::from_str::<BackendInfo>(helper.trim())
+        .map_err(|error| format!("invalid WSL helper compatibility response: {error}"))?;
+    validate_backend_info(&helper, expected_app_version).map_err(|error| error.to_string())?;
+
+    let delegated_args = build_wsl_argv(&selected.distro, &parsed.forwarded);
+    delegated_exit_code(runtime.status(&delegated_args)?)
 }
 
 fn command_name(args: &[String]) -> Option<&str> {
