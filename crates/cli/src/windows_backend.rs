@@ -189,12 +189,8 @@ fn delegate_with_runtime<R: WslRuntime>(
     let quiet = decode_wsl_output(&quiet.stdout).map_err(|error| error.to_string())?;
     let verbose = decode_wsl_output(&verbose.stdout).map_err(|error| error.to_string())?;
     let inventory = parse_wsl_inventory(&quiet, &verbose).map_err(|error| error.to_string())?;
-    let selected = select_wsl2(
-        &inventory,
-        parsed.wsl_distro.as_deref(),
-        env_selector,
-    )
-    .map_err(|error| error.to_string())?;
+    let selected = select_wsl2(&inventory, parsed.wsl_distro.as_deref(), env_selector)
+        .map_err(|error| error.to_string())?;
 
     let helper_args = build_wsl_argv(&selected.distro, &["__backend-info".to_owned()]);
     let helper = capture_checked(runtime, &helper_args, "WSL helper compatibility probe")?;
@@ -279,10 +275,7 @@ mod tests {
     impl WslRuntime for FakeRuntime {
         fn capture(&mut self, argv: &[String]) -> Result<ProcessOutput, String> {
             self.seen.push(argv.to_vec());
-            let (expected, result) = self
-                .captures
-                .pop_front()
-                .expect("unexpected capture call");
+            let (expected, result) = self.captures.pop_front().expect("unexpected capture call");
             assert_eq!(argv, expected);
             Ok(result)
         }
@@ -396,14 +389,7 @@ mod tests {
                 output(0, &helper),
             )
             .with_status(
-                &[
-                    "-d",
-                    "Ubuntu Dev",
-                    "--",
-                    "schneeforge",
-                    "apply",
-                    "a b;$(x)",
-                ],
+                &["-d", "Ubuntu Dev", "--", "schneeforge", "apply", "a b;$(x)"],
                 Some(23),
             );
         let parsed = LauncherArgs {
@@ -429,13 +415,9 @@ mod tests {
             forwarded: args(&["status"]),
         };
 
-        assert!(delegate_with_runtime(
-            &mut runtime,
-            &parsed,
-            None,
-            env!("CARGO_PKG_VERSION")
-        )
-        .is_err());
+        assert!(
+            delegate_with_runtime(&mut runtime, &parsed, None, env!("CARGO_PKG_VERSION")).is_err()
+        );
         assert!(runtime.seen.is_empty());
     }
 
@@ -443,23 +425,16 @@ mod tests {
     fn wsl1_is_rejected_before_helper_probe() {
         let mut runtime = FakeRuntime::default()
             .with_capture(&["--list", "--quiet"], output(0, "Legacy\n"))
-            .with_capture(
-                &["--list", "--verbose"],
-                output(0, "* Legacy Running 1\n"),
-            );
+            .with_capture(&["--list", "--verbose"], output(0, "* Legacy Running 1\n"));
         let parsed = LauncherArgs {
             wsl_distro: None,
             repo: None,
             forwarded: args(&["status"]),
         };
 
-        assert!(delegate_with_runtime(
-            &mut runtime,
-            &parsed,
-            None,
-            env!("CARGO_PKG_VERSION")
-        )
-        .is_err());
+        assert!(
+            delegate_with_runtime(&mut runtime, &parsed, None, env!("CARGO_PKG_VERSION")).is_err()
+        );
         assert!(runtime.captures.is_empty());
         assert!(runtime.statuses.is_empty());
     }
@@ -469,10 +444,7 @@ mod tests {
         let helper = compatible_backend_json("9.9.9");
         let mut runtime = FakeRuntime::default()
             .with_capture(&["--list", "--quiet"], output(0, "Ubuntu\n"))
-            .with_capture(
-                &["--list", "--verbose"],
-                output(0, "* Ubuntu Running 2\n"),
-            )
+            .with_capture(&["--list", "--verbose"], output(0, "* Ubuntu Running 2\n"))
             .with_capture(
                 &["-d", "Ubuntu", "--", "schneeforge", "__backend-info"],
                 output(0, &helper),
@@ -483,13 +455,9 @@ mod tests {
             forwarded: args(&["apply"]),
         };
 
-        assert!(delegate_with_runtime(
-            &mut runtime,
-            &parsed,
-            None,
-            env!("CARGO_PKG_VERSION")
-        )
-        .is_err());
+        assert!(
+            delegate_with_runtime(&mut runtime, &parsed, None, env!("CARGO_PKG_VERSION")).is_err()
+        );
         assert!(runtime.statuses.is_empty());
     }
 
@@ -507,10 +475,7 @@ mod tests {
                 &["-d", "Debian", "--", "schneeforge", "__backend-info"],
                 output(0, &helper),
             )
-            .with_status(
-                &["-d", "Debian", "--", "schneeforge", "status"],
-                Some(0),
-            );
+            .with_status(&["-d", "Debian", "--", "schneeforge", "status"], Some(0));
         let parsed = LauncherArgs {
             wsl_distro: None,
             repo: None,
