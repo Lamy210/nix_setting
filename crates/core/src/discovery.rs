@@ -192,6 +192,7 @@ pub fn has_git() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
 
     #[test]
     fn platform_from_os() {
@@ -220,7 +221,6 @@ mod tests {
 
     #[test]
     fn target_separates_platform_from_name() {
-        // 同一 platform/arch でも ConfigurationTarget の name は独立した data
         let mac_mini = ConfigurationTarget::new("mac-mini", Platform::MacOS, Architecture::Aarch64);
         let macbook_air =
             ConfigurationTarget::new("darwin-aarch64", Platform::MacOS, Architecture::Aarch64);
@@ -254,6 +254,18 @@ mod tests {
         assert_eq!(detect_target_for("linux", "riscv64").name(), "unsupported");
         assert_eq!(detect_target_for("windows", "x86_64").name(), "unsupported");
         assert_eq!(detect_target_for("freebsd", "x86_64").name(), "unsupported");
+    }
+
+    #[test]
+    fn path_dirs_from_os_uses_platform_path_separator() {
+        let joined = std::env::join_paths(["/tmp/schneeforge-a", "/tmp/schneeforge-b"]).unwrap();
+        assert_eq!(
+            path_dirs_from_os(OsStr::new(&joined)),
+            vec![
+                "/tmp/schneeforge-a".to_string(),
+                "/tmp/schneeforge-b".to_string()
+            ]
+        );
     }
 
     #[test]
