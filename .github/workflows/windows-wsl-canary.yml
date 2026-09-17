@@ -1,0 +1,109 @@
+name: Windows WSL2 canary
+
+on:
+  push:
+    branches: [develop]
+  schedule:
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-wsl-canary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  launcher-transport:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-wsl-canary
+
+      - name: Build native Windows launcher
+        shell: pwsh
+        run: cargo build -p schneeforge
+
+      - name: Install Ubuntu WSL2 distribution
+        shell: pwsh
+        run: |
+          wsl --status
+          wsl --set-default-version 2
+          wsl --install Ubuntu --no-launch --web-download
+          wsl -d Ubuntu -- true
+          wsl --list --verbose
+
+      - name: Install transport-only helper fixture
+        shell: pwsh
+        run: |
+          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $version = ($metadata.packages | Where-Object { $_.name -eq 'schneeforge' } | Select-Object -First 1).version
+          if (-not $version) {
+            throw 'Unable to resolve schneeforge package version'
+          }
+
+          $linuxWorkspace = (& wsl -d Ubuntu -- wslpath -a "$env:GITHUB_WORKSPACE").Trim()
+          if (-not $linuxWorkspace) {
+            throw 'Unable to resolve the GitHub workspace inside WSL'
+          }
+
+          wsl -d Ubuntu -- sh -c "printf '%s' '$version' > /tmp/schneeforge-canary-version"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to stage canary version (exit $LASTEXITCODE)"
+          }
+
+          wsl -d Ubuntu -- install -m 0755 "$linuxWorkspace/tests/fixtures/wsl-canary-helper.sh" /usr/local/bin/schneeforge
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to install canary helper (exit $LASTEXITCODE)"
+          }
+
+          wsl -d Ubuntu -- schneeforge __backend-info
+          if ($LASTEXITCODE -ne 0) {
+            throw "Canary helper handshake failed (exit $LASTEXITCODE)"
+          }
+
+      - name: Explicit selector preserves argv and delegated exit status
+        shell: pwsh
+        run: |
+          $nativeErrorPreference = $PSNativeCommandUseErrorActionPreference
+          $PSNativeCommandUseErrorActionPreference = $false
+          try {
+            $output = & .\target\debug\schneeforge.exe --wsl-distro Ubuntu canary-transport 'a b;$(x)'
+            $code = $LASTEXITCODE
+          } finally {
+            $PSNativeCommandUseErrorActionPreference = $nativeErrorPreference
+          }
+
+          if ($code -ne 23) {
+            throw "Expected delegated exit 23, got $code"
+          }
+          if (($output -join "`n") -notmatch [regex]::Escape('canary-argv=a b;$(x)')) {
+            throw "Delegated argv payload was not preserved: $($output -join ' | ')"
+          }
+
+      - name: Environment selector reaches the same WSL2 backend
+        shell: pwsh
+        env:
+          SCHNEEFORGE_WSL_DISTRO: Ubuntu
+        run: |
+          $nativeErrorPreference = $PSNativeCommandUseErrorActionPreference
+          $PSNativeCommandUseErrorActionPreference = $false
+          try {
+            $output = & .\target\debug\schneeforge.exe canary-transport 'a b;$(x)'
+            $code = $LASTEXITCODE
+          } finally {
+            $PSNativeCommandUseErrorActionPreference = $nativeErrorPreference
+          }
+
+          if ($code -ne 23) {
+            throw "Expected delegated exit 23 through SCHNEEFORGE_WSL_DISTRO, got $code"
+          }
+          if (($output -join "`n") -notmatch [regex]::Escape('canary-argv=a b;$(x)')) {
+            throw "Environment-selected argv payload was not preserved: $($output -join ' | ')"
+          }
