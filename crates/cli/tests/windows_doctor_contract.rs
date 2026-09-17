@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 // Contract coverage for the Windows doctor state matrix.
 //
 // The backend module is included into this test crate so private runtime seams
@@ -117,10 +119,7 @@ mod doctor_matrix {
     fn doctor_reports_selected_wsl1_as_not_ready() {
         let mut runtime = FakeRuntime::default()
             .with_capture(&["--list", "--quiet"], output(0, "Legacy\n"))
-            .with_capture(
-                &["--list", "--verbose"],
-                output(0, "* Legacy Running 1\n"),
-            );
+            .with_capture(&["--list", "--verbose"], output(0, "* Legacy Running 1\n"));
 
         let report = doctor_report(&mut runtime);
 
@@ -134,10 +133,7 @@ mod doctor_matrix {
     fn doctor_reports_missing_helper_without_losing_host_state() {
         let mut runtime = FakeRuntime::default()
             .with_capture(&["--list", "--quiet"], output(0, "Ubuntu\n"))
-            .with_capture(
-                &["--list", "--verbose"],
-                output(0, "* Ubuntu Running 2\n"),
-            )
+            .with_capture(&["--list", "--verbose"], output(0, "* Ubuntu Running 2\n"))
             .with_capture(
                 &["-d", "Ubuntu", "--", "schneeforge", "__backend-info"],
                 output_err(127, "schneeforge: not found"),
@@ -159,10 +155,7 @@ mod doctor_matrix {
         let helper = compatible_backend_json("9.9.9");
         let mut runtime = FakeRuntime::default()
             .with_capture(&["--list", "--quiet"], output(0, "Ubuntu\n"))
-            .with_capture(
-                &["--list", "--verbose"],
-                output(0, "* Ubuntu Running 2\n"),
-            )
+            .with_capture(&["--list", "--verbose"], output(0, "* Ubuntu Running 2\n"))
             .with_capture(
                 &["-d", "Ubuntu", "--", "schneeforge", "__backend-info"],
                 output(0, &helper),
@@ -183,10 +176,7 @@ mod doctor_matrix {
         let helper = compatible_backend_json(version);
         let mut runtime = FakeRuntime::default()
             .with_capture(&["--list", "--quiet"], output(0, "Ubuntu\n"))
-            .with_capture(
-                &["--list", "--verbose"],
-                output(0, "* Ubuntu Running 2\n"),
-            )
+            .with_capture(&["--list", "--verbose"], output(0, "* Ubuntu Running 2\n"))
             .with_capture(
                 &["-d", "Ubuntu", "--", "schneeforge", "__backend-info"],
                 output(0, &helper),
