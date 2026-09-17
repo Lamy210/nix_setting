@@ -1479,6 +1479,20 @@ mod tests {
         ResolvedTool::new(git_bin.to_path_buf(), ToolSource::Path)
     }
 
+    static OPERATION_LOCK_SEQ: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(0);
+
+    fn temp_operation_lock(name: &str) -> (OperationLock, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "sf-ops-lock-{name}-{}-{}",
+            std::process::id(),
+            OPERATION_LOCK_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        (OperationLock::new(dir.join("operation.lock")), dir)
+    }
+
     #[test]
     fn current_branch_is_some_on_branch_checkout() {
         let Some((repo, git_bin)) = git_repo_fixture("branch") else {
@@ -1542,13 +1556,16 @@ mod tests {
             ..dummy_tc()
         };
 
-        // Regression harness for issue #91: hold the process-global lock so any
-        // accidental call through public sync() fails deterministically.
+        // Regression harness for issue #91: keep the process-global lock held.
+        // The test must use its injected lock, so accidental public sync() usage
+        // fails deterministically instead of becoming a parallel-test flake.
         let _global_guard = OperationLock::global()
             .try_acquire()
             .unwrap()
             .expect("global operation lock should be free in this isolated test");
-        let out = sync(clone_dir.to_str().unwrap(), &tc, true).unwrap();
+        let (lock, lock_dir) = temp_operation_lock("detached-sync");
+        let out =
+            sync_with_lock(clone_dir.to_str().unwrap(), &tc, true, &lock).unwrap();
         let msg = out.expect("capture mode should return the pinned note");
         assert!(
             msg.contains("pinned to a release checkout"),
@@ -1560,8 +1577,7 @@ mod tests {
         );
 
         // 対称性: 通常の branch checkout は pinned 扱いにならず pull が走る。
-        // sync は global lock を取るため、同一 test 内で直列に検証する
-        // (cargo test は test を並列実行し、別 test での lock 競合が Busy になる)
+        // 同じ test-local lock を再利用し、process-global lock には依存しない。
         let branch_clone =
             std::env::temp_dir().join(format!("sf-sync-branch-clone-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&branch_clone);
@@ -1581,7 +1597,8 @@ mod tests {
             git: Some(resolved_git(&git_bin)),
             ..dummy_tc()
         };
-        let out = sync(branch_clone.to_str().unwrap(), &tc_branch, true).unwrap();
+        let out =
+            sync_with_lock(branch_clone.to_str().unwrap(), &tc_branch, true, &lock).unwrap();
         let msg = out.expect("capture mode should return pull output");
         assert!(
             !msg.contains("pinned to a release checkout"),
@@ -1591,5 +1608,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&src);
         let _ = std::fs::remove_dir_all(&clone_dir);
         let _ = std::fs::remove_dir_all(&branch_clone);
+        let _ = std::fs::remove_dir_all(&lock_dir);
     }
 }
