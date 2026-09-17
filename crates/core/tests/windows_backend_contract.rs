@@ -101,3 +101,28 @@ fn selector_like_argument_after_double_dash_is_preserved() {
     ];
     assert_eq!(strip_wsl_distro_args(&raw).unwrap(), raw);
 }
+
+#[cfg(windows)]
+#[test]
+fn tool_resolver_uses_windows_path_separator() {
+    use schneeforge_core::tool::{ToolResolver, ToolSource};
+
+    let dir = std::env::temp_dir().join(format!(
+        "schneeforge-windows-path-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("portable-tool"), b"contract fixture").unwrap();
+
+    let original_path = std::env::var_os("PATH");
+    std::env::set_var("PATH", std::env::join_paths([&dir]).unwrap());
+    let resolved = ToolResolver::with_known_paths(vec![]).resolve_tool("portable-tool");
+    match original_path {
+        Some(path) => std::env::set_var("PATH", path),
+        None => std::env::remove_var("PATH"),
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_eq!(resolved.map(|tool| tool.source), Some(ToolSource::Path));
+}
