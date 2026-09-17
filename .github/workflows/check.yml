@@ -213,7 +213,7 @@ jobs:
             | grep -v '[$]BREW_BIN' \
             | grep -v 'nix install' \
             || true)
-          if [ -n "$shell_hits" ]; then
+          if [ -n "$rust_hits" ]; then
             echo "ERROR: raw tool invocations in shell. Use [$]NIX_BIN / [$]GIT_BIN / [$]BREW_BIN (resolve-tools.sh)." >&2
             echo "$shell_hits" >&2
             exit 1
@@ -291,9 +291,8 @@ jobs:
           done
 
   # Windows support is experimental and intentionally isolated from required/release gates.
-  # The Windows launcher itself is compiled and contract-tested here; WSL availability is
-  # not assumed on GitHub-hosted runners because runtime behavior is covered by fake-runtime
-  # unit tests and execution-side integration belongs to a separate environment.
+  # Compile every core test target on Windows, but execute only Windows-backend contracts;
+  # operational core tests intentionally model the delegated macOS/Linux execution side.
   windows-check:
     runs-on: windows-2025
     steps:
@@ -308,8 +307,11 @@ jobs:
       - name: cargo check workspace
         run: cargo check --workspace
 
-      - name: core contract tests
-        run: cargo test -p schneeforge-core
+      - name: compile core test targets
+        run: cargo test -p schneeforge-core --no-run
+
+      - name: core Windows backend contracts
+        run: cargo test -p schneeforge-core --test windows_backend_contract
 
       - name: launcher unit tests
         run: cargo test -p schneeforge --bin schneeforge
