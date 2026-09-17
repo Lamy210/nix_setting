@@ -78,7 +78,7 @@ For an execution-requiring Windows command, SchneeForge MUST choose/validate the
 
 ### Requirement: Delegation preserves process arguments and status without a shell
 
-The Windows launcher MUST invoke `wsl.exe` with process arguments equivalent to `-d <distro> -- schneeforge <args...>`. User-provided arguments MUST be forwarded as argv entries rather than concatenated into `sh -c`, PowerShell, `cmd /c`, or another command string. The launcher SHALL inherit or transparently relay stdin/stdout/stderr and SHALL return the delegated process exit status. The launcher-only `--wsl-distro` selector MUST NOT be forwarded to the Linux helper.
+The Windows launcher MUST invoke `wsl.exe` with process arguments equivalent to `-d <distro> --exec schneeforge <args...>` so WSL executes the helper without routing the command through the distribution's default shell. User-provided arguments MUST be forwarded as argv entries rather than concatenated into `sh -c`, PowerShell, `cmd /c`, or another command string. The launcher SHALL inherit or transparently relay stdin/stdout/stderr and SHALL return the delegated process exit status. The launcher-only `--wsl-distro` selector MUST NOT be forwarded to the Linux helper.
 
 #### Scenario: shell metacharacters remain literal arguments
 
