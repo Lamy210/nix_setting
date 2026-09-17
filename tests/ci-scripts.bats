@@ -267,3 +267,25 @@ PY
   run grep -q 'windows-check' .github/workflows/release.yml
   [ "$status" -ne 0 ]
 }
+
+@test "real WSL canary is isolated and exercises launcher transport" {
+  workflow=.github/workflows/windows-wsl-canary.yml
+  [ -f "$workflow" ]
+  grep -q 'runs-on: windows-2025' "$workflow"
+  grep -q 'schedule:' "$workflow"
+  grep -q 'workflow_dispatch:' "$workflow"
+  grep -q 'branches: \[develop\]' "$workflow"
+  run grep -q 'pull_request:' "$workflow"
+  [ "$status" -ne 0 ]
+  run grep -q 'continue-on-error: true' "$workflow"
+  [ "$status" -ne 0 ]
+  grep -q 'wsl --install Ubuntu --no-launch --web-download' "$workflow"
+  grep -q 'wsl --list --verbose' "$workflow"
+  grep -q 'cargo build -p schneeforge' "$workflow"
+  grep -q -- '--wsl-distro Ubuntu' "$workflow"
+  grep -q 'SCHNEEFORGE_WSL_DISTRO' "$workflow"
+  grep -Fq 'a b;$(x)' "$workflow"
+  grep -q '23' "$workflow"
+  run grep -q 'windows-wsl-canary' .github/workflows/check.yml .github/workflows/release.yml
+  [ "$status" -ne 0 ]
+}
