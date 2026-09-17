@@ -1564,8 +1564,7 @@ mod tests {
             .unwrap()
             .expect("global operation lock should be free in this isolated test");
         let (lock, lock_dir) = temp_operation_lock("detached-sync");
-        let out =
-            sync_with_lock(clone_dir.to_str().unwrap(), &tc, true, &lock).unwrap();
+        let out = sync_with_lock(clone_dir.to_str().unwrap(), &tc, true, &lock).unwrap();
         let msg = out.expect("capture mode should return the pinned note");
         assert!(
             msg.contains("pinned to a release checkout"),
