@@ -106,4 +106,14 @@ PR CIには `windows-2025` の `windows-check` を置き、次を検証します
 - host-aware CLI contract tests
 - native `.exe` の `--version` / `--help` smoke
 
-`windows-check` は現時点では **non-required** で、既存 `ci-required` や release artifact gate の依存には追加していません。Windows release配布を開始する前に、別途distribution/update設計とrelease gateを追加します。
+`windows-check` は現時点では **non-required** で、既存 `ci-required` や release artifact gate の依存には追加していません。
+
+加えて `.github/workflows/windows-wsl-canary.yml` を独立した non-required canary として用意しています。これは PR では実行せず、`develop` push、週次 schedule、manual dispatch で `windows-2025` 上に Ubuntu WSL2 を起動し、transport-only helper fixture を使って次を実WSL境界で確認します。
+
+- `--wsl-distro Ubuntu` による明示selector
+- `SCHNEEFORGE_WSL_DISTRO` によるenvironment selector
+- 空白・shell metacharacterを含むargvの保持
+- Linux helper handshake
+- delegated exit status `23` の保持
+
+canary は `check.yml` の `ci-required`、release artifact gate、`release.yml` の依存には含めません。Windows release配布を開始する前に、別途distribution/update設計とrelease gateを追加します。
