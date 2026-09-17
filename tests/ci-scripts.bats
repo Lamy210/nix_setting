@@ -284,7 +284,7 @@ PY
   grep -q 'cargo build -p schneeforge' "$workflow"
   grep -q -- '--wsl-distro Ubuntu' "$workflow"
   grep -q 'SCHNEEFORGE_WSL_DISTRO' "$workflow"
-  grep -Fq 'a b;$(x)' "$workflow"
+  grep -Fq "a b;\$(x)" "$workflow"
   grep -q '23' "$workflow"
   run grep -q 'windows-wsl-canary' .github/workflows/check.yml .github/workflows/release.yml
   [ "$status" -ne 0 ]
