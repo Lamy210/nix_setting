@@ -282,10 +282,21 @@ PY
   grep -q 'wsl --install Ubuntu --no-launch --web-download' "$workflow"
   grep -q 'wsl --list --verbose' "$workflow"
   grep -q 'cargo build -p schneeforge' "$workflow"
-  grep -q -- '--wsl-distro Ubuntu' "$workflow"
-  grep -q 'SCHNEEFORGE_WSL_DISTRO' "$workflow"
+  grep -Fq 'wsl -d Ubuntu --exec schneeforge __backend-info' "$workflow"
+  [ "$(grep -Fc '[System.Diagnostics.ProcessStartInfo]::new()' "$workflow")" -eq 2 ]
+  grep -Fq "\$startInfo.ArgumentList.Add('--wsl-distro')" "$workflow"
+  grep -Fq "\$startInfo.ArgumentList.Add('Ubuntu')" "$workflow"
+  grep -Fq "\$startInfo.ArgumentList.Add('canary-transport')" "$workflow"
+  grep -Fq "\$startInfo.ArgumentList.Add('a b;\$(x)')" "$workflow"
+  grep -Fq "\$startInfo.RedirectStandardOutput = \$true" "$workflow"
+  grep -Fq "\$startInfo.RedirectStandardError = \$true" "$workflow"
+  grep -Fq "\$startInfo.Environment['SCHNEEFORGE_WSL_DISTRO'] = 'Ubuntu'" "$workflow"
   grep -Fq "a b;\$(x)" "$workflow"
   grep -q '23' "$workflow"
+  run grep -Fq 'Equivalent CLI selector contract: --wsl-distro Ubuntu' "$workflow"
+  [ "$status" -ne 0 ]
+  run grep -Fq '& .\target\debug\schneeforge.exe' "$workflow"
+  [ "$status" -ne 0 ]
   run grep -q 'windows-wsl-canary' .github/workflows/check.yml .github/workflows/release.yml
   [ "$status" -ne 0 ]
 }
