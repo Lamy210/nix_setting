@@ -135,7 +135,7 @@ mod doctor_matrix {
             .with_capture(&["--list", "--quiet"], output(0, "Ubuntu\n"))
             .with_capture(&["--list", "--verbose"], output(0, "* Ubuntu Running 2\n"))
             .with_capture(
-                &["-d", "Ubuntu", "--", "schneeforge", "__backend-info"],
+                &["-d", "Ubuntu", "--exec", "schneeforge", "__backend-info"],
                 output_err(127, "schneeforge: not found"),
             );
 
@@ -157,7 +157,7 @@ mod doctor_matrix {
             .with_capture(&["--list", "--quiet"], output(0, "Ubuntu\n"))
             .with_capture(&["--list", "--verbose"], output(0, "* Ubuntu Running 2\n"))
             .with_capture(
-                &["-d", "Ubuntu", "--", "schneeforge", "__backend-info"],
+                &["-d", "Ubuntu", "--exec", "schneeforge", "__backend-info"],
                 output(0, &helper),
             );
 
@@ -178,7 +178,7 @@ mod doctor_matrix {
             .with_capture(&["--list", "--quiet"], output(0, "Ubuntu\n"))
             .with_capture(&["--list", "--verbose"], output(0, "* Ubuntu Running 2\n"))
             .with_capture(
-                &["-d", "Ubuntu", "--", "schneeforge", "__backend-info"],
+                &["-d", "Ubuntu", "--exec", "schneeforge", "__backend-info"],
                 output(0, &helper),
             );
 

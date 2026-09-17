@@ -562,11 +562,24 @@ mod tests {
                 output(0, "* Ubuntu Dev Running 2\n  Debian Stopped 2\n"),
             )
             .with_capture(
-                &["-d", "Ubuntu Dev", "--", "schneeforge", "__backend-info"],
+                &[
+                    "-d",
+                    "Ubuntu Dev",
+                    "--exec",
+                    "schneeforge",
+                    "__backend-info",
+                ],
                 output(0, &helper),
             )
             .with_status(
-                &["-d", "Ubuntu Dev", "--", "schneeforge", "apply", "a b;$(x)"],
+                &[
+                    "-d",
+                    "Ubuntu Dev",
+                    "--exec",
+                    "schneeforge",
+                    "apply",
+                    "a b;$(x)",
+                ],
                 Some(23),
             );
         let parsed = LauncherArgs {
@@ -623,7 +636,7 @@ mod tests {
             .with_capture(&["--list", "--quiet"], output(0, "Ubuntu\n"))
             .with_capture(&["--list", "--verbose"], output(0, "* Ubuntu Running 2\n"))
             .with_capture(
-                &["-d", "Ubuntu", "--", "schneeforge", "__backend-info"],
+                &["-d", "Ubuntu", "--exec", "schneeforge", "__backend-info"],
                 output(0, &helper),
             );
         let parsed = LauncherArgs {
@@ -649,10 +662,13 @@ mod tests {
                 output(0, "* Ubuntu Running 2\n  Debian Stopped 2\n"),
             )
             .with_capture(
-                &["-d", "Debian", "--", "schneeforge", "__backend-info"],
+                &["-d", "Debian", "--exec", "schneeforge", "__backend-info"],
                 output(0, &helper),
             )
-            .with_status(&["-d", "Debian", "--", "schneeforge", "status"], Some(0));
+            .with_status(
+                &["-d", "Debian", "--exec", "schneeforge", "status"],
+                Some(0),
+            );
         let parsed = LauncherArgs {
             wsl_distro: None,
             repo: None,
@@ -687,7 +703,7 @@ mod tests {
             .with_capture(&["--list", "--quiet"], output(0, "Ubuntu\n"))
             .with_capture(&["--list", "--verbose"], output(0, "* Ubuntu Running 2\n"))
             .with_capture(
-                &["-d", "Ubuntu", "--", "schneeforge", "__backend-info"],
+                &["-d", "Ubuntu", "--exec", "schneeforge", "__backend-info"],
                 output_err(127, "schneeforge: not found"),
             );
 

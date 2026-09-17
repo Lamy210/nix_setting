@@ -112,7 +112,7 @@ pub fn build_wsl_argv(distro: &str, forwarded: &[String]) -> Vec<String> {
     args.extend([
         "-d".to_owned(),
         distro.to_owned(),
-        "--".to_owned(),
+        "--exec".to_owned(),
         "schneeforge".to_owned(),
     ]);
     args.extend(forwarded.iter().cloned());
