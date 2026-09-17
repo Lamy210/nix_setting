@@ -2,15 +2,15 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-09-16
+最終更新: 2026-09-17
 
 ## 完成済み
 
 | 領域 | 内容 |
 |------|------|
 | Nix 基盤 | flake-parts / hosts / profiles / manifest / 3システム / CI 10+ジョブ |
-| Rust core | actions / discovery / diagnostics / manifest / repo / state / time / tool / lock / operations / process / bootstrap / self_update（+ 303 unit tests） |
-| CLI | 12 コマンド（core 委譲のみの adapter 化済み / `with_toolchain` wrapper） |
+| Rust core | actions / discovery / execution / diagnostics / manifest / repo / state / time / tool / lock / operations / process / bootstrap / self_update |
+| CLI | native macOS/Linux adapter + experimental Windows launcher / WSL2 delegation |
 | Tauri GUI | 診断 Status + First Run Wizard + 非同期コマンド + CSP + 状態機械 + Plan/Verify ボタン + `fix-path-env-rs` による macOS PATH 補正 |
 | OpenSpec | `gui-normalization` / runtime hardening / managed source / release supply-chain / development workflow hardening 等を archive 済み。active change は下記「進行中」を参照 |
 
@@ -144,6 +144,7 @@ PR #62-#68 を sequential chain で merge。
 
 | 項目 | 進捗 | 場所 |
 |------|------|------|
+| Windows / WSL2 experimental backend (PR #96) | native Windows launcher、WSL2選択/handshake、early delegation、Windows doctor、Linux repo path policy、`windows-2025` non-required CIまで実装。Windows compile/backend/CLI/smokeは実runnerでgreen確認済み。最終docs/review/latest-head CI後にmerge候補 | `openspec/changes/add-windows-wsl2-platform/`, `docs/windows-wsl2.md` |
 | DMG offline bundle 法務 ADR (issue #17) | ADR-0002 起票済み。実装は弁護士確認後 | `openspec/changes/add-dmg-offline-bundle-licensing/` |
 | macOS Apple Silicon Final Acceptance | rc.7 での実機 acceptance 未完了 | `docs/testing/macOS-final-acceptance-checklist.md` |
 
@@ -164,21 +165,22 @@ PR #62-#68 を sequential chain で merge。
 
 | # | 問題 | 対応 |
 |---|------|------|
+| — | Windows release asset / coordinated self-update 未提供 | PR #96 initial scope外。launcher/helperを同一versionで手動用意するexperimental source-build段階。distribution/update設計をfollow-up changeで行う |
 | — | バージョン文字列の同期（現在 `0.2.0-rc.7`） | 次回 release で RELEASE.md checklist に従い同期 |
 | — | Intel macOS release asset 未提供 | `add-x86_64-darwin-support` を Windows/macOS compatibility 基盤後に検討 |
 
 ## 次の作業（推奨順）
 
-1. **`add-windows-wsl2-platform`**
-   - `HostPlatform::{MacOS,Linux,Windows}` と `ExecutionBackend::{Native,Wsl2{distro}}` を分離
-   - Windows hostからのNix操作はWSL2 Linux backendへ委譲し、Windows自体をNix systemとして扱わない
-   - WSL2 availability / distro / WSL versionを明示検出し、WSL未導入・WSL1のみ・distroなしはprecondition error
-   - Windows compile portability audit (`std::env::split_paths`, Unix-only paths/permissions/locking、HOME/PATH/sudo前提等)
-   - Windows-native package manager backend / Desktop GUI / WSL自動インストールは初期scope外
+1. **PR #96 `add-windows-wsl2-platform` の完了**
+   - OpenSpec tasks / PR本文を実態へ同期
+   - latest-headで `windows-check` + 既存required contexts + `ci-required` + stable macOS lanesを確認
+   - blocking review findingを整理してsquash merge可否を判断
+   - merge後に `chore/archive-add-windows-wsl2-platform` を別PRで作りcanonical specを同期
 2. **macOS Apple Silicon Final Acceptance**
    - rc.7 を使い `docs/testing/macOS-final-acceptance-checklist.md` gate A-J を実施
 3. Phase 2/E 残作業
    - GUI self-update Step 2 (v0.3)
+   - Windows release asset / coordinated launcher-helper update設計
    - #17 DMG bundle + LGPL-2.1 法務確認後の実装
 
 ※ issue #14/#15 は close 済み。#16 は Final Acceptance 状況を確認、#17 は弁護士確認後に close。
@@ -190,6 +192,7 @@ PR #62-#68 を sequential chain で merge。
 - Back-merge: `main` → PR → `develop` (**merge commit**)。squash/rebase/force rewrite は使わない
 - OpenSpec: change 作成 → proposal/design/spec/tasks → `openspec validate <id> --strict` → proposal approval → 実装 → `openspec validate --all --strict` → 実装 PR merge → `chore/archive-<id>` で archive + spec sync PR
 - 品質ゲート: `cargo test` / `clippy` / `fmt` / `nix flake check` / OpenSpec strict validation
+- Windows backend: `windows-2025` non-required laneでnative launcher compile/contract/smokeを確認し、Nix operational behaviorはWSL/Linux execution-sideで保持する
 - branch protection required checks の変更は段階移行。新 aggregator を既存 required contexts と並行稼働させてから切り替える
 - 手動 CLI 実行時は `XDG_STATE_HOME` を temp に向け、実 state を汚染しない
-- 詳細: [CONTRIBUTING.md](../CONTRIBUTING.md) / [RELEASE.md](../RELEASE.md)
+- 詳細: [CONTRIBUTING.md](../CONTRIBUTING.md) / [RELEASE.md](../RELEASE.md) / [Windows / WSL2 guide](./windows-wsl2.md)
