@@ -66,8 +66,6 @@ jobs:
       - name: Explicit selector preserves argv and delegated exit status
         shell: pwsh
         run: |
-          # Equivalent CLI selector contract: --wsl-distro Ubuntu
-          # Add each token separately so the canary proves Windows argv preservation.
           $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
           $startInfo.FileName = (Resolve-Path '.\target\debug\schneeforge.exe').Path
           $startInfo.UseShellExecute = $false
