@@ -290,6 +290,40 @@ jobs:
             fi
           done
 
+  # Windows support is experimental and intentionally isolated from required/release gates.
+  # The Windows launcher itself is compiled and contract-tested here; WSL availability is
+  # not assumed on GitHub-hosted runners because runtime behavior is covered by fake-runtime
+  # unit tests and execution-side integration belongs to a separate environment.
+  windows-check:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows
+
+      - name: cargo check workspace
+        run: cargo check --workspace
+
+      - name: core contract tests
+        run: cargo test -p schneeforge-core
+
+      - name: launcher unit tests
+        run: cargo test -p schneeforge --bin schneeforge
+
+      - name: Windows CLI contract tests
+        run: cargo test -p schneeforge --test windows_cli_contract
+
+      - name: launcher smoke
+        shell: pwsh
+        run: |
+          cargo build -p schneeforge
+          .\target\debug\schneeforge.exe --version
+          .\target\debug\schneeforge.exe --help
+
   bootstrap-test:
     runs-on: ubuntu-latest
     steps:
