@@ -1541,6 +1541,13 @@ mod tests {
             git: Some(git),
             ..dummy_tc()
         };
+
+        // Regression harness for issue #91: hold the process-global lock so any
+        // accidental call through public sync() fails deterministically.
+        let _global_guard = OperationLock::global()
+            .try_acquire()
+            .unwrap()
+            .expect("global operation lock should be free in this isolated test");
         let out = sync(clone_dir.to_str().unwrap(), &tc, true).unwrap();
         let msg = out.expect("capture mode should return the pinned note");
         assert!(
