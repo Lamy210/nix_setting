@@ -8,7 +8,7 @@ Windows 上では native CLI を launcher/control-plane として使い、Nix・
 - Windows native CLI launcher
 - WSL2 distribution の検出・選択
 - launcher と Linux helper の protocol / application version / OS / architecture handshake
-- `wsl.exe -d <distro> -- schneeforge <args...>` 形式の直接 argv 委譲
+- `wsl.exe -d <distro> --exec schneeforge <args...>` 形式のshell-free argv委譲
 - Windows host 向け `doctor`
 - `--help` / `--version` の local 実行
 - Windows 上の `self-update` の明示的な unsupported エラー
@@ -72,7 +72,7 @@ C:\Users\alice\nix_setting
 | `self-update` | 初期実装ではunsupported。Linux helperだけを更新する動作はしない |
 | `status`, `plan`, `apply`, `rollback` など | WSL2 Linux helperへ委譲 |
 
-委譲時は shell command string を生成せず、`wsl.exe` にargvを直接渡します。空白やshell metacharacterを含む引数も1つのargv entryとして保持します。
+委譲時は shell command string を生成せず、`wsl.exe` の `--exec` で `schneeforge` と各引数を直接渡します。空白やshell metacharacterを含む引数も1つのargv entryとして保持します。
 
 ## Doctor
 
