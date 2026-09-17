@@ -76,7 +76,7 @@
 ## 9. Merge and archive lifecycle
 
 - [x] 9.1 Open implementation PR from `feat/add-windows-wsl2-platform` to `develop`
-- [ ] 9.2 Squash merge only after latest-head CI and review are green
-- [ ] 9.3 Create `chore/archive-add-windows-wsl2-platform` from merged `develop`
+- [x] 9.2 Squash merge only after latest-head CI and review are green
+- [x] 9.3 Create `chore/archive-add-windows-wsl2-platform` from merged `develop`
 - [ ] 9.4 Archive the OpenSpec change and sync canonical specs in a separate PR
 - [ ] 9.5 Review/CI the archive PR and squash merge it to `develop`
