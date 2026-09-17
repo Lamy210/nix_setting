@@ -58,47 +58,60 @@ jobs:
             throw "Failed to install canary helper (exit $LASTEXITCODE)"
           }
 
-          wsl -d Ubuntu -- schneeforge __backend-info
+          wsl -d Ubuntu --exec schneeforge __backend-info
           if ($LASTEXITCODE -ne 0) {
-            throw "Canary helper handshake failed (exit $LASTEXITCODE)"
+            throw "Canary helper exec-mode handshake failed (exit $LASTEXITCODE)"
           }
 
       - name: Explicit selector preserves argv and delegated exit status
         shell: pwsh
         run: |
-          $nativeErrorPreference = $PSNativeCommandUseErrorActionPreference
-          $PSNativeCommandUseErrorActionPreference = $false
-          try {
-            $output = & .\target\debug\schneeforge.exe --wsl-distro Ubuntu canary-transport 'a b;$(x)'
-            $code = $LASTEXITCODE
-          } finally {
-            $PSNativeCommandUseErrorActionPreference = $nativeErrorPreference
-          }
+          # Equivalent CLI selector contract: --wsl-distro Ubuntu
+          # Add each token separately so the canary proves Windows argv preservation.
+          $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+          $startInfo.FileName = (Resolve-Path '.\target\debug\schneeforge.exe').Path
+          $startInfo.UseShellExecute = $false
+          $startInfo.RedirectStandardOutput = $true
+          $startInfo.RedirectStandardError = $true
+          $startInfo.ArgumentList.Add('--wsl-distro')
+          $startInfo.ArgumentList.Add('Ubuntu')
+          $startInfo.ArgumentList.Add('canary-transport')
+          $startInfo.ArgumentList.Add('a b;$(x)')
+
+          $process = [System.Diagnostics.Process]::Start($startInfo)
+          $stdout = $process.StandardOutput.ReadToEnd()
+          $stderr = $process.StandardError.ReadToEnd()
+          $process.WaitForExit()
+          $code = $process.ExitCode
 
           if ($code -ne 23) {
-            throw "Expected delegated exit 23, got $code"
+            throw "Expected delegated exit 23, got $code. stdout=[$stdout] stderr=[$stderr]"
           }
-          if (($output -join "`n") -notmatch [regex]::Escape('canary-argv=a b;$(x)')) {
-            throw "Delegated argv payload was not preserved: $($output -join ' | ')"
+          if ($stdout -notmatch [regex]::Escape('canary-argv=a b;$(x)')) {
+            throw "Delegated argv payload was not preserved. stdout=[$stdout] stderr=[$stderr]"
           }
 
       - name: Environment selector reaches the same WSL2 backend
         shell: pwsh
-        env:
-          SCHNEEFORGE_WSL_DISTRO: Ubuntu
         run: |
-          $nativeErrorPreference = $PSNativeCommandUseErrorActionPreference
-          $PSNativeCommandUseErrorActionPreference = $false
-          try {
-            $output = & .\target\debug\schneeforge.exe canary-transport 'a b;$(x)'
-            $code = $LASTEXITCODE
-          } finally {
-            $PSNativeCommandUseErrorActionPreference = $nativeErrorPreference
-          }
+          $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+          $startInfo.FileName = (Resolve-Path '.\target\debug\schneeforge.exe').Path
+          $startInfo.UseShellExecute = $false
+          $startInfo.RedirectStandardOutput = $true
+          $startInfo.RedirectStandardError = $true
+          $startInfo.Environment['SCHNEEFORGE_WSL_DISTRO'] = 'Ubuntu'
+          $startInfo.ArgumentList.Add('canary-transport')
+          $startInfo.ArgumentList.Add('a b;$(x)')
+
+          $process = [System.Diagnostics.Process]::Start($startInfo)
+          $stdout = $process.StandardOutput.ReadToEnd()
+          $stderr = $process.StandardError.ReadToEnd()
+          $process.WaitForExit()
+          $code = $process.ExitCode
 
           if ($code -ne 23) {
-            throw "Expected delegated exit 23 through SCHNEEFORGE_WSL_DISTRO, got $code"
+            throw "Expected delegated exit 23 through SCHNEEFORGE_WSL_DISTRO, got $code. stdout=[$stdout] stderr=[$stderr]"
           }
-          if (($output -join "`n") -notmatch [regex]::Escape('canary-argv=a b;$(x)')) {
-            throw "Environment-selected argv payload was not preserved: $($output -join ' | ')"
+          if ($stdout -notmatch [regex]::Escape('canary-argv=a b;$(x)')) {
+            throw "Environment-selected argv payload was not preserved. stdout=[$stdout] stderr=[$stderr]"
           }
