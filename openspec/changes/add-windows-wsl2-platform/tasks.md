@@ -33,7 +33,7 @@
 - [x] 4.1 Add global `--wsl-distro` and environment fallback without changing native macOS/Linux behavior
 - [x] 4.2 Move Windows backend dispatch before repo resolution, `ToolInventory::discover`, machine/state discovery, and operation-specific core calls
 - [x] 4.3 Define the command split: help/version local, Windows doctor host-aware, `self-update` explicit unsupported, execution-requiring commands delegated
-- [ ] 4.4 Add Windows doctor tests for WSL unavailable, WSL1, no distro, helper missing, helper mismatch, and ready backend
+- [x] 4.4 Add Windows doctor tests for WSL unavailable, WSL1, no distro, helper missing, helper mismatch, and ready backend
 - [x] 4.5 Implement Windows doctor backend diagnostics with actionable remediation
 - [x] 4.6 Add explicit repo-path tests: omitted repo resolves in WSL, absolute Linux path allowed, drive-letter/UNC paths rejected
 - [x] 4.7 Implement initial execution-side repo/path policy without implicit `wslpath` or `/mnt/c` conversion
