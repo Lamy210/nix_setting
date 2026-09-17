@@ -5,6 +5,7 @@ on:
     branches: [chore/archive-add-windows-wsl2-platform]
     paths:
       - .github/workflows/archive-windows-wsl2-once.yml
+      - openspec/changes/add-windows-wsl2-platform/**
 
 permissions:
   contents: write
