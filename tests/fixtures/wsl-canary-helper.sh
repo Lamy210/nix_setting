@@ -3,7 +3,7 @@ set -euo pipefail
 
 version_file=/tmp/schneeforge-canary-version
 
-if [[ ! -r "$version_file" ]]; then
+if [[ ! -r $version_file ]]; then
   printf 'missing canary version file: %s\n' "$version_file" >&2
   exit 90
 fi
