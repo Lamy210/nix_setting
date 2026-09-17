@@ -24,10 +24,10 @@ jobs:
           nix_path: nixpkgs=channel:nixos-unstable
 
       - name: archive OpenSpec change with canonical spec sync
-        run: nix run nixpkgs#openspec -- archive add-windows-wsl2-platform --yes --no-interactive
+        run: nix run nixpkgs#openspec -- archive add-windows-wsl2-platform --yes
 
       - name: validate archived result
-        run: nix run nixpkgs#openspec -- validate --all --strict --no-interactive
+        run: nix run nixpkgs#openspec -- validate --all --strict
 
       - name: commit generated archive
         run: |
