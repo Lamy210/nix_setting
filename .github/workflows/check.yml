@@ -182,7 +182,7 @@ jobs:
       - name: forbid raw tool spawns
         # tool.rs 以外で Command::new("nix") 等の文字列リテラル spawn を禁止する。
         # 全ての操作は Toolchain の解決済みパスを経由しなければならない。
-        # 詳細: openspec/changes/runtime-tool-resolution-hardening/specs/tool-resolution/spec.md
+        # 詳細: tool-resolution spec "文字列リテラル spawn の禁止"
         # 例外: tool.rs (resolver 本体), crates/cli/tests/ (テストヘルパ)
         run: |
           set -euo pipefail
@@ -289,6 +289,42 @@ jobs:
               exit 1
             fi
           done
+
+  # Windows support is experimental and intentionally isolated from required/release gates.
+  # Compile every core test target on Windows, but execute only Windows-backend contracts;
+  # operational core tests intentionally model the delegated macOS/Linux execution side.
+  windows-check:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows
+
+      - name: cargo check workspace
+        run: cargo check --workspace
+
+      - name: compile core test targets
+        run: cargo test -p schneeforge-core --no-run
+
+      - name: core Windows backend contracts
+        run: cargo test -p schneeforge-core --test windows_backend_contract
+
+      - name: launcher unit tests
+        run: cargo test -p schneeforge --bin schneeforge
+
+      - name: Windows CLI contract tests
+        run: cargo test -p schneeforge --test windows_cli_contract
+
+      - name: launcher smoke
+        shell: pwsh
+        run: |
+          cargo build -p schneeforge
+          .\target\debug\schneeforge.exe --version
+          .\target\debug\schneeforge.exe --help
 
   bootstrap-test:
     runs-on: ubuntu-latest

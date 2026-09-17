@@ -104,7 +104,7 @@ gh pr create --base develop --title "chore: archive <name>"
 - proposal 承認前に実装を開始しない
 - change の archive は実装 PR merge 後に別 `chore/archive-*` PR で行う
 - tooling-only で main spec を変更しない archive のみ `openspec archive <change-id> --skip-specs --yes` を許可する
-- 手書きの `docs/*.md` spec は作らない（OpenSpec の changes/ を使う）
+- 手書きの `docs/*.md` spec は作らない（OpenSpec の changes/ を使う）。利用・運用ガイドは `docs/` に置いてよい
 
 ## アーキテクチャ
 
@@ -112,22 +112,26 @@ gh pr create --base develop --title "chore: archive <name>"
 schneeforge-core (crates/core)   ← 実ロジック唯一の置き場
   ├── actions     (apply/rollback/scan/upgrade)
   ├── discovery   (detect_target/Platform/Architecture/tool検出)
+  ├── execution   (HostPlatform / WSL2 backend model・protocol contract)
   ├── manifest    (schneeforge.toml)
   ├── repo        (repository解決)
   ├── state       (state.json)
   └── time        (時刻)
-CLI (crates/cli)                 ← core を呼ぶだけ
+CLI (crates/cli)                 ← core を呼ぶ adapter + Windows native launcher
 Desktop (apps/desktop)           ← Tauri 2。core を呼ぶだけ
 ```
 
 原則:
-- CLI / Desktop に実ロジックを置かない（core へ集約）
+- CLI / Desktop に operation の実ロジックを置かない（core へ集約）
+- Windows native CLI は control-plane/launcher とし、execution-requiring command は repo/tool/state discovery 前にWSL2 Linux helperへ委譲する
+- Windows を Nix `Platform` / `system` に追加しない。Nix execution side はmacOS/Linuxのまま
 - 新規操作は core に置き、CLI/GUI は adapter にする
 
 ## 技術スタック
 
 - Nix (flakes, flake-parts) / Home Manager / nix-darwin
 - Rust: schneeforge-core / cli
+- Windows experimental backend: native Rust launcher + WSL2 Linux helper
 - Tauri 2: desktop GUI
 - 配布: flake / install.sh / GitHub Release (binaries + DMG) / Homebrew / cargo install
 
@@ -140,6 +144,8 @@ cargo clippy -- -D warnings
 cargo fmt -- --check
 nix flake check
 ```
+
+Windows関連changeでは加えてPRのnon-required `windows-check`（`windows-2025`）を確認する。Windows release assetを提供するまではrequired/release gateへ昇格させない。
 
 ## コードレビューチェックリスト
 
@@ -155,9 +161,10 @@ nix flake check
 ## 現在進行中
 
 - `openspec/changes/add-dmg-offline-bundle-licensing/` — 法務確認待ち
+- `add-windows-wsl2-platform` — PR #96 で実装中。Windows native launcher → WSL2 Linux helper delegation、helper handshake、Windows doctor、repo path policy、`windows-2025` non-required CIを実装済み。利用条件・non-goalsは [docs/windows-wsl2.md](./docs/windows-wsl2.md) を参照
 - `add-macos-compatibility-matrix` は実装 PR #93 + archive/spec-sync PR #94 で 2026-09-16 に完了・archive 済み
 - `refactor-development-workflow` は 2026-09-16 に archive 済み
 - `refactor-ci-critical-path` は PR #90 + archive PR #92 で 2026-09-16 に archive/spec sync 済み
-- 次: `add-windows-wsl2-platform` — Windows host と WSL2 Nix execution backend を分離する別 change として開始する
+- Windows change merge後は `chore/archive-add-windows-wsl2-platform` を別PRとして作成し、canonical specを同期する
 - 状態・既知のデグレ・次の作業は [docs/STATUS.md](./docs/STATUS.md) を参照（セッション開始時に必ず読む）
 - リリース運用は [RELEASE.md](./RELEASE.md) を参照

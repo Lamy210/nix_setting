@@ -163,13 +163,19 @@ pub fn detect_arch_for(arch: &str) -> Architecture {
     }
 }
 
+fn path_dirs_from_os(path: &std::ffi::OsStr) -> Vec<String> {
+    std::env::split_paths(path)
+        .map(|entry| entry.to_string_lossy().into_owned())
+        .collect()
+}
+
 /// PATH から実行可能ファイルを探す (ToolResolver と同じ実行ビット判定に委譲)
 ///
 /// 注: 新しいコードは `ToolInventory` を使うこと。この関数は `verify` の zsh 等の
 /// inventory 外ツール探索のために残されている。
 pub fn which(cmd: &str) -> Option<String> {
-    let path_dirs: Vec<String> = std::env::var("PATH")
-        .map(|p| p.split(':').map(String::from).collect())
+    let path_dirs = std::env::var_os("PATH")
+        .map(|path| path_dirs_from_os(&path))
         .unwrap_or_default();
     crate::tool::find_executable(cmd, &path_dirs, &[])
 }
@@ -192,6 +198,7 @@ pub fn has_git() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
 
     #[test]
     fn platform_from_os() {
@@ -220,7 +227,6 @@ mod tests {
 
     #[test]
     fn target_separates_platform_from_name() {
-        // 同一 platform/arch でも ConfigurationTarget の name は独立した data
         let mac_mini = ConfigurationTarget::new("mac-mini", Platform::MacOS, Architecture::Aarch64);
         let macbook_air =
             ConfigurationTarget::new("darwin-aarch64", Platform::MacOS, Architecture::Aarch64);
@@ -254,6 +260,18 @@ mod tests {
         assert_eq!(detect_target_for("linux", "riscv64").name(), "unsupported");
         assert_eq!(detect_target_for("windows", "x86_64").name(), "unsupported");
         assert_eq!(detect_target_for("freebsd", "x86_64").name(), "unsupported");
+    }
+
+    #[test]
+    fn path_dirs_from_os_uses_platform_path_separator() {
+        let joined = std::env::join_paths(["/tmp/schneeforge-a", "/tmp/schneeforge-b"]).unwrap();
+        assert_eq!(
+            path_dirs_from_os(OsStr::new(&joined)),
+            vec![
+                "/tmp/schneeforge-a".to_string(),
+                "/tmp/schneeforge-b".to_string()
+            ]
+        );
     }
 
     #[test]

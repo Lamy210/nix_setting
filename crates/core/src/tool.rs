@@ -244,8 +244,12 @@ impl ToolResolver {
             }
         }
 
-        let path_dirs: Vec<String> = env::var("PATH")
-            .map(|p| p.split(':').map(String::from).collect())
+        let path_dirs: Vec<String> = env::var_os("PATH")
+            .map(|path| {
+                env::split_paths(&path)
+                    .map(|entry| entry.to_string_lossy().into_owned())
+                    .collect()
+            })
             .unwrap_or_default();
         if let Some(dir) = find_in_dirs(tool, &path_dirs) {
             return Some((canonicalize(dir), ToolSource::Path));
@@ -285,9 +289,9 @@ pub fn find_executable(tool: &str, path_dirs: &[String], known_dirs: &[PathBuf])
 /// PATH の各ディレクトリを実行可能ファイル探索に使う純関数
 fn find_in_dirs(tool: &str, dirs: &[String]) -> Option<PathBuf> {
     for dir in dirs {
-        let candidate = format!("{dir}/{tool}");
-        if is_executable(Path::new(&candidate)) {
-            return Some(PathBuf::from(candidate));
+        let candidate = PathBuf::from(dir).join(tool);
+        if is_executable(&candidate) {
+            return Some(candidate);
         }
     }
     None

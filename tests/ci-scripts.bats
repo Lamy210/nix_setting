@@ -241,3 +241,51 @@ PY
   run grep -q 'xcode-27' .github/workflows/check.yml .github/workflows/release.yml
   [ "$status" -ne 0 ]
 }
+
+# --- Windows portability contract (add-windows-wsl2-platform) ---
+
+@test "windows-check is pinned, hermetic and non-required" {
+  workflow=.github/workflows/check.yml
+  grep -q '^  windows-check:$' "$workflow"
+
+  windows_check="$(workflow_job_block windows-check)"
+  echo "$windows_check" | grep -q 'runs-on: windows-2025'
+  echo "$windows_check" | grep -q 'cargo check --workspace'
+  echo "$windows_check" | grep -q 'cargo test -p schneeforge-core'
+  echo "$windows_check" | grep -q 'cargo test -p schneeforge --bin schneeforge'
+  echo "$windows_check" | grep -q 'cargo test -p schneeforge --test windows_cli_contract'
+  echo "$windows_check" | grep -q 'schneeforge.exe --version'
+  echo "$windows_check" | grep -q 'schneeforge.exe --help'
+
+  ci_required="$(workflow_job_block ci-required)"
+  run grep -q 'windows-check' <<<"$ci_required"
+  [ "$status" -ne 0 ]
+
+  release_artifact="$(workflow_job_block release-artifact-check)"
+  run grep -q 'windows-check' <<<"$release_artifact"
+  [ "$status" -ne 0 ]
+  run grep -q 'windows-check' .github/workflows/release.yml
+  [ "$status" -ne 0 ]
+}
+
+@test "real WSL canary is isolated and exercises launcher transport" {
+  workflow=.github/workflows/windows-wsl-canary.yml
+  [ -f "$workflow" ]
+  grep -q 'runs-on: windows-2025' "$workflow"
+  grep -q 'schedule:' "$workflow"
+  grep -q 'workflow_dispatch:' "$workflow"
+  grep -q 'branches: \[develop\]' "$workflow"
+  run grep -q 'pull_request:' "$workflow"
+  [ "$status" -ne 0 ]
+  run grep -q 'continue-on-error: true' "$workflow"
+  [ "$status" -ne 0 ]
+  grep -q 'wsl --install Ubuntu --no-launch --web-download' "$workflow"
+  grep -q 'wsl --list --verbose' "$workflow"
+  grep -q 'cargo build -p schneeforge' "$workflow"
+  grep -q -- '--wsl-distro Ubuntu' "$workflow"
+  grep -q 'SCHNEEFORGE_WSL_DISTRO' "$workflow"
+  grep -Fq "a b;\$(x)" "$workflow"
+  grep -q '23' "$workflow"
+  run grep -q 'windows-wsl-canary' .github/workflows/check.yml .github/workflows/release.yml
+  [ "$status" -ne 0 ]
+}
