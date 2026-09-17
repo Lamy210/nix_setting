@@ -1,3 +1,7 @@
+## Purpose
+
+Define the Windows launcher and WSL2 Linux execution boundary for SchneeForge so Windows host detection, deterministic WSL2 selection, helper compatibility checks, argv-preserving delegation, and execution-side repository/tool/state ownership remain explicit and fail-closed without treating Windows as a Nix system.
+
 ## ADDED Requirements
 
 ### Requirement: Host platform and execution backend are separate concerns
