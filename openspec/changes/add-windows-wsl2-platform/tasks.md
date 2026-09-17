@@ -50,7 +50,7 @@
 
 - [x] 6.1 Add Bats/static contract tests for pinned `windows-2025`, non-required Windows coverage, and no Windows release dependency
 - [x] 6.2 Add non-required `windows-check` for core/CLI compile/tests, native launcher smoke, and hermetic WSL contract tests
-- [ ] 6.3 If practical, add a separate scheduled/develop/manual real-WSL2 canary that is not part of `ci-required` or release gates
+- [x] 6.3 Add isolated `windows-wsl-canary` on `windows-2025` for `develop`/schedule/manual runs; exercise real WSL2 launcher transport with explicit/env distro selection, argv preservation, and delegated exit status without joining `ci-required` or release gates
 - [x] 6.4 Keep current server-side required contexts unchanged
 - [x] 6.5 Verify `actionlint`, ShellCheck/Bats, and Windows workflow syntax on the latest head
 
