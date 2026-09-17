@@ -44,7 +44,7 @@
 - [x] 5.2 Audit `std::os::unix`, executable permission, HOME/XDG, shell, `sudo`, and path assumptions in core/CLI
 - [x] 5.3 cfg-gate or isolate Unix-only behavior that Windows compilation reaches; do not generalize unrelated Linux-helper-only code
 - [x] 5.4 Ensure core and CLI build/tests run on Windows without adding Windows Desktop/Tauri scope
-- [ ] 5.5 Confirm macOS/Linux native tests and semantics are unchanged
+- [x] 5.5 Confirm macOS/Linux native tests and semantics are unchanged
 
 ## 6. CI and workflow contracts
 
@@ -52,7 +52,7 @@
 - [x] 6.2 Add non-required `windows-check` for core/CLI compile/tests, native launcher smoke, and hermetic WSL contract tests
 - [ ] 6.3 If practical, add a separate scheduled/develop/manual real-WSL2 canary that is not part of `ci-required` or release gates
 - [x] 6.4 Keep current server-side required contexts unchanged
-- [ ] 6.5 Verify `actionlint`, ShellCheck/Bats, and Windows workflow syntax on the latest head
+- [x] 6.5 Verify `actionlint`, ShellCheck/Bats, and Windows workflow syntax on the latest head
 
 ## 7. Documentation and project state
 
@@ -63,15 +63,15 @@
 
 ## 8. Verification and review
 
-- [ ] 8.1 `openspec validate --all --strict`
-- [ ] 8.2 `cargo test`
-- [ ] 8.3 `cargo fmt -- --check`
-- [ ] 8.4 `cargo clippy -- -D warnings`
-- [ ] 8.5 `nix flake check`
-- [ ] 8.6 Windows `windows-check` green on latest implementation head
-- [ ] 8.7 Existing seven required contexts + `ci-required` green on latest implementation head
-- [ ] 8.8 Final PR diff review: no shell interpolation, no Windows-as-Nix-system drift, no required-context drift, no release-scope drift
-- [ ] 8.9 Resolve all review threads / blocking findings
+- [x] 8.1 `openspec validate --all --strict`
+- [x] 8.2 `cargo test`
+- [x] 8.3 `cargo fmt -- --check`
+- [x] 8.4 `cargo clippy -- -D warnings`
+- [x] 8.5 `nix flake check`
+- [x] 8.6 Windows `windows-check` green on latest implementation head
+- [x] 8.7 Existing seven required contexts + `ci-required` green on latest implementation head
+- [x] 8.8 Final PR diff review: no shell interpolation, no Windows-as-Nix-system drift, no required-context drift, no release-scope drift
+- [x] 8.9 Resolve all review threads / blocking findings
 
 ## 9. Merge and archive lifecycle
 
