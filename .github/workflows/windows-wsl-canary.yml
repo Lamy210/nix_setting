@@ -48,17 +48,12 @@ jobs:
             throw 'Unable to resolve schneeforge package version'
           }
 
-          $linuxWorkspace = (& wsl -d Ubuntu -- wslpath -a "$env:GITHUB_WORKSPACE").Trim()
-          if (-not $linuxWorkspace) {
-            throw 'Unable to resolve the GitHub workspace inside WSL'
-          }
-
           wsl -d Ubuntu -- sh -c "printf '%s' '$version' > /tmp/schneeforge-canary-version"
           if ($LASTEXITCODE -ne 0) {
             throw "Failed to stage canary version (exit $LASTEXITCODE)"
           }
 
-          wsl -d Ubuntu -- install -m 0755 "$linuxWorkspace/tests/fixtures/wsl-canary-helper.sh" /usr/local/bin/schneeforge
+          wsl -d Ubuntu --cd "$env:GITHUB_WORKSPACE" -- install -m 0755 ./tests/fixtures/wsl-canary-helper.sh /usr/local/bin/schneeforge
           if ($LASTEXITCODE -ne 0) {
             throw "Failed to install canary helper (exit $LASTEXITCODE)"
           }
