@@ -4,7 +4,9 @@
 SchneeForge の全レイヤー（core / CLI / desktop / shell installer）で一貫したツール解決を定義する。macOS の .app 起動や CI の最小インストールなど PATH が欠損しがちな環境でも、`Toolchain` を一回解決すれば全操作が同一の nix / git / brew を使うことを保証する。
 
 探索優先度は `SCHNEEFORGE_<NAME>_BIN` env → `PATH` → `$XDG_STATE_HOME/nix/profile/bin` or `~/.local/state/nix/profile/bin` → `$NIX_PROFILE/bin` → `~/.nix-profile/bin` → `/etc/profiles/per-user/$USER/bin` → `/nix/var/nix/profiles/default/bin` → `/opt/homebrew/bin` → `/usr/local/bin`。この順序は Rust (`crates/core/src/tool.rs`) と shell (`scripts/resolve-tools.sh`) の両方で同じものを使い、CI の "forbid raw tool spawns" lint が文字列リテラル spawn を禁止することで整合性を維持する。
+
 ## Requirements
+
 ### Requirement: PATH 非依存のツール解決
 ツール解決 SHALL は PATH だけでなく既知パスも探索する。macOS GUI は Terminal と異なる PATH を持つため。
 
@@ -100,3 +102,27 @@ SchneeForge desktop SHALL は [tauri-apps/fix-path-env-rs](https://github.com/ta
 - **WHEN** 同一環境で GUI と `bootstrap.sh` を実行する
 - **THEN** 両者が解決する nix の絶対パスが一致する
 
+### Requirement: Tool resolution occurs inside the selected execution environment
+
+When SchneeForge uses a non-native execution backend, platform tool resolution SHALL occur inside that execution environment rather than resolving host-native paths that cannot be executed by the backend. For the Windows/WSL2 backend, the Windows launcher MUST delegate before `ToolInventory::discover` or equivalent Nix/Git tool resolution, and the Linux helper SHALL perform the existing Linux tool-resolution contract inside WSL.
+
+#### Scenario: Windows launcher does not resolve Linux tools from Windows PATH
+
+- **WHEN** an execution-requiring SchneeForge command runs on a Windows host with a valid WSL2 backend
+- **THEN** the Windows launcher does not resolve Nix/Git/Home Manager absolute paths from the Windows environment
+- **AND** the delegated Linux helper performs existing tool discovery inside WSL
+
+#### Scenario: native hosts retain existing absolute-path resolution
+
+- **WHEN** SchneeForge runs with the native backend on macOS or Linux
+- **THEN** the existing `ToolInventory`/`Toolchain` resolution order and absolute-path execution contract remains unchanged
+
+### Requirement: PATH enumeration uses platform-aware path-list parsing
+
+Shared host-side tool lookup code SHALL parse PATH using platform-aware path-list semantics rather than hard-coding the POSIX `:` separator. Windows compilation/tests MUST cover this behavior.
+
+#### Scenario: Windows-style PATH is not split on drive-letter colon
+
+- **WHEN** tool lookup runs against a Windows-style PATH containing drive-letter paths
+- **THEN** path entries are enumerated with the platform path-list parser
+- **AND** the `C:` drive prefix is not treated as a POSIX PATH separator
