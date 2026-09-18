@@ -9,7 +9,7 @@
 ## 2. TDD / contract
 
 - [x] 2.1 RED: workflow/script 不在で macOS lifecycle contract test が failure になる (run #523: contract test #28 が workflow 不在で failure)
-- [x] 2.2 GREEN: manual-only workflow / lifecycle script を追加
+- [ ] 2.2 GREEN: manual-only workflow / lifecycle script を追加して contract test を通す
 - [x] 2.3 workflow が PR/push/schedule/required gate から分離されていること
 - [x] 2.4 workflow が Nix を事前導入せず fresh-host precondition を維持すること
 
