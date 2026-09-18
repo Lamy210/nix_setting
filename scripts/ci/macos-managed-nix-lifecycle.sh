@@ -28,10 +28,12 @@ run_logged() {
   local name="$1"
   shift
   local log="${LOG_DIR}/${name}.log"
-  set +e
-  "$@" >"$log" 2>&1
-  local rc=$?
-  set -e
+  local rc
+  if "$@" >"$log" 2>&1; then
+    rc=0
+  else
+    rc=$?
+  fi
   cat "$log"
   return "$rc"
 }
@@ -131,11 +133,11 @@ run_logged flakes "$NIX_BIN" flake metadata "github:Lamy210/nix_setting/${TAG}" 
 run_logged nix-doctor "$SF" nix doctor
 
 note "verifying second install fails closed with ExistingNixDetected"
-set +e
-run_logged install-second sudo "$ROOT_SF" nix install --yes
-second_rc=$?
-set -e
-[ "$second_rc" -ne 0 ] || fail "second install unexpectedly succeeded"
+if run_logged install-second sudo "$ROOT_SF" nix install --yes; then
+  fail "second install unexpectedly succeeded"
+else
+  second_rc=$?
+fi
 grep -q 'ExistingNixDetected' "$LOG_DIR/install-second.log" ||
   fail "second install failed for the wrong reason (exit $second_rc)"
 
