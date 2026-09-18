@@ -96,12 +96,12 @@ sudo test -r /nix/receipt.json || fail "receipt missing after install"
 sudo test -r /nix/schneeforge-managed.json || fail "ownership record missing after install"
 sudo grep -q '"installer_version"' /nix/schneeforge-managed.json ||
   fail "ownership record missing installer_version"
-sudo grep -Eq '"installer_sha256"[[:space:]]*:[[:space:]]*"[0-9a-f]{64}"'   /nix/schneeforge-managed.json ||
+sudo grep -Eq '"installer_sha256"[[:space:]]*:[[:space:]]*"[0-9a-f]{64}"' /nix/schneeforge-managed.json ||
   fail "ownership record missing valid installer_sha256"
 
 NIX_BIN="/nix/var/nix/profiles/default/bin/nix"
 run_logged store-ping "$NIX_BIN" store ping
-run_logged flakes "$NIX_BIN" flake metadata   "github:Lamy210/nix_setting/${TAG}" --no-write-lock-file
+run_logged flakes "$NIX_BIN" flake metadata "github:Lamy210/nix_setting/${TAG}" --no-write-lock-file
 run_logged doctor "$SF" nix doctor
 
 note "verifying second install fails closed"
