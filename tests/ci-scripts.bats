@@ -327,7 +327,7 @@ PY
 
   grep -q 'GITHUB_ACTIONS' "$script"
   grep -q 'uname -m' "$script"
-  grep -q 'cd "$WORK_DIR"' "$script"
+  grep -q 'cd "[$]WORK_DIR"' "$script"
   grep -q 'unset NIX_SETTING_DIR' "$script"
   grep -q 'sanitize_logs' "$script"
   grep -q 'CHECKSUMS.txt' "$script"
