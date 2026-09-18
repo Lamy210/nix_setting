@@ -1479,8 +1479,7 @@ mod tests {
         ResolvedTool::new(git_bin.to_path_buf(), ToolSource::Path)
     }
 
-    static OPERATION_LOCK_SEQ: std::sync::atomic::AtomicU64 =
-        std::sync::atomic::AtomicU64::new(0);
+    static OPERATION_LOCK_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
     fn temp_operation_lock(name: &str) -> (OperationLock, PathBuf) {
         let dir = std::env::temp_dir().join(format!(
