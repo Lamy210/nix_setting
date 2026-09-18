@@ -166,7 +166,7 @@ PR #62-#68 を sequential chain で merge。
 |------|------|------|
 | macOS Apple Silicon Managed Nix lifecycle helper (PR #105) | release artifact の CLI lifecycle を hosted arm64 disposable runner で manual/non-required 自動化中。Finder GUI / install.sh D8 / ADR 昇格は手動 gate のまま | `openspec/changes/add-macos-managed-nix-lifecycle-canary/`, `.github/workflows/macos-managed-nix-lifecycle.yml` |
 | macOS Apple Silicon Final Acceptance | rc.7 の CLI lifecycle 自動化後も Finder GUI / install.sh 対話 / full bootstrap manual gate は未完了 | `docs/testing/macOS-final-acceptance-checklist.md` |
-| DMG offline bundle 法務 ADR (issue #17) | ADR-0002 / OpenSpec は archive 済み。binary bundle / offline install 実装は弁護士確認後 | `docs/adr/0002-dmg-offline-bundle-licensing.md`, `openspec/changes/archive/2026-09-17-add-dmg-offline-bundle-licensing/` |
+| DMG offline bundle 法務 ADR (issue #17) | ADR-0002 / OpenSpec は archive 済み。binary bundle / offline install 実装は弁護士確認後 | `docs/adr/0002-dmg-bundle-lgpl-redistribution.md`, `openspec/changes/archive/2026-09-17-add-dmg-offline-bundle-licensing/` |
 
 ## 既知のデグレ・機能漏れ（要対応）
 
