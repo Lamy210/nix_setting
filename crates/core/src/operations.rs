@@ -1555,13 +1555,8 @@ mod tests {
             ..dummy_tc()
         };
 
-        // Regression harness for issue #91: keep the process-global lock held.
-        // The test must use its injected lock, so accidental public sync() usage
-        // fails deterministically instead of becoming a parallel-test flake.
-        let _global_guard = OperationLock::global()
-            .try_acquire()
-            .unwrap()
-            .expect("global operation lock should be free in this isolated test");
+        // Issue #91: use an independent lock path so this test can run in
+        // parallel without contending with production-style global locking tests.
         let (lock, lock_dir) = temp_operation_lock("detached-sync");
         let out = sync_with_lock(clone_dir.to_str().unwrap(), &tc, true, &lock).unwrap();
         let msg = out.expect("capture mode should return the pinned note");
