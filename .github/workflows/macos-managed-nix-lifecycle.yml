@@ -1,0 +1,44 @@
+name: macOS Managed Nix lifecycle acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to validate
+        required: true
+        type: string
+        default: v0.2.0-rc.7
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-managed-nix-lifecycle-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  managed-nix-lifecycle:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Apple Silicon runner diagnostics
+        run: |
+          sw_vers
+          uname -m
+          printf 'runner-temp=%s\n' "$RUNNER_TEMP"
+
+      - name: Validate release Managed Nix lifecycle
+        env:
+          ACCEPTANCE_TAG: ${{ inputs.tag }}
+        run: ./scripts/ci/macos-managed-nix-lifecycle.sh "$ACCEPTANCE_TAG"
+
+      - name: Upload acceptance logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: macos-managed-nix-lifecycle-${{ inputs.tag }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/schneeforge-acceptance
+          if-no-files-found: warn
+          retention-days: 14
