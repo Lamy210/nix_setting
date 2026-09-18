@@ -1570,7 +1570,9 @@ mod tests {
         );
 
         // 対称性: 通常の branch checkout は pinned 扱いにならず pull が走る。
-        // 同じ test-local lock を再利用し、process-global lock には依存しない。
+        // detached checkout とは独立した test-local lock path を使い、
+        // scenario 間の lock lifecycle 自体をこの test の責務にしない。
+        let (branch_lock, branch_lock_dir) = temp_operation_lock("branch-sync");
         let branch_clone =
             std::env::temp_dir().join(format!("sf-sync-branch-clone-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&branch_clone);
@@ -1590,7 +1592,8 @@ mod tests {
             git: Some(resolved_git(&git_bin)),
             ..dummy_tc()
         };
-        let out = sync_with_lock(branch_clone.to_str().unwrap(), &tc_branch, true, &lock).unwrap();
+        let out =
+            sync_with_lock(branch_clone.to_str().unwrap(), &tc_branch, true, &branch_lock).unwrap();
         let msg = out.expect("capture mode should return pull output");
         assert!(
             !msg.contains("pinned to a release checkout"),
@@ -1601,5 +1604,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&clone_dir);
         let _ = std::fs::remove_dir_all(&branch_clone);
         let _ = std::fs::remove_dir_all(&lock_dir);
+        let _ = std::fs::remove_dir_all(&branch_lock_dir);
     }
 }
