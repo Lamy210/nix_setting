@@ -32,7 +32,7 @@ jobs:
       - name: Validate release Managed Nix lifecycle
         env:
           ACCEPTANCE_TAG: ${{ inputs.tag }}
-        run: ./scripts/ci/macos-managed-nix-lifecycle.sh "$ACCEPTANCE_TAG"
+        run: bash scripts/ci/macos-managed-nix-lifecycle.sh "$ACCEPTANCE_TAG"
 
       - name: Upload acceptance logs
         if: ${{ always() }}
