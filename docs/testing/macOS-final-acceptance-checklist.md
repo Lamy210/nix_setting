@@ -48,32 +48,6 @@ gh workflow run macos-managed-nix-lifecycle.yml -f tag="$TAG"
 自動runは CLI lifecycle の evidence として記録し、残る manual gate と合わせて
 Final Acceptance を判断する。
 
-## 自動化 helper との役割分担
-
-`.github/workflows/macos-managed-nix-lifecycle.yml` は、このFinal Acceptanceのうち
-**release CLIで自動化できる Managed Nix lifecycle subset** を disposableな
-GitHub hosted Apple Silicon runnerで手動実行する non-required helper である。
-
-自動helperが検証する範囲:
-
-- release tag の `schneeforge-aarch64-darwin` + `CHECKSUMS.txt` SHA256
-- fresh host precondition (`arm64` / `/nix` 無し / `nix` 無し)
-- `nix install --yes`、receipt、ownership、store ping、flakes、`nix doctor`
-- 2回目installの `ExistingNixDetected` fail-closed
-- uninstall → `/nix` cleanup → reinstall → final uninstall
-
-自動helperが**置き換えない** manual gate:
-
-- A2 / E / I-3 の Finder GUI起動・表示・操作確認
-- B の `install.sh` 経路、特に `/dev/tty` を使う D8 interactive prompt
-- full bootstrapで適用された nix-darwin の取り外しを含む lifecycle
-- ADR-0001 の最終判断
-
-したがって lifecycle workflowがGREENでも、それだけで ADR-0001 を
-`Accepted` へ昇格してはならない。実装PR merge後にworkflowを
-`v0.2.0-rc.7` 等の対象release tagで手動実行し、そのevidenceを補助材料として
-本チェックリストの残りmanual gateを完了する。
-
 ## フロー全体像
 
 ```text
