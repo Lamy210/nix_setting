@@ -136,9 +136,19 @@ PR #62-#68 を sequential chain で merge。
 - `macos-check` は stable 2 laneをfail-closedで集約し、既存required contextsは変更していない
 - `release-artifact-check` とtag releaseも `macos-26` + Xcode 26.6へpin
 - Xcode 27はPR外のpreview canaryとして分離し、required/release dependencyには入れていない
+- hosted runner が `macos-15-arm64` / `macos-26-arm64` であることも実runで確認済み
 - latest-head run #428でrequired 7 contexts、`ci-required`、release artifact、stable 2 lane、`macos-check`が全てgreen
 - old single-lane baseline 544sに対しstable 2 lane totalは約1227s（約2.26x）で、2.5x guard 1360s以内
 - 実装 PR #93 と archive/spec-sync PR #94 はともに squash merge 済み
+
+### Windows / WSL2 experimental backend（2026-09-17〜18 merge / archive 済み）
+
+- PR #96 で native Windows launcher、WSL2 distro選択/handshake、early delegation、Windows doctor、Linux repo path policy、`windows-2025` laneを実装
+- CRLF checkout問題は PR #99 の `.gitattributes` で `*.sh` / `*.bats` を LF 固定して解消
+- launcher transport は PR #100 で `wsl.exe --exec` に切替し shell expansion を排除
+- canary harnessは PR #101/#102 で `ProcessStartInfo.ArgumentList` と実構造contractへhardening
+- real Windows→WSL2 canaryで helper handshake、特殊文字argv保持、delegated exit 23、env selectorを実runnerでgreen確認済み
+- OpenSpecは PR #98 で archive + canonical spec sync 済み
 
 ### Windows / WSL2 experimental backend（2026-09-18 merge / archive 済み）
 
