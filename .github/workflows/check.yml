@@ -230,9 +230,7 @@ jobs:
           nix_path: nixpkgs=channel:nixos-unstable
 
       - name: cargo test
-        # operations tests share a process-global file lock. Keep the test harness
-        # serial until those tests consistently inject per-test OperationLock paths.
-        run: nix develop --command cargo test -- --test-threads=1
+        run: nix develop --command cargo test
 
       - name: cargo fmt check
         run: nix develop --command cargo fmt -- --check
