@@ -313,6 +313,8 @@ PY
 
   grep -q '^  workflow_dispatch:' "$workflow"
   grep -q 'runs-on: macos-15' "$workflow"
+  grep -q 'run: bash scripts/ci/macos-managed-nix-lifecycle.sh' "$workflow"
+  grep -q 'ACCEPTANCE_LOG_DIR' "$workflow"
 
   run grep -q 'pull_request:' "$workflow"
   [ "$status" -ne 0 ]
@@ -325,6 +327,9 @@ PY
 
   grep -q 'GITHUB_ACTIONS' "$script"
   grep -q 'uname -m' "$script"
+  grep -q 'cd "$WORK_DIR"' "$script"
+  grep -q 'unset NIX_SETTING_DIR' "$script"
+  grep -q 'sanitize_logs' "$script"
   grep -q 'CHECKSUMS.txt' "$script"
   grep -q 'shasum -a 256' "$script"
   grep -q 'nix install --yes' "$script"
