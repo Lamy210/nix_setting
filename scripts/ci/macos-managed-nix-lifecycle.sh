@@ -44,7 +44,7 @@ trap cleanup_stage EXIT
   fail "this destructive lifecycle helper may run only inside GitHub Actions"
 
 [ -n "$TAG" ] || fail "usage: $0 <release-tag>"
-if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+if ! [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
   fail "invalid release tag: $TAG"
 fi
 
