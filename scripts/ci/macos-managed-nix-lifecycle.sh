@@ -88,7 +88,7 @@ staged_actual="$(sudo shasum -a 256 "$ROOT_SF" | awk '{print $1}')"
   fail "staged CLI SHA256 mismatch: expected=$expected actual=$staged_actual"
 
 note "installing Managed Nix from release binary embedded manifest"
-run_logged install sudo "$ROOT_SF" nix install --yes
+run_logged install sudo "$ROOT_SF" --repo "$WORK_DIR" nix install --yes
 
 [ -r /nix/var/nix/profiles/default/bin/nix ] ||
   fail "Nix binary missing after install"
@@ -102,10 +102,10 @@ sudo grep -Eq '"installer_sha256"[[:space:]]*:[[:space:]]*"[0-9a-f]{64}"' /nix/s
 NIX_BIN="/nix/var/nix/profiles/default/bin/nix"
 run_logged store-ping "$NIX_BIN" store ping
 run_logged flakes "$NIX_BIN" flake metadata "github:Lamy210/nix_setting/${TAG}" --no-write-lock-file
-run_logged doctor "$SF" nix doctor
+run_logged doctor "$SF" --repo "$WORK_DIR" nix doctor
 
 note "verifying second install fails closed"
-if run_logged second-install sudo "$ROOT_SF" nix install --yes; then
+if run_logged second-install sudo "$ROOT_SF" --repo "$WORK_DIR" nix install --yes; then
   fail "second install unexpectedly succeeded"
 else
   second_rc=$?
@@ -115,17 +115,17 @@ grep -q 'ExistingNixDetected' "${ACCEPT_DIR}/second-install.log" ||
   fail "second install did not fail with ExistingNixDetected"
 
 note "uninstalling Managed Nix"
-run_logged uninstall sudo "$ROOT_SF" nix uninstall
+run_logged uninstall sudo "$ROOT_SF" --repo "$WORK_DIR" nix uninstall
 [ ! -e /nix ] || fail "/nix remains after uninstall"
 
 note "reinstalling Managed Nix"
-run_logged reinstall sudo "$ROOT_SF" nix install --yes
+run_logged reinstall sudo "$ROOT_SF" --repo "$WORK_DIR" nix install --yes
 [ -x /nix/var/nix/profiles/default/bin/nix ] ||
   fail "Nix binary missing after reinstall"
 run_logged reinstall-store-ping /nix/var/nix/profiles/default/bin/nix store ping
 
 note "performing final cleanup uninstall"
-run_logged final-uninstall sudo "$ROOT_SF" nix uninstall
+run_logged final-uninstall sudo "$ROOT_SF" --repo "$WORK_DIR" nix uninstall
 [ ! -e /nix ] || fail "/nix remains after final uninstall"
 
 note "Managed Nix release lifecycle acceptance helper passed for $TAG"
