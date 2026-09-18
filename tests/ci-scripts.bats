@@ -338,6 +338,7 @@ PY
   grep -q 'nix uninstall' "$script"
   grep -q 'reinstall' "$script"
 
-  run grep -q 'macos-managed-nix-lifecycle' .github/workflows/check.yml .github/workflows/release.yml
+  grep -q 'scripts/ci/macos-managed-nix-lifecycle.sh' .github/workflows/check.yml
+  run grep -q 'macos-managed-nix-lifecycle.yml' .github/workflows/check.yml .github/workflows/release.yml
   [ "$status" -ne 0 ]
 }
