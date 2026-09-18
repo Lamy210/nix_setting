@@ -1592,8 +1592,13 @@ mod tests {
             git: Some(resolved_git(&git_bin)),
             ..dummy_tc()
         };
-        let out =
-            sync_with_lock(branch_clone.to_str().unwrap(), &tc_branch, true, &branch_lock).unwrap();
+        let out = sync_with_lock(
+            branch_clone.to_str().unwrap(),
+            &tc_branch,
+            true,
+            &branch_lock,
+        )
+        .unwrap();
         let msg = out.expect("capture mode should return pull output");
         assert!(
             !msg.contains("pinned to a release checkout"),
