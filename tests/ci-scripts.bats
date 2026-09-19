@@ -338,6 +338,13 @@ PY
   grep -q 'nix uninstall' "$script"
   grep -q 'reinstall' "$script"
 
+  # Flakes capability smoke must be deterministic and must not consume the
+  # unauthenticated GitHub API rate limit used by github: flake refs.
+  grep -q 'local-flake-smoke' "$script"
+  grep -q 'flake metadata "path:' "$script"
+  run grep -q 'flake metadata "github:' "$script"
+  [ "$status" -ne 0 ]
+
   # macOS may retain a bare synthetic /nix path after a successful uninstall.
   # Judge cleanup by runtime/state remnants instead of path existence alone.
   grep -q 'verify_uninstall_state' "$script"

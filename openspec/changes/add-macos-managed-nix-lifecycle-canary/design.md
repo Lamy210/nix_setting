@@ -51,6 +51,7 @@ Final Acceptance から置き換えない。manual checklist の gate B3 は残�
 2. Managed Nix install
 3. receipt / ownership record
 4. `nix store ping` / flakes
+   - flakes smoke は temporary local `path:` flake を使い、GitHub API rate limit や外部 repository availability に依存しない
 5. `schneeforge nix doctor`
 6. second install rejection (`ExistingNixDetected`)
 7. uninstall / semantic cleanup (Nix mount / receipt / store / build users / nix-daemon が消えること。bare synthetic `/nix` path は許容)
