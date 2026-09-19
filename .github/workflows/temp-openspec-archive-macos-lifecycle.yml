@@ -1,0 +1,44 @@
+name: temporary OpenSpec archive macOS lifecycle
+
+on:
+  push:
+    branches:
+      - chore/archive-macos-managed-nix-lifecycle-canary
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temp-openspec-archive-macos-lifecycle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Archive change with OpenSpec
+        run: nix run nixpkgs#openspec -- archive add-macos-managed-nix-lifecycle-canary --yes
+
+      - name: Validate all specs strictly
+        run: nix run nixpkgs#openspec -- validate --all --strict
+
+      - name: Commit generated archive
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add openspec/changes openspec/specs
+          if git diff --cached --quiet; then
+            echo "OpenSpec archive produced no changes" >&2
+            exit 1
+          fi
+          git commit -m "chore(openspec): archive macOS lifecycle acceptance"
+          git push origin HEAD:${GITHUB_REF_NAME}
