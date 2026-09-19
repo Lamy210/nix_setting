@@ -24,6 +24,49 @@ note() {
   echo "[acceptance] $*"
 }
 
+verify_uninstall_state() {
+  local phase="$1"
+  local diag="$LOG_DIR/${phase}-cleanup.log"
+  local bad=0
+
+  {
+    echo "phase=$phase"
+    echo "nix-path-exists=$([ -e /nix ] && echo yes || echo no)"
+    echo "nix-mounted=$(mount | grep -E ' on /nix( |$)' >/dev/null 2>&1 && echo yes || echo no)"
+    echo "receipt-exists=$([ -e /nix/receipt.json ] && echo yes || echo no)"
+    echo "store-exists=$([ -e /nix/store ] && echo yes || echo no)"
+    echo "var-exists=$([ -e /nix/var ] && echo yes || echo no)"
+    echo "nix-store-volume=$(diskutil apfs list 2>/dev/null | grep -q 'Nix Store' && echo yes || echo no)"
+    echo "build-users:"
+    dscl . -list /Users 2>/dev/null | grep '^_nixbld' || true
+    echo "daemon:"
+    sudo launchctl print system/org.nixos.nix-daemon 2>&1 | head -20 || true
+    echo "fstab:"
+    cat /etc/fstab 2>/dev/null || true
+    echo "synthetic.conf:"
+    cat /etc/synthetic.conf 2>/dev/null || true
+    echo "nix-dir:"
+    ls -la /nix 2>&1 || true
+    echo "mount-match:"
+    mount | grep -E ' on /nix( |$)' || true
+  } | tee "$diag"
+
+  mount | grep -E ' on /nix( |$)' >/dev/null 2>&1 && bad=1
+  [ -e /nix/receipt.json ] && bad=1
+  [ -e /nix/store ] && bad=1
+  [ -e /nix/var ] && bad=1
+  if [ -d /nix ] && find /nix -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+    bad=1
+  fi
+  dscl . -list /Users 2>/dev/null | grep -q '^_nixbld' && bad=1
+  sudo launchctl print system/org.nixos.nix-daemon >/dev/null 2>&1 && bad=1
+  grep -Eq '(^|[[:space:]])/nix([[:space:]]|$)' /etc/fstab 2>/dev/null && bad=1
+  grep -Eq '^[[:space:]]*nix([[:space:]]|$)' /etc/synthetic.conf 2>/dev/null && bad=1
+  diskutil apfs list 2>/dev/null | grep -q 'Nix Store' && bad=1
+
+  [ "$bad" -eq 0 ]
+}
+
 run_logged() {
   local name="$1"
   shift
@@ -143,7 +186,7 @@ grep -q 'ExistingNixDetected' "$LOG_DIR/install-second.log" ||
 
 note "uninstalling Managed Nix"
 run_logged uninstall-first sudo "$ROOT_SF" nix uninstall
-[ ! -e /nix ] || fail "/nix remains after uninstall"
+verify_uninstall_state "first" || fail "Nix runtime remnants remain after uninstall"
 
 note "reinstalling Managed Nix"
 run_logged reinstall sudo "$ROOT_SF" nix install --yes
@@ -153,6 +196,6 @@ run_logged reinstall-store-ping /nix/var/nix/profiles/default/bin/nix store ping
 
 note "performing final cleanup uninstall"
 run_logged uninstall-final sudo "$ROOT_SF" nix uninstall
-[ ! -e /nix ] || fail "/nix remains after final uninstall"
+verify_uninstall_state "final" || fail "Nix runtime remnants remain after final uninstall"
 
 note "Managed Nix release lifecycle acceptance helper passed for $TAG"
