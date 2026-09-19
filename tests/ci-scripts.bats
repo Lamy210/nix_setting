@@ -300,3 +300,45 @@ PY
   run grep -q 'windows-wsl-canary' .github/workflows/check.yml .github/workflows/release.yml
   [ "$status" -ne 0 ]
 }
+
+
+# --- macOS Managed Nix lifecycle acceptance contract ---
+
+@test "macOS Managed Nix lifecycle acceptance is manual isolated and release-pinned" {
+  workflow=.github/workflows/macos-managed-nix-lifecycle.yml
+  script=scripts/ci/macos-managed-nix-lifecycle.sh
+
+  [ -f "$workflow" ]
+  [ -f "$script" ]
+
+  grep -q '^  workflow_dispatch:' "$workflow"
+  grep -q 'runs-on: macos-15' "$workflow"
+  grep -q 'run: bash scripts/ci/macos-managed-nix-lifecycle.sh' "$workflow"
+  grep -q 'ACCEPTANCE_LOG_DIR' "$workflow"
+
+  run grep -q 'pull_request:' "$workflow"
+  [ "$status" -ne 0 ]
+  run grep -q '^  push:' "$workflow"
+  [ "$status" -ne 0 ]
+  run grep -q '^  schedule:' "$workflow"
+  [ "$status" -ne 0 ]
+  run grep -q 'install-nix-action' "$workflow"
+  [ "$status" -ne 0 ]
+
+  grep -q 'GITHUB_ACTIONS' "$script"
+  grep -q 'uname -m' "$script"
+  grep -q 'cd "[$]WORK_DIR"' "$script"
+  grep -q 'unset NIX_SETTING_DIR' "$script"
+  grep -q 'sanitize_logs' "$script"
+  grep -q 'CHECKSUMS.txt' "$script"
+  grep -q 'shasum -a 256' "$script"
+  grep -q 'nix install --yes' "$script"
+  grep -q 'ExistingNixDetected' "$script"
+  grep -q 'nix doctor' "$script"
+  grep -q 'nix uninstall' "$script"
+  grep -q 'reinstall' "$script"
+
+  grep -q 'scripts/ci/macos-managed-nix-lifecycle.sh' .github/workflows/check.yml
+  run grep -q 'macos-managed-nix-lifecycle.yml' .github/workflows/check.yml .github/workflows/release.yml
+  [ "$status" -ne 0 ]
+}

@@ -2,7 +2,7 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-09-17
+最終更新: 2026-09-18
 
 ## 完成済み
 
@@ -136,17 +136,28 @@ PR #62-#68 を sequential chain で merge。
 - `macos-check` は stable 2 laneをfail-closedで集約し、既存required contextsは変更していない
 - `release-artifact-check` とtag releaseも `macos-26` + Xcode 26.6へpin
 - Xcode 27はPR外のpreview canaryとして分離し、required/release dependencyには入れていない
+- hosted runner が `macos-15-arm64` / `macos-26-arm64` であることも実runで確認済み
 - latest-head run #428でrequired 7 contexts、`ci-required`、release artifact、stable 2 lane、`macos-check`が全てgreen
 - old single-lane baseline 544sに対しstable 2 lane totalは約1227s（約2.26x）で、2.5x guard 1360s以内
 - 実装 PR #93 と archive/spec-sync PR #94 はともに squash merge 済み
+
+### Windows / WSL2 experimental backend（2026-09-18 merge / archive 済み）
+
+- PR #96 で native Windows launcher + WSL2 delegation を実装し develop へ merge
+- PR #98 で `add-windows-wsl2-platform` を archive + canonical spec sync
+- PR #99 で Windows checkout 時の CRLF を `.gitattributes` で修正
+- PR #100 で WSL delegation を `wsl.exe --exec` へ修正し shell-free argv contract を実境界で成立
+- PR #101/#102 で real WSL2 canary harness と静的 contract を hardening
+- real WSL2 canary は explicit selector / env selector / literal argv / delegated exit code を実 Windows→WSL2 で green 確認済み
+- Windows release asset / coordinated self-update は initial scope 外で、experimental source-build 段階を維持
 
 ## 進行中
 
 | 項目 | 進捗 | 場所 |
 |------|------|------|
-| Windows / WSL2 experimental backend (PR #96) | native Windows launcher、WSL2選択/handshake、early delegation、Windows doctor、Linux repo path policy、`windows-2025` non-required CIまで実装。Windows compile/backend/CLI/smokeは実runnerでgreen確認済み。最終docs/review/latest-head CI後にmerge候補 | `openspec/changes/add-windows-wsl2-platform/`, `docs/windows-wsl2.md` |
-| DMG offline bundle 法務 ADR (issue #17) | ADR-0002 起票済み。実装は弁護士確認後 | `openspec/changes/add-dmg-offline-bundle-licensing/` |
-| macOS Apple Silicon Final Acceptance | rc.7 での実機 acceptance 未完了 | `docs/testing/macOS-final-acceptance-checklist.md` |
+| macOS Apple Silicon Managed Nix lifecycle helper (PR #105) | release artifact の CLI lifecycle を hosted arm64 disposable runner で manual/non-required 自動化中。Finder GUI / install.sh D8 / ADR 昇格は手動 gate のまま | `openspec/changes/add-macos-managed-nix-lifecycle-canary/`, `.github/workflows/macos-managed-nix-lifecycle.yml` |
+| macOS Apple Silicon Final Acceptance | rc.7 の CLI lifecycle 自動化後も Finder GUI / install.sh 対話 / full bootstrap manual gate は未完了 | `docs/testing/macOS-final-acceptance-checklist.md` |
+| DMG offline bundle 法務 ADR (issue #17) | ADR-0002 / OpenSpec は archive 済み。binary bundle / offline install 実装は弁護士確認後 | `docs/adr/0002-dmg-bundle-lgpl-redistribution.md`, `openspec/changes/archive/2026-09-17-add-dmg-offline-bundle-licensing/` |
 
 ## 既知のデグレ・機能漏れ（要対応）
 
@@ -171,19 +182,24 @@ PR #62-#68 を sequential chain で merge。
 
 ## 次の作業（推奨順）
 
-1. **PR #96 `add-windows-wsl2-platform` の完了**
-   - OpenSpec tasks / PR本文を実態へ同期
-   - latest-headで `windows-check` + 既存required contexts + `ci-required` + stable macOS lanesを確認
-   - blocking review findingを整理してsquash merge可否を判断
-   - merge後に `chore/archive-add-windows-wsl2-platform` を別PRで作りcanonical specを同期
-2. **macOS Apple Silicon Final Acceptance**
-   - rc.7 を使い `docs/testing/macOS-final-acceptance-checklist.md` gate A-J を実施
-3. Phase 2/E 残作業
+1. **PR #105 macOS Managed Nix lifecycle helper の完了**
+   - TDD contract → manual-only workflow / lifecycle script
+   - required CI / actionlint / shellcheck / OpenSpec strict を確認
+   - merge 後に `v0.2.0-rc.7` で workflow_dispatch を実行し、CLI lifecycle の実 runner evidence を取得
+   - separate archive PR で canonical spec sync
+2. **macOS Apple Silicon Final Acceptance の残り manual gate**
+   - Finder pre-bootstrap / post-bootstrap GUI smoke
+   - `install.sh` D8 `/dev/tty` 経路
+   - nix-darwin apply 済み full uninstall ordering
+   - 全 gate 完了後にのみ ADR-0001 を `Accepted` へ昇格
+3. Phase 2/E follow-up
    - GUI self-update Step 2 (v0.3)
    - Windows release asset / coordinated launcher-helper update設計
-   - #17 DMG bundle + LGPL-2.1 法務確認後の実装
+   - Intel macOS release asset の検討
+4. **issue #17**
+   - LGPL-2.1 再配布条件の弁護士確認後に DMG offline bundle 実装を開始
 
-※ issue #14/#15 は close 済み。#16 は Final Acceptance 状況を確認、#17 は弁護士確認後に close。
+※ issue #14/#15/#16/#91 は close 済み。#17 は法務確認待ち。
 
 ## 開発フロー
 

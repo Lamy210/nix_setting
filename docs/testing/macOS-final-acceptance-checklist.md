@@ -9,6 +9,45 @@ PR #11 で未実施だった「Finder からの .app 起動 smoke」を 1 本の
 - 記録: 各 gate の `[ ]` に結果 (✅ / ❌ + 例外 log) を記入する。
   全 green なら ADR-0001 の Status を `Accepted` へ更新する PR を出す
 
+## Automated CLI lifecycle helper (部分自動化)
+
+release artifact の Managed Nix CLI lifecycle は、GitHub hosted の disposable
+Apple Silicon runner で manual workflow として反復検証できる。
+
+- workflow: `.github/workflows/macos-managed-nix-lifecycle.yml`
+- script: `scripts/ci/macos-managed-nix-lifecycle.sh`
+- runner: `macos-15` (script 側でも `arm64` / fresh `/nix` を fail-closed 検証)
+- trigger: `workflow_dispatch` のみ。PR / push / schedule / required gate には含めない
+- input: 検証対象 release tag
+
+CLI から実行する場合:
+
+```bash
+TAG="${TAG:-v0.2.0-rc.7}"
+gh workflow run macos-managed-nix-lifecycle.yml -f tag="$TAG"
+```
+
+この helper が自動検証する範囲:
+
+- release CLI + `CHECKSUMS.txt` の SHA256 検証
+- fresh host の Nix 未導入 precondition
+- `nix install --yes`
+- receipt / ownership / `nix store ping` / flakes / `nix doctor`
+- 2 回目 install の `ExistingNixDetected` fail-closed
+- uninstall → `/nix` cleanup → reinstall → final uninstall
+- workflow artifact への lifecycle log 保存
+
+**重要:** これは Final Acceptance の部分自動化であり、以下を置き換えない。
+
+- gate A2 / E / I-3 の Finder GUI 起動・表示確認
+- gate B の `install.sh` 経路と D8 `/dev/tty` 最終確認
+- nix-darwin apply 済み環境からの full uninstall 順序確認
+- ADR-0001 の `Accepted` 昇格判断
+
+したがって workflow が success でも、それだけで gate J を完了扱いにしてはならない。
+自動runは CLI lifecycle の evidence として記録し、残る manual gate と合わせて
+Final Acceptance を判断する。
+
 ## フロー全体像
 
 ```text
