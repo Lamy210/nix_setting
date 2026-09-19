@@ -34,4 +34,4 @@
 - [x] 5.1 PR CI: bootstrap contract / shellcheck / actionlint / OpenSpec strict / required checks green (PR #105 run #551)
 - [x] 5.2 implementation PR を `develop` へ squash merge (#105 → `0a37716f`)
 - [x] 5.3 real runner: `develop@6bae1c21` の production `workflow_dispatch` から `v0.2.0-rc.7` lifecycle run #5 (`35435044077`) を実行し success。macos-15-arm64 fresh host で install / receipt / ownership / store / local flake / doctor / ExistingNixDetected / uninstall / reinstall / final cleanup まで確認
-- [ ] 5.4 separate `chore/archive-add-macos-managed-nix-lifecycle-canary` PR で archive + canonical spec sync
+- [x] 5.4 separate archive branch で official OpenSpec CLI により archive + canonical spec sync を生成し、strict validation を通過
