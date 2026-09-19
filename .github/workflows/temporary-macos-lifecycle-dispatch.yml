@@ -1,0 +1,22 @@
+name: temporary macOS lifecycle dispatcher
+
+on:
+  push:
+    branches: [ci/macos-lifecycle-runtime-validation]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch real manual lifecycle workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh api --method POST "repos/$REPO/actions/workflows/macos-managed-nix-lifecycle.yml/dispatches" \
+            -f ref=develop \
+            -f 'inputs[tag]=v0.2.0-rc.7'
