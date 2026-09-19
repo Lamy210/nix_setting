@@ -53,9 +53,15 @@ Final Acceptance から置き換えない。manual checklist の gate B3 は残�
 4. `nix store ping` / flakes
 5. `schneeforge nix doctor`
 6. second install rejection (`ExistingNixDetected`)
-7. uninstall / `/nix` cleanup
+7. uninstall / runtime-remnant cleanup
 8. reinstall
-9. final uninstall / cleanup
+9. final uninstall / runtime-remnant cleanup
+
+macOS hosted runner の実測では upstream uninstall が success でも、APFS volume /
+fstab / synthetic entry / receipt / store / daemon / build users が全て消えた後に、
+空かつ unmounted の `/nix` directory だけが残る場合がある。したがって cleanup
+判定は path の存在単体ではなく、Nix runtime の残留を fail-closed で検証する。
+`/nix` が存在する場合も空でなければ failure とする。
 
 nix-darwin apply は実行しないため、nix-darwin uninstaller の検証は本 helper の
 scope 外。manual full bootstrap acceptance で扱う。
