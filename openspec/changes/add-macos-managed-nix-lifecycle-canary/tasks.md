@@ -20,7 +20,7 @@
 - [x] 3.3 release binary embedded manifest で `nix install --yes`
 - [x] 3.4 receipt / ownership / store ping / flakes / `nix doctor`
 - [x] 3.5 second install を `ExistingNixDetected` で拒否
-- [x] 3.6 uninstall → cleanup → reinstall → final cleanup
+- [x] 3.6 uninstall → runtime-remnant cleanup → reinstall → final cleanup (空の unmounted `/nix` path 単体は failure にしない)
 - [x] 3.7 `if: always()` log artifact upload
 
 ## 4. Docs / status
@@ -31,7 +31,7 @@
 
 ## 5. Verification / lifecycle close
 
-- [ ] 5.1 PR CI: bootstrap contract / shellcheck / actionlint / OpenSpec strict / required checks green
-- [ ] 5.2 implementation PR を `develop` へ squash merge
-- [ ] 5.3 post-merge: `v0.2.0-rc.7` で manual lifecycle workflow を実行して success を確認
+- [x] 5.1 PR CI: bootstrap contract / shellcheck / actionlint / OpenSpec strict / required checks green (PR #105 / run #551、同一 tree の run #550 は 22/22 green)
+- [x] 5.2 implementation PR #105 を `develop` へ squash merge
+- [x] 5.3 post-merge: `v0.2.0-rc.7` lifecycle job を hosted macOS arm64 で実行。初回は path-only cleanup 判定で failure、診断付き run #2 で install → doctor → idempotency → uninstall → reinstall → final cleanup が success。connector に workflow-dispatch mutation が無いため、manual-only develop workflow を変更せず merge済み feature branch に一時 push trigger を置いて同一 job/script を実行し、検証後 ref を merge commit へ復元
 - [ ] 5.4 separate `chore/archive-add-macos-managed-nix-lifecycle-canary` PR で archive + canonical spec sync
