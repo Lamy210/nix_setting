@@ -24,9 +24,10 @@ bootstrap manifest を検証対象として使用してはならない (MUST NOT
 - **THEN** `nix install --yes` が成功する
 - **AND** receipt / ownership record / store ping / flakes / `nix doctor` を検証する
 - **AND** 2 回目 install は `ExistingNixDetected` を含む non-zero exit で拒否される
-- **AND** uninstall 後に `/nix` が消える
+- **AND** uninstall 後に Nix mount / receipt / store / build users / nix-daemon が残っていないことを確認する
+- **AND** macOS synthetic path により bare `/nix` directory entry だけが残る場合は cleanup failure と扱わない
 - **AND** reinstall が成功する
-- **AND** final uninstall 後に `/nix` が消える
+- **AND** final uninstall 後も同じ semantic cleanup condition を満たす
 
 #### Scenario: GUI Final Acceptance を置き換えない
 - **WHEN** automated lifecycle workflow が success になる

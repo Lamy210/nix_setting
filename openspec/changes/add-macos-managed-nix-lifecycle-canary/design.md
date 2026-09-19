@@ -53,9 +53,9 @@ Final Acceptance から置き換えない。manual checklist の gate B3 は残�
 4. `nix store ping` / flakes
 5. `schneeforge nix doctor`
 6. second install rejection (`ExistingNixDetected`)
-7. uninstall / `/nix` cleanup
+7. uninstall / semantic cleanup (Nix mount / receipt / store / build users / nix-daemon が消えること。bare synthetic `/nix` path は許容)
 8. reinstall
-9. final uninstall / cleanup
+9. final uninstall / 同一 semantic cleanup
 
 nix-darwin apply は実行しないため、nix-darwin uninstaller の検証は本 helper の
 scope 外。manual full bootstrap acceptance で扱う。
