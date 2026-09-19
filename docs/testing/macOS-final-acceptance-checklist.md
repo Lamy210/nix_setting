@@ -34,7 +34,7 @@ gh workflow run macos-managed-nix-lifecycle.yml -f tag="$TAG"
 - `nix install --yes`
 - receipt / ownership / `nix store ping` / flakes / `nix doctor`
 - 2 回目 install の `ExistingNixDetected` fail-closed
-- uninstall → `/nix` cleanup → reinstall → final uninstall
+- uninstall → Nix runtime remnants cleanup → reinstall → final uninstall
 - workflow artifact への lifecycle log 保存
 
 **重要:** これは Final Acceptance の部分自動化であり、以下を置き換えない。
@@ -367,14 +367,35 @@ echo "uninstall_rc=$uninstall_rc"
   upstream uninstaller 実行、の順で log が出ること
 - `--force` 無しで実行し、ownership check が通ること
 
+macOS では upstream uninstall が success しても、空かつ unmounted の
+`/nix` directory だけが残る場合がある。path の存在だけで NG にせず、
+Nix runtime の残留を確認する:
+
 ```bash
-[ -d /nix ] && echo "NG: /nix remains" || echo "OK: /nix removed"
-sudo dscl . -list /Users | grep _nixbld || echo "OK: build users removed"
-sudo launchctl print system/nix-daemon 2>&1 | head -1   # not found なら OK
+mount | grep -E ' on /nix( |$)' && echo "NG: /nix is still mounted" || echo "OK: /nix unmounted"
+[ -e /nix/receipt.json ] && echo "NG: receipt remains" || echo "OK: receipt removed"
+[ -e /nix/store ] && echo "NG: store remains" || echo "OK: store removed"
+[ -e /nix/var ] && echo "NG: var remains" || echo "OK: var removed"
+if [ -d /nix ] && find /nix -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+  echo "NG: /nix is not empty"
+else
+  echo "OK: /nix absent or empty"
+fi
+sudo dscl . -list /Users | grep '^_nixbld' && echo "NG: build users remain" || echo "OK: build users removed"
+sudo launchctl print system/org.nixos.nix-daemon >/dev/null 2>&1 \
+  && echo "NG: nix-daemon remains" || echo "OK: nix-daemon removed"
+grep -Eq '(^|[[:space:]])/nix([[:space:]]|$)' /etc/fstab 2>/dev/null \
+  && echo "NG: fstab entry remains" || echo "OK: fstab clean"
+grep -Eq '^[[:space:]]*nix([[:space:]]|$)' /etc/synthetic.conf 2>/dev/null \
+  && echo "NG: synthetic entry remains" || echo "OK: synthetic config clean"
+diskutil apfs list 2>/dev/null | grep -q 'Nix Store' \
+  && echo "NG: Nix Store APFS volume remains" || echo "OK: APFS volume removed"
 ```
 
 - [ ] gate G1: uninstall が完走 (ownership check 通過・`uninstall_rc=0`)
-- [ ] gate G2: `/nix` が消え、build users・launchd service も残っていない
+- [ ] gate G2: Nix Store mount/volume・receipt/store/var・build users・
+      nix-daemon・fstab/synthetic entry が残っていない。空かつ unmounted の
+      `/nix` directory 単体は failure にしない
 
 ## H. Reinstall (lifecycle 一周の証明)
 
