@@ -2,7 +2,7 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-09-18
+最終更新: 2026-09-20
 
 ## 完成済み
 
@@ -151,11 +151,20 @@ PR #62-#68 を sequential chain で merge。
 - real WSL2 canary は explicit selector / env selector / literal argv / delegated exit code を実 Windows→WSL2 で green 確認済み
 - Windows release asset / coordinated self-update は initial scope 外で、experimental source-build 段階を維持
 
+
+### macOS Managed Nix release lifecycle helper（2026-09-19 merge / real run 済み）
+
+- PR #105 で manual-only / non-required の `macos-managed-nix-lifecycle.yml` と release-artifact lifecycle verifier を追加
+- PR #109 で hosted macOS の synthetic `/nix` cleanup 判定を runtime/state remnants 基準へ修正
+- PR #111 で flakes smoke を self-contained local flake に変更し、unauthenticated GitHub API rate limit 依存を除去
+- production `develop@6bae1c21` から `v0.2.0-rc.7` を指定した workflow run #5 (`35435044077`) が success
+- `macos-15-arm64` fresh host で release CLI checksum → Managed Nix install → receipt/ownership → store/local flake → doctor → `ExistingNixDetected` → uninstall → reinstall → final cleanup を実境界で確認
+- これは CLI lifecycle の自動 evidence であり、Finder GUI / `install.sh` D8 / nix-darwin full bootstrap の manual Final Acceptance を置き換えない
+
 ## 進行中
 
 | 項目 | 進捗 | 場所 |
 |------|------|------|
-| macOS Apple Silicon Managed Nix lifecycle helper (PR #105) | implementation merge 済み。`v0.2.0-rc.7` の実 runner lifecycle run #2 は install / doctor / ExistingNixDetected / uninstall / reinstall / final cleanup まで success。macOS synthetic path により bare `/nix` が残り得るため cleanup 判定を runtime/state remnants 基準へ修正中。archive/spec sync が残り | `openspec/changes/add-macos-managed-nix-lifecycle-canary/`, `.github/workflows/macos-managed-nix-lifecycle.yml` |
 | macOS Apple Silicon Final Acceptance | rc.7 の CLI lifecycle 自動化後も Finder GUI / install.sh 対話 / full bootstrap manual gate は未完了 | `docs/testing/macOS-final-acceptance-checklist.md` |
 | DMG offline bundle 法務 ADR (issue #17) | ADR-0002 / OpenSpec は archive 済み。binary bundle / offline install 実装は弁護士確認後 | `docs/adr/0002-dmg-bundle-lgpl-redistribution.md`, `openspec/changes/archive/2026-09-17-add-dmg-offline-bundle-licensing/` |
 
@@ -182,21 +191,16 @@ PR #62-#68 を sequential chain で merge。
 
 ## 次の作業（推奨順）
 
-1. **macOS Managed Nix lifecycle helper の lifecycle close**
-   - PR #105 は merge 済み、required CI / actionlint / shellcheck / OpenSpec strict は green
-   - `v0.2.0-rc.7` real runner run #2 で CLI lifecycle success を確認済み
-   - uninstall 後の bare synthetic `/nix` を false failure にしない semantic cleanup fix を merge
-   - separate archive PR で canonical spec sync
-2. **macOS Apple Silicon Final Acceptance の残り manual gate**
+1. **macOS Apple Silicon Final Acceptance の残り manual gate**
    - Finder pre-bootstrap / post-bootstrap GUI smoke
    - `install.sh` D8 `/dev/tty` 経路
    - nix-darwin apply 済み full uninstall ordering
    - 全 gate 完了後にのみ ADR-0001 を `Accepted` へ昇格
-3. Phase 2/E follow-up
+2. Phase 2/E follow-up
    - GUI self-update Step 2 (v0.3)
    - Windows release asset / coordinated launcher-helper update設計
    - Intel macOS release asset の検討
-4. **issue #17**
+3. **issue #17**
    - LGPL-2.1 再配布条件の弁護士確認後に DMG offline bundle 実装を開始
 
 ※ issue #14/#15/#16/#91 は close 済み。#17 は法務確認待ち。
