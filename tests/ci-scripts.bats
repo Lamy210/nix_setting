@@ -337,6 +337,14 @@ PY
   grep -q 'nix doctor' "$script"
   grep -q 'nix uninstall' "$script"
   grep -q 'reinstall' "$script"
+  grep -q 'verify_uninstall_state' "$script"
+  grep -q 'nix-mounted=' "$script"
+  grep -q 'receipt-exists=' "$script"
+  grep -q 'store-exists=' "$script"
+  grep -q 'org.nixos.nix-daemon' "$script"
+  grep -q 'Nix Store' "$script"
+  run grep -q 'fail "/nix remains' "$script"
+  [ "$status" -ne 0 ]
 
   grep -q 'scripts/ci/macos-managed-nix-lifecycle.sh' .github/workflows/check.yml
   run grep -q 'macos-managed-nix-lifecycle.yml' .github/workflows/check.yml .github/workflows/release.yml
