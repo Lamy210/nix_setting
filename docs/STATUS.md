@@ -2,7 +2,7 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-09-18
+最終更新: 2026-09-19
 
 ## 完成済み
 
@@ -155,7 +155,7 @@ PR #62-#68 を sequential chain で merge。
 
 | 項目 | 進捗 | 場所 |
 |------|------|------|
-| macOS Apple Silicon Managed Nix lifecycle helper (PR #105) | release artifact の CLI lifecycle を hosted arm64 disposable runner で manual/non-required 自動化中。Finder GUI / install.sh D8 / ADR 昇格は手動 gate のまま | `openspec/changes/add-macos-managed-nix-lifecycle-canary/`, `.github/workflows/macos-managed-nix-lifecycle.yml` |
+| macOS Apple Silicon Managed Nix lifecycle helper (PR #105 merge 済み) | hosted arm64 で v0.2.0-rc.7 の install → doctor → idempotency → uninstall → reinstall → final cleanup を実測 green。macOS upstream uninstall 後に空の unmounted `/nix` path が残る実挙動を確認し、runtime-remnant 判定へ follow-up 中。Finder GUI / install.sh D8 / ADR 昇格は手動 gate のまま | `openspec/changes/add-macos-managed-nix-lifecycle-canary/`, `.github/workflows/macos-managed-nix-lifecycle.yml` |
 | macOS Apple Silicon Final Acceptance | rc.7 の CLI lifecycle 自動化後も Finder GUI / install.sh 対話 / full bootstrap manual gate は未完了 | `docs/testing/macOS-final-acceptance-checklist.md` |
 | DMG offline bundle 法務 ADR (issue #17) | ADR-0002 / OpenSpec は archive 済み。binary bundle / offline install 実装は弁護士確認後 | `docs/adr/0002-dmg-bundle-lgpl-redistribution.md`, `openspec/changes/archive/2026-09-17-add-dmg-offline-bundle-licensing/` |
 
@@ -182,11 +182,10 @@ PR #62-#68 を sequential chain で merge。
 
 ## 次の作業（推奨順）
 
-1. **PR #105 macOS Managed Nix lifecycle helper の完了**
-   - TDD contract → manual-only workflow / lifecycle script
-   - required CI / actionlint / shellcheck / OpenSpec strict を確認
-   - merge 後に `v0.2.0-rc.7` で workflow_dispatch を実行し、CLI lifecycle の実 runner evidence を取得
-   - separate archive PR で canonical spec sync
+1. **macOS Managed Nix lifecycle helper の lifecycle close**
+   - empty unmounted `/nix` を許容しつつ mount/store/receipt/users/daemon/fstab/synthetic/APFS volume を fail-closed 検証
+   - follow-up CI を通して develop へ merge
+   - separate archive PR で `add-macos-managed-nix-lifecycle-canary` を canonical spec へ同期
 2. **macOS Apple Silicon Final Acceptance の残り manual gate**
    - Finder pre-bootstrap / post-bootstrap GUI smoke
    - `install.sh` D8 `/dev/tty` 経路
