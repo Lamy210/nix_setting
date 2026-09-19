@@ -34,4 +34,4 @@
 - [x] 5.1 PR CI: bootstrap contract / shellcheck / actionlint / OpenSpec strict / required checks green (PR #105 run #551)
 - [x] 5.2 implementation PR を `develop` へ squash merge (#105 → `0a37716f`)
 - [x] 5.3 real runner: merge後 `develop` から派生した一時 verification branch で `v0.2.0-rc.7` lifecycle を実行し success (workflow run #2)。一時 push trigger は検証専用で production workflow には残さず、manual `workflow_dispatch` contract を維持
-- [ ] 5.4 separate `chore/archive-add-macos-managed-nix-lifecycle-canary` PR で archive + canonical spec sync
+- [x] 5.4 separate `chore/archive-add-macos-managed-nix-lifecycle-canary` PR #110 で official archive + canonical spec sync を生成し strict validation
