@@ -34,7 +34,7 @@ gh workflow run macos-managed-nix-lifecycle.yml -f tag="$TAG"
 - `nix install --yes`
 - receipt / ownership / `nix store ping` / flakes / `nix doctor`
 - 2 回目 install の `ExistingNixDetected` fail-closed
-- uninstall → `/nix` cleanup → reinstall → final uninstall
+- uninstall → semantic cleanup (mount / receipt / store / build users / daemon) → reinstall → final uninstall
 - workflow artifact への lifecycle log 保存
 
 **重要:** これは Final Acceptance の部分自動化であり、以下を置き換えない。
@@ -367,14 +367,26 @@ echo "uninstall_rc=$uninstall_rc"
   upstream uninstaller 実行、の順で log が出ること
 - `--force` 無しで実行し、ownership check が通ること
 
+macOS では upstream uninstaller 完走後も `/etc/synthetic.conf` 由来の
+bare `/nix` directory entry が残る場合がある。実機 lifecycle run #2
+(2026-09-19) で、`/nix` path は存在する一方、Nix mount / receipt / store /
+build users / nix-daemon は全て消えており、その状態から reinstall も成功した。
+したがって path existence 単独を cleanup failure としない。
+
 ```bash
-[ -d /nix ] && echo "NG: /nix remains" || echo "OK: /nix removed"
-sudo dscl . -list /Users | grep _nixbld || echo "OK: build users removed"
-sudo launchctl print system/nix-daemon 2>&1 | head -1   # not found なら OK
+mount | grep -E ' on /nix( |$)' && echo "NG: /nix is still mounted" || echo "OK: no /nix mount"
+[ -e /nix/receipt.json ] && echo "NG: receipt remains" || echo "OK: receipt removed"
+[ -e /nix/store ] && echo "NG: store remains" || echo "OK: store removed"
+[ -e /nix/var ] && echo "NG: /nix/var remains" || echo "OK: /nix/var removed"
+sudo dscl . -list /Users | grep '^_nixbld' && echo "NG: build users remain" || echo "OK: build users removed"
+sudo launchctl print system/org.nixos.nix-daemon >/dev/null 2>&1 \
+  && echo "NG: nix-daemon remains" || echo "OK: nix-daemon removed"
+[ -e /nix ] && echo "INFO: bare /nix path remains (synthetic path may be expected)"
 ```
 
 - [ ] gate G1: uninstall が完走 (ownership check 通過・`uninstall_rc=0`)
-- [ ] gate G2: `/nix` が消え、build users・launchd service も残っていない
+- [ ] gate G2: Nix mount / receipt / store / `/nix/var` / build users /
+      `org.nixos.nix-daemon` が残っていない。bare `/nix` path のみは許容
 
 ## H. Reinstall (lifecycle 一周の証明)
 
