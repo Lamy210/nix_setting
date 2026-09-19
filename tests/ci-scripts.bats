@@ -338,6 +338,15 @@ PY
   grep -q 'nix uninstall' "$script"
   grep -q 'reinstall' "$script"
 
+  # macOS may retain a bare synthetic /nix path after a successful uninstall.
+  # Judge cleanup by runtime/state remnants instead of path existence alone.
+  grep -q 'verify_uninstall_state' "$script"
+  grep -q 'nix-mounted=' "$script"
+  grep -q 'receipt-exists=' "$script"
+  grep -q 'store-exists=' "$script"
+  grep -q "\^_nixbld" "$script"
+  grep -q 'org.nixos.nix-daemon' "$script"
+
   grep -q 'scripts/ci/macos-managed-nix-lifecycle.sh' .github/workflows/check.yml
   run grep -q 'macos-managed-nix-lifecycle.yml' .github/workflows/check.yml .github/workflows/release.yml
   [ "$status" -ne 0 ]
