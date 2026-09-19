@@ -165,7 +165,19 @@ sudo grep -Eq '"installer_sha256"[[:space:]]*:[[:space:]]*"[0-9a-f]{64}"' /nix/s
 
 NIX_BIN="/nix/var/nix/profiles/default/bin/nix"
 run_logged store-ping "$NIX_BIN" store ping
-run_logged flakes "$NIX_BIN" flake metadata "github:Lamy210/nix_setting/${TAG}" --no-write-lock-file
+
+# Flakes capability must be verified without consuming the unauthenticated
+# GitHub API rate limit. A self-contained local flake exercises the same
+# `nix flake metadata` command path while keeping the acceptance deterministic.
+LOCAL_FLAKE_DIR="$WORK_DIR/local-flake-smoke"
+mkdir -p "$LOCAL_FLAKE_DIR"
+cat >"$LOCAL_FLAKE_DIR/flake.nix" <<'EOF'
+{
+  description = "SchneeForge Managed Nix lifecycle local flake smoke";
+  outputs = { self }: {};
+}
+EOF
+run_logged flakes "$NIX_BIN" flake metadata "path:$LOCAL_FLAKE_DIR" --no-write-lock-file
 run_logged nix-doctor "$SF" nix doctor
 
 note "verifying second install fails closed with ExistingNixDetected"
