@@ -358,3 +358,44 @@ PY
   run grep -q 'macos-managed-nix-lifecycle.yml' .github/workflows/check.yml .github/workflows/release.yml
   [ "$status" -ne 0 ]
 }
+
+
+# --- GUI self-update Step 2 manifest generator contract ---
+
+@test "updater manifest generator emits darwin-aarch64 static JSON" {
+  script=scripts/ci/generate-updater-manifest.py
+  [ -f "$script" ]
+
+  tmp="$(mktemp -d)"
+  printf '%s\n' 'trusted-signature-content' >"$tmp/update.sig"
+
+  python3 "$script" \
+    --tag v0.3.0 \
+    --artifact SchneeForge.app.tar.gz \
+    --signature-file "$tmp/update.sig" \
+    --output "$tmp/latest.json"
+
+  python3 - "$tmp/latest.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    doc = json.load(f)
+assert doc["version"] == "0.3.0", doc
+assert set(doc["platforms"]) == {"darwin-aarch64"}, doc
+entry = doc["platforms"]["darwin-aarch64"]
+assert entry["url"] == "https://github.com/Lamy210/nix_setting/releases/download/v0.3.0/SchneeForge.app.tar.gz", entry
+assert entry["signature"] == "trusted-signature-content", entry
+PY
+}
+
+@test "updater manifest generator fails closed on invalid inputs" {
+  script=scripts/ci/generate-updater-manifest.py
+  tmp="$(mktemp -d)"
+  : >"$tmp/empty.sig"
+
+  run python3 "$script" --tag not-semver --artifact SchneeForge.app.tar.gz --signature-file "$tmp/empty.sig" --output "$tmp/latest.json"
+  [ "$status" -ne 0 ]
+
+  printf '%s\n' sig >"$tmp/update.sig"
+  run python3 "$script" --tag v0.3.0 --artifact 'https://evil.example/update.tar.gz' --signature-file "$tmp/update.sig" --output "$tmp/latest.json"
+  [ "$status" -ne 0 ]
+}
