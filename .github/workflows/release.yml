@@ -102,6 +102,10 @@ jobs:
     runs-on: macos-26
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      SCHNEEFORGE_UPDATER_ACTIVATED: ${{ vars.SCHNEEFORGE_UPDATER_ACTIVATED || 'false' }}
+      SCHNEEFORGE_UPDATER_PUBKEY: ${{ vars.SCHNEEFORGE_UPDATER_PUBKEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
@@ -131,9 +135,21 @@ jobs:
           name: schneeforge-dmg
           path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
 
+      - name: upload signed updater artifacts
+        if: ${{ env.SCHNEEFORGE_UPDATER_ACTIVATED == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: schneeforge-updater
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
+            apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
+          if-no-files-found: error
+
   release:
     needs: [build-binaries, build-dmg]
     runs-on: ubuntu-latest
+    env:
+      SCHNEEFORGE_UPDATER_ACTIVATED: ${{ vars.SCHNEEFORGE_UPDATER_ACTIVATED || 'false' }}
     # job level で上書き: attestation に必要な OIDC (id-token) と
     # attestation 永続化 API の権限 (attestations) は release job のみに
     # 付与する (build job へは渡さない)。attestations: write が無いと
@@ -154,6 +170,28 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: dist
+
+      - name: generate signed updater manifest
+        if: ${{ env.SCHNEEFORGE_UPDATER_ACTIVATED == 'true' }}
+        run: |
+          updater_dir="dist/schneeforge-updater"
+          artifact="$(find "$updater_dir" -maxdepth 1 -type f -name '*.app.tar.gz' | head -1)"
+          if [ -z "$artifact" ]; then
+            echo "ERROR: activated updater release is missing .app.tar.gz" >&2
+            exit 1
+          fi
+          signature="${artifact}.sig"
+          if [ ! -s "$signature" ]; then
+            echo "ERROR: activated updater release is missing signature: $signature" >&2
+            exit 1
+          fi
+          python3 scripts/ci/generate-updater-manifest.py \
+            --tag "${{ github.ref_name }}" \
+            --artifact "$(basename "$artifact")" \
+            --signature-file "$signature" \
+            --output "$updater_dir/latest.json"
+          test -s "$updater_dir/latest.json"
+          cat "$updater_dir/latest.json"
 
       - name: generate SBOM
         run: |
