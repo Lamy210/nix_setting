@@ -14,6 +14,7 @@ ROOT_STAGE_DIR="/private/var/db/schneeforge/acceptance"
 ROOT_SF="${ROOT_STAGE_DIR}/schneeforge"
 SF="${WORK_DIR}/${ASSET}"
 CHECKSUMS="${WORK_DIR}/CHECKSUMS.txt"
+NIX_BIN="/nix/var/nix/profiles/default/bin/nix"
 
 fail() {
   echo "[acceptance:error] $*" >&2
@@ -28,12 +29,12 @@ run_logged() {
   local name="$1"
   shift
   local log="${LOG_DIR}/${name}.log"
-  local rc
-  if "$@" >"$log" 2>&1; then
-    rc=0
-  else
-    rc=$?
-  fi
+
+  set +e
+  "$@" >"$log" 2>&1
+  local rc=$?
+  set -e
+
   cat "$log"
   return "$rc"
 }
@@ -41,6 +42,7 @@ run_logged() {
 sanitize_logs() {
   local file tmp host
   host="$(hostname 2>/dev/null || true)"
+
   for file in "$LOG_DIR"/*.log; do
     [ -f "$file" ] || continue
     tmp="${file}.tmp"
@@ -55,9 +57,9 @@ sanitize_logs() {
 
 cleanup() {
   local rc=$?
-  sanitize_logs || true
   sudo rm -f "$ROOT_SF" 2>/dev/null || true
   sudo rmdir "$ROOT_STAGE_DIR" 2>/dev/null || true
+  sanitize_logs || true
   rm -rf "$WORK_DIR"
   exit "$rc"
 }
@@ -78,9 +80,8 @@ if command -v nix >/dev/null 2>&1; then
   fail "fresh-host contract violated: nix is already on PATH"
 fi
 
+rm -rf "$LOG_DIR"
 mkdir -p "$LOG_DIR"
-cd "$WORK_DIR"
-unset NIX_SETTING_DIR || true
 
 {
   echo "tag=$TAG"
@@ -88,6 +89,10 @@ unset NIX_SETTING_DIR || true
   uname -m
 } | tee "$LOG_DIR/environment.log"
 
+cd "$WORK_DIR"
+unset NIX_SETTING_DIR || true
+
+note "target release: $TAG"
 note "downloading release CLI and CHECKSUMS.txt"
 curl -fsSL "${RELEASE_BASE}/${TAG}/${ASSET}" -o "$SF"
 curl -fsSL "${RELEASE_BASE}/${TAG}/CHECKSUMS.txt" -o "$CHECKSUMS"
@@ -104,9 +109,10 @@ printf '%s\n' "$expected" | grep -Eq '^[0-9a-f]{64}$' ||
 actual="$(shasum -a 256 "$SF" | awk '{print $1}')"
 [ "$actual" = "$expected" ] ||
   fail "release CLI SHA256 mismatch: expected=$expected actual=$actual"
+printf 'asset=%s\nsha256=%s\n' "$ASSET" "$actual" | tee "$LOG_DIR/checksum.log"
+
 chmod +x "$SF"
 "$SF" --version | tee "$LOG_DIR/version.log"
-printf 'asset=%s\nsha256=%s\n' "$ASSET" "$actual" >"$LOG_DIR/checksum.log"
 
 note "staging verified CLI for privileged lifecycle operations"
 sudo install -d -m 0700 "$ROOT_STAGE_DIR"
@@ -118,28 +124,31 @@ staged_actual="$(sudo shasum -a 256 "$ROOT_SF" | awk '{print $1}')"
 note "installing Managed Nix from release binary embedded manifest"
 run_logged install-first sudo "$ROOT_SF" nix install --yes
 
-[ -x /nix/var/nix/profiles/default/bin/nix ] ||
-  fail "Nix binary missing after install"
 sudo test -r /nix/receipt.json || fail "receipt missing after install"
-sudo test -r /nix/schneeforge-managed.json || fail "ownership record missing after install"
+sudo test -r /nix/schneeforge-managed.json ||
+  fail "ownership record missing after install"
 sudo grep -q '"installer_version"' /nix/schneeforge-managed.json ||
   fail "ownership record missing installer_version"
-sudo grep -Eq '"installer_sha256"[[:space:]]*:[[:space:]]*"[0-9a-f]{64}"' /nix/schneeforge-managed.json ||
+sudo grep -Eq '"installer_sha256"[[:space:]]*:[[:space:]]*"[0-9a-f]{64}"' \
+  /nix/schneeforge-managed.json ||
   fail "ownership record missing valid installer_sha256"
+[ -x "$NIX_BIN" ] || fail "Nix binary missing after install"
 
-NIX_BIN="/nix/var/nix/profiles/default/bin/nix"
 run_logged store-ping "$NIX_BIN" store ping
-run_logged flakes "$NIX_BIN" flake metadata "github:Lamy210/nix_setting/${TAG}" --no-write-lock-file
-run_logged nix-doctor "$SF" nix doctor
+run_logged flakes-config "$NIX_BIN" config show experimental-features
+grep -Eq '(^|[[:space:]])flakes([[:space:]]|$)' "$LOG_DIR/flakes-config.log" ||
+  fail "flakes are not enabled after install"
+run_logged nix-doctor sudo "$ROOT_SF" nix doctor
 
-note "verifying second install fails closed with ExistingNixDetected"
-if run_logged install-second sudo "$ROOT_SF" nix install --yes; then
-  fail "second install unexpectedly succeeded"
-else
-  second_rc=$?
-fi
+note "verifying second install fails closed"
+set +e
+sudo "$ROOT_SF" nix install --yes >"$LOG_DIR/install-second.log" 2>&1
+second_rc=$?
+set -e
+cat "$LOG_DIR/install-second.log"
+[ "$second_rc" -ne 0 ] || fail "second install unexpectedly succeeded"
 grep -q 'ExistingNixDetected' "$LOG_DIR/install-second.log" ||
-  fail "second install failed for the wrong reason (exit $second_rc)"
+  fail "second install did not fail with ExistingNixDetected"
 
 note "uninstalling Managed Nix"
 run_logged uninstall-first sudo "$ROOT_SF" nix uninstall
@@ -147,9 +156,11 @@ run_logged uninstall-first sudo "$ROOT_SF" nix uninstall
 
 note "reinstalling Managed Nix"
 run_logged reinstall sudo "$ROOT_SF" nix install --yes
-[ -x /nix/var/nix/profiles/default/bin/nix ] ||
-  fail "Nix binary missing after reinstall"
-run_logged reinstall-store-ping /nix/var/nix/profiles/default/bin/nix store ping
+sudo test -r /nix/receipt.json || fail "receipt missing after reinstall"
+sudo test -r /nix/schneeforge-managed.json ||
+  fail "ownership record missing after reinstall"
+[ -x "$NIX_BIN" ] || fail "Nix binary missing after reinstall"
+run_logged store-ping-reinstall "$NIX_BIN" store ping
 
 note "performing final cleanup uninstall"
 run_logged uninstall-final sudo "$ROOT_SF" nix uninstall
