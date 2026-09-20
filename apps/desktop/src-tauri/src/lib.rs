@@ -45,13 +45,14 @@ struct UpdaterBuildConfig {
     reason: String,
 }
 
-fn updater_build_config() -> UpdaterBuildConfig {
-    let target_supported = cfg!(all(target_os = "macos", target_arch = "aarch64"));
-    let activated = option_env!("SCHNEEFORGE_UPDATER_ENABLED") == Some("1");
-    let pubkey = option_env!("SCHNEEFORGE_UPDATER_PUBKEY")
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
+fn resolve_updater_build_config(
+    target_supported: bool,
+    activated: bool,
+    pubkey: Option<String>,
+) -> UpdaterBuildConfig {
+    let pubkey = pubkey
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
     let (enabled, reason) = if !target_supported {
         (false, "app updater is supported only on macOS aarch64".to_string())
@@ -75,6 +76,14 @@ fn updater_build_config() -> UpdaterBuildConfig {
         endpoint: enabled.then(|| APP_UPDATER_ENDPOINT.to_string()),
         reason,
     }
+}
+
+fn updater_build_config() -> UpdaterBuildConfig {
+    resolve_updater_build_config(
+        cfg!(all(target_os = "macos", target_arch = "aarch64")),
+        option_env!("SCHNEEFORGE_UPDATER_ENABLED") == Some("1"),
+        option_env!("SCHNEEFORGE_UPDATER_PUBKEY").map(ToOwned::to_owned),
+    )
 }
 
 struct AppUpdaterState {
@@ -1776,6 +1785,34 @@ mod tests {
             js.contains("confirm("),
             "uninstall must be behind a confirmation"
         );
+    }
+
+    #[test]
+    fn app_updater_activation_is_fail_closed() {
+        let unsupported =
+            resolve_updater_build_config(false, true, Some("trusted-key".to_string()));
+        assert!(!unsupported.enabled);
+        assert!(unsupported.endpoint.is_none());
+
+        let inactive =
+            resolve_updater_build_config(true, false, Some("trusted-key".to_string()));
+        assert!(!inactive.enabled);
+        assert!(inactive.endpoint.is_none());
+
+        let missing_key = resolve_updater_build_config(true, true, None);
+        assert!(!missing_key.enabled);
+        assert!(missing_key.endpoint.is_none());
+
+        let blank_key =
+            resolve_updater_build_config(true, true, Some("   ".to_string()));
+        assert!(!blank_key.enabled);
+        assert!(blank_key.endpoint.is_none());
+
+        let active =
+            resolve_updater_build_config(true, true, Some("  trusted-key  ".to_string()));
+        assert!(active.enabled);
+        assert_eq!(active.pubkey.as_deref(), Some("trusted-key"));
+        assert_eq!(active.endpoint.as_deref(), Some(APP_UPDATER_ENDPOINT));
     }
 
     /// GUI self-update Step 2 は production trust root が無い build では
