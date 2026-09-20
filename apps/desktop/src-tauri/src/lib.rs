@@ -1553,4 +1553,73 @@ mod tests {
             "uninstall must be behind a confirmation"
         );
     }
+
+    /// GUI self-update Step 2 は production trust root が無い build では
+    /// capability=false とし、URL/signature を frontend へ委譲しない。
+    #[test]
+    fn app_updater_backend_is_staged_and_backend_owned() {
+        let rs = include_str!("lib.rs");
+        let cargo = include_str!("../Cargo.toml");
+
+        assert!(
+            cargo.contains("tauri-plugin-updater"),
+            "desktop must depend on tauri-plugin-updater"
+        );
+        for marker in [
+            "struct AppUpdaterState",
+            "fn updater_build_config",
+            "async fn get_app_updater_capability",
+            "async fn fetch_app_update",
+            "async fn install_app_update",
+            "fn restart_app",
+            "tauri_plugin_updater::UpdaterExt",
+            "download_and_install",
+            "\"app-update-progress\"",
+            "SCHNEEFORGE_UPDATER_ENABLED",
+            "SCHNEEFORGE_UPDATER_PUBKEY",
+        ] {
+            assert!(
+                rs.contains(marker),
+                "GUI updater backend contract missing marker: {marker}"
+            );
+        }
+        assert!(
+            rs.contains("pending: Mutex<Option<"),
+            "pending signed update must remain in backend managed state"
+        );
+    }
+
+    /// frontend は capability を確認してからだけ auto-update control を表示し、
+    /// update URL/signature を引数として backend へ送らない。
+    #[test]
+    fn app_updater_frontend_is_capability_gated() {
+        let html = include_str!("../../dist/index.html");
+        let js = include_str!("../../dist/main.js");
+
+        assert!(
+            html.contains("id=\"app-update-check\""),
+            "Dashboard must include a hidden app-update action"
+        );
+        for marker in [
+            "invoke(\"get_app_updater_capability\")",
+            "invoke(\"fetch_app_update\")",
+            "invoke(\"install_app_update\")",
+            "invoke(\"restart_app\")",
+            "listen(\"app-update-progress\"",
+        ] {
+            assert!(
+                js.contains(marker),
+                "frontend updater contract missing marker: {marker}"
+            );
+        }
+        assert!(
+            js.contains("confirm("),
+            "install/restart path must require explicit user confirmation"
+        );
+        assert!(
+            js.contains("dash-release-link"),
+            "GitHub Releases fallback must remain available"
+        );
+    }
 }
+
