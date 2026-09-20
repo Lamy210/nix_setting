@@ -387,17 +387,27 @@ assert entry["signature"] == "trusted-signature-content", entry
 PY
 }
 
-@test "updater manifest generator fails closed on invalid inputs" {
+@test "updater manifest generator is deterministic and fails closed on invalid inputs" {
   script=scripts/ci/generate-updater-manifest.py
   tmp="$(mktemp -d)"
-  : >"$tmp/empty.sig"
+  printf '%s\n' 'trusted-signature-content' >"$tmp/update.sig"
 
-  run python3 "$script" --tag not-semver --artifact SchneeForge.app.tar.gz --signature-file "$tmp/empty.sig" --output "$tmp/latest.json"
+  python3 "$script" --tag v0.3.0 --artifact SchneeForge.app.tar.gz --signature-file "$tmp/update.sig" --output "$tmp/one.json"
+  python3 "$script" --tag v0.3.0 --artifact SchneeForge.app.tar.gz --signature-file "$tmp/update.sig" --output "$tmp/two.json"
+  cmp "$tmp/one.json" "$tmp/two.json"
+
+  run python3 "$script" --tag not-semver --artifact SchneeForge.app.tar.gz --signature-file "$tmp/update.sig" --output "$tmp/latest.json"
   [ "$status" -ne 0 ]
+  [ ! -e "$tmp/latest.json" ]
 
-  printf '%s\n' sig >"$tmp/update.sig"
+  : >"$tmp/empty.sig"
+  run python3 "$script" --tag v0.3.0 --artifact SchneeForge.app.tar.gz --signature-file "$tmp/empty.sig" --output "$tmp/latest.json"
+  [ "$status" -ne 0 ]
+  [ ! -e "$tmp/latest.json" ]
+
   run python3 "$script" --tag v0.3.0 --artifact 'https://evil.example/update.tar.gz' --signature-file "$tmp/update.sig" --output "$tmp/latest.json"
   [ "$status" -ne 0 ]
+  [ ! -e "$tmp/latest.json" ]
 }
 
 
@@ -413,6 +423,14 @@ PY
   grep -q 'SCHNEEFORGE_UPDATER_ACTIVATED' "$release"
   grep -q 'SCHNEEFORGE_UPDATER_PUBKEY' "$release"
   grep -q 'TAURI_SIGNING_PRIVATE_KEY' "$release"
+  # Production private key must be scoped to the Tauri build step rather than
+  # the whole build-dmg job (checkout/cache/diagnostics must not receive it).
+  grep -qE '^          TAURI_SIGNING_PRIVATE_KEY:' "$release"
+  grep -qE '^          TAURI_SIGNING_PRIVATE_KEY_PASSWORD:' "$release"
+  run grep -qE '^      TAURI_SIGNING_PRIVATE_KEY:' "$release"
+  [ "$status" -ne 0 ]
+  run grep -qE '^      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:' "$release"
+  [ "$status" -ne 0 ]
   grep -q 'generate-updater-manifest.py' "$release"
   grep -q 'schneeforge-updater' "$release"
   grep -q 'latest.json' "$release"
