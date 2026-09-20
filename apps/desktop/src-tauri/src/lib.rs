@@ -808,13 +808,29 @@ impl schneeforge_core::ProgressSink for GuiCollectProgress {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let updater_config = updater_build_config();
+    let updater_pubkey = updater_config.pubkey.clone();
+
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    if updater_config.enabled {
+        builder = builder.plugin(
+            tauri_plugin_updater::Builder::new()
+                .pubkey(updater_pubkey.expect("enabled updater must have a public key"))
+                .build(),
+        );
+    }
+
+    builder
         .manage(CachedToolInventory::default())
+        .manage(AppUpdaterState::new(updater_config))
         .invoke_handler(tauri::generate_handler![
             get_status,
             get_dashboard,
             open_release,
+            get_app_updater_capability,
+            fetch_app_update,
+            install_app_update,
+            restart_app,
             get_profiles,
             set_profile,
             clear_profile,
