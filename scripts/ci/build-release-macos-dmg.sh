@@ -23,6 +23,17 @@ TAURI_CLI_VERSION="2.11.4"
 TAURI_CLI_SHA256="82bdcb9ae7f407882321680ae50750f11623fae22445f8b00b096e10f815d604"
 TAURI_CLI_URL="https://github.com/tauri-apps/tauri/releases/download/tauri-cli-v${TAURI_CLI_VERSION}/cargo-tauri-aarch64-apple-darwin.zip"
 
+# GUI updater は production activation が明示された tag release でのみ有効にする。
+# PR / develop の通常 artifact gate は signing secret を要求せず updater-disabled。
+SCHNEEFORGE_UPDATER_ACTIVATED="${SCHNEEFORGE_UPDATER_ACTIVATED:-false}"
+case "$SCHNEEFORGE_UPDATER_ACTIVATED" in
+true | false) ;;
+*)
+  echo "ERROR: SCHNEEFORGE_UPDATER_ACTIVATED must be true or false" >&2
+  exit 1
+  ;;
+esac
+
 WORKDIR="$(mktemp -d)"
 MOUNT_POINT=""
 cleanup() {
@@ -49,7 +60,42 @@ cd "$REPO_ROOT"
 cargo build --release -p schneeforge
 
 cd "$REPO_ROOT/apps/desktop/src-tauri"
-"$TAURI_BIN" build
+if [ "$SCHNEEFORGE_UPDATER_ACTIVATED" = "true" ]; then
+  : "${SCHNEEFORGE_UPDATER_PUBKEY:?SCHNEEFORGE_UPDATER_PUBKEY is required when updater is activated}"
+  : "${TAURI_SIGNING_PRIVATE_KEY:?TAURI_SIGNING_PRIVATE_KEY is required when updater is activated}"
+
+  export SCHNEEFORGE_UPDATER_ENABLED=1
+  export SCHNEEFORGE_UPDATER_PUBKEY
+  # Tauri CLI consumes TAURI_SIGNING_PRIVATE_KEY and optional
+  # TAURI_SIGNING_PRIVATE_KEY_PASSWORD from the environment.
+  cat >"$WORKDIR/updater-config.json" <<'JSON'
+{
+  "bundle": {
+    "createUpdaterArtifacts": true
+  }
+}
+JSON
+  "$TAURI_BIN" build --config "$WORKDIR/updater-config.json"
+
+  UPDATER_ARTIFACT="$(find target/release/bundle/macos -type f -name '*.app.tar.gz' | head -1)"
+  if [ -z "$UPDATER_ARTIFACT" ] || [ ! -s "$UPDATER_ARTIFACT" ]; then
+    echo "ERROR: updater activation produced no .app.tar.gz artifact" >&2
+    exit 1
+  fi
+  if [ ! -s "${UPDATER_ARTIFACT}.sig" ]; then
+    echo "ERROR: updater activation produced no signature for $UPDATER_ARTIFACT" >&2
+    exit 1
+  fi
+  echo "OK: signed updater artifact produced: $UPDATER_ARTIFACT"
+else
+  # Fail closed: ambient developer/runner variables must not accidentally
+  # activate an updater trust root in ordinary PR/develop builds.
+  unset SCHNEEFORGE_UPDATER_ENABLED
+  unset SCHNEEFORGE_UPDATER_PUBKEY
+  unset TAURI_SIGNING_PRIVATE_KEY
+  unset TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+  "$TAURI_BIN" build
+fi
 
 # --- gate: build 済み DMG を mount して完成品を検査 ---
 DMG="$(find target/release/bundle/dmg -name '*.dmg' | head -1)"
