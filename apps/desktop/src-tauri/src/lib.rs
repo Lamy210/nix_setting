@@ -34,6 +34,214 @@ impl CachedToolInventory {
     }
 }
 
+const APP_UPDATER_ENDPOINT: &str =
+    "https://github.com/Lamy210/nix_setting/releases/latest/download/latest.json";
+
+#[derive(Clone)]
+struct UpdaterBuildConfig {
+    enabled: bool,
+    pubkey: Option<String>,
+    endpoint: Option<String>,
+    reason: String,
+}
+
+fn updater_build_config() -> UpdaterBuildConfig {
+    let target_supported = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+    let activated = option_env!("SCHNEEFORGE_UPDATER_ENABLED") == Some("1");
+    let pubkey = option_env!("SCHNEEFORGE_UPDATER_PUBKEY")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    let (enabled, reason) = if !target_supported {
+        (false, "app updater is supported only on macOS aarch64".to_string())
+    } else if !activated {
+        (
+            false,
+            "app updater is disabled in this build until production activation".to_string(),
+        )
+    } else if pubkey.is_none() {
+        (
+            false,
+            "app updater activation is missing the production public key".to_string(),
+        )
+    } else {
+        (true, "signed app updater is enabled".to_string())
+    };
+
+    UpdaterBuildConfig {
+        enabled,
+        pubkey,
+        endpoint: enabled.then(|| APP_UPDATER_ENDPOINT.to_string()),
+        reason,
+    }
+}
+
+struct AppUpdaterState {
+    config: UpdaterBuildConfig,
+    pending: Mutex<Option<tauri_plugin_updater::Update>>,
+}
+
+impl AppUpdaterState {
+    fn new(config: UpdaterBuildConfig) -> Self {
+        Self {
+            config,
+            pending: Mutex::new(None),
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppUpdaterCapability {
+    enabled: bool,
+    reason: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppUpdateMetadata {
+    version: String,
+    current_version: String,
+    notes: Option<String>,
+    pub_date: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppUpdateProgress {
+    phase: &'static str,
+    downloaded: u64,
+    content_length: Option<u64>,
+}
+
+#[tauri::command]
+async fn get_app_updater_capability(
+    state: tauri::State<'_, AppUpdaterState>,
+) -> Result<AppUpdaterCapability, String> {
+    Ok(AppUpdaterCapability {
+        enabled: state.config.enabled,
+        reason: state.config.reason.clone(),
+    })
+}
+
+#[tauri::command]
+async fn fetch_app_update(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppUpdaterState>,
+) -> Result<Option<AppUpdateMetadata>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    if !state.config.enabled {
+        return Err(format!("app updater disabled: {}", state.config.reason));
+    }
+
+    let pubkey = state
+        .config
+        .pubkey
+        .clone()
+        .ok_or_else(|| "app updater public key is unavailable".to_string())?;
+    let endpoint = state
+        .config
+        .endpoint
+        .as_deref()
+        .ok_or_else(|| "app updater endpoint is unavailable".to_string())?
+        .parse()
+        .map_err(|e| format!("invalid app updater endpoint: {e}"))?;
+
+    let updater = app
+        .updater_builder()
+        .pubkey(pubkey)
+        .endpoints(vec![endpoint])
+        .map_err(|e| format!("configure app updater: {e}"))?
+        .build()
+        .map_err(|e| format!("build app updater: {e}"))?;
+
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| format!("check app update: {e}"))?;
+
+    let metadata = update.as_ref().map(|update| AppUpdateMetadata {
+        version: update.version.clone(),
+        current_version: update.current_version.clone(),
+        notes: update.body.clone(),
+        pub_date: update.date.as_ref().map(ToString::to_string),
+    });
+
+    let mut pending = state
+        .pending
+        .lock()
+        .map_err(|e| format!("app updater state lock: {e}"))?;
+    *pending = update;
+
+    Ok(metadata)
+}
+
+#[tauri::command]
+async fn install_app_update(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppUpdaterState>,
+) -> Result<CommandOutput, String> {
+    if !state.config.enabled {
+        return Err(format!("app updater disabled: {}", state.config.reason));
+    }
+
+    let update = {
+        let mut pending = state
+            .pending
+            .lock()
+            .map_err(|e| format!("app updater state lock: {e}"))?;
+        pending
+            .take()
+            .ok_or_else(|| "no pending app update; check for an update first".to_string())?
+    };
+
+    let progress_app = app.clone();
+    let finish_app = app.clone();
+    let mut downloaded = 0_u64;
+    update
+        .download_and_install(
+            move |chunk_length, content_length| {
+                downloaded = downloaded.saturating_add(chunk_length as u64);
+                let progress = AppUpdateProgress {
+                    phase: "downloading",
+                    downloaded,
+                    content_length,
+                };
+                let _ = tauri::Emitter::emit(&progress_app, "app-update-progress", &progress);
+            },
+            move || {
+                let progress = AppUpdateProgress {
+                    phase: "downloaded",
+                    downloaded: 0,
+                    content_length: None,
+                };
+                let _ = tauri::Emitter::emit(&finish_app, "app-update-progress", &progress);
+            },
+        )
+        .await
+        .map_err(|e| format!("download/install app update: {e}"))?;
+
+    let installed = AppUpdateProgress {
+        phase: "installed",
+        downloaded: 0,
+        content_length: None,
+    };
+    let _ = tauri::Emitter::emit(&app, "app-update-progress", &installed);
+
+    Ok(CommandOutput {
+        success: true,
+        output: "signed app update installed; restart SchneeForge to use the new version"
+            .to_string(),
+    })
+}
+
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
 #[tauri::command]
 async fn get_status(state: tauri::State<'_, CachedToolInventory>) -> Result<Diagnostics, String> {
     let tc = state.get_or_discover()?;
