@@ -103,7 +103,7 @@ workflow_job_block() {
   # build script は target/<profile>/schneeforge を stage 元にするため、
   # tauri build の前に CLI build が必要
   CLI_BUILD_LINE="$(grep -n 'cargo build --release -p schneeforge' scripts/ci/build-release-macos-dmg.sh | cut -d: -f1)"
-  TAURI_BUILD_LINE="$(grep -n 'TAURI_BIN. build' scripts/ci/build-release-macos-dmg.sh | cut -d: -f1)"
+  TAURI_BUILD_LINE="$(grep -n 'TAURI_BIN. build' scripts/ci/build-release-macos-dmg.sh | cut -d: -f1 | head -1)"
   [ -n "$CLI_BUILD_LINE" ]
   [ -n "$TAURI_BUILD_LINE" ]
   [ "$CLI_BUILD_LINE" -lt "$TAURI_BUILD_LINE" ]
@@ -356,5 +356,91 @@ PY
 
   grep -q 'scripts/ci/macos-managed-nix-lifecycle.sh' .github/workflows/check.yml
   run grep -q 'macos-managed-nix-lifecycle.yml' .github/workflows/check.yml .github/workflows/release.yml
+  [ "$status" -ne 0 ]
+}
+
+
+# --- GUI self-update Step 2 manifest generator contract ---
+
+@test "updater manifest generator emits darwin-aarch64 static JSON" {
+  script=scripts/ci/generate-updater-manifest.py
+  [ -f "$script" ]
+
+  tmp="$(mktemp -d)"
+  printf '%s\n' 'trusted-signature-content' >"$tmp/update.sig"
+
+  python3 "$script" \
+    --tag v0.3.0 \
+    --artifact SchneeForge.app.tar.gz \
+    --signature-file "$tmp/update.sig" \
+    --output "$tmp/latest.json"
+
+  python3 - "$tmp/latest.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    doc = json.load(f)
+assert doc["version"] == "0.3.0", doc
+assert set(doc["platforms"]) == {"darwin-aarch64"}, doc
+entry = doc["platforms"]["darwin-aarch64"]
+assert entry["url"] == "https://github.com/Lamy210/nix_setting/releases/download/v0.3.0/SchneeForge.app.tar.gz", entry
+assert entry["signature"] == "trusted-signature-content", entry
+PY
+}
+
+@test "updater manifest generator is deterministic and fails closed on invalid inputs" {
+  script=scripts/ci/generate-updater-manifest.py
+  tmp="$(mktemp -d)"
+  printf '%s\n' 'trusted-signature-content' >"$tmp/update.sig"
+
+  python3 "$script" --tag v0.3.0 --artifact SchneeForge.app.tar.gz --signature-file "$tmp/update.sig" --output "$tmp/one.json"
+  python3 "$script" --tag v0.3.0 --artifact SchneeForge.app.tar.gz --signature-file "$tmp/update.sig" --output "$tmp/two.json"
+  cmp "$tmp/one.json" "$tmp/two.json"
+
+  run python3 "$script" --tag not-semver --artifact SchneeForge.app.tar.gz --signature-file "$tmp/update.sig" --output "$tmp/latest.json"
+  [ "$status" -ne 0 ]
+  [ ! -e "$tmp/latest.json" ]
+
+  : >"$tmp/empty.sig"
+  run python3 "$script" --tag v0.3.0 --artifact SchneeForge.app.tar.gz --signature-file "$tmp/empty.sig" --output "$tmp/latest.json"
+  [ "$status" -ne 0 ]
+  [ ! -e "$tmp/latest.json" ]
+
+  run python3 "$script" --tag v0.3.0 --artifact 'https://evil.example/update.tar.gz' --signature-file "$tmp/update.sig" --output "$tmp/latest.json"
+  [ "$status" -ne 0 ]
+  [ ! -e "$tmp/latest.json" ]
+}
+
+
+# --- GUI self-update Step 2 release activation contract ---
+
+@test "GUI updater release preparation is activation-gated and fail-closed" {
+  release=.github/workflows/release.yml
+  dmg=scripts/ci/build-release-macos-dmg.sh
+  generator=scripts/ci/generate-updater-manifest.py
+
+  [ -f "$generator" ]
+
+  grep -q 'SCHNEEFORGE_UPDATER_ACTIVATED' "$release"
+  grep -q 'SCHNEEFORGE_UPDATER_PUBKEY' "$release"
+  grep -q 'TAURI_SIGNING_PRIVATE_KEY' "$release"
+  # Production private key must be scoped to the Tauri build step rather than
+  # the whole build-dmg job (checkout/cache/diagnostics must not receive it).
+  grep -qE '^          TAURI_SIGNING_PRIVATE_KEY:' "$release"
+  grep -qE '^          TAURI_SIGNING_PRIVATE_KEY_PASSWORD:' "$release"
+  run grep -qE '^      TAURI_SIGNING_PRIVATE_KEY:' "$release"
+  [ "$status" -ne 0 ]
+  run grep -qE '^      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:' "$release"
+  [ "$status" -ne 0 ]
+  grep -q 'generate-updater-manifest.py' "$release"
+  grep -q 'schneeforge-updater' "$release"
+  grep -q 'latest.json' "$release"
+
+  grep -q 'SCHNEEFORGE_UPDATER_ACTIVATED' "$dmg"
+  grep -q 'createUpdaterArtifacts' "$dmg"
+  grep -q 'TAURI_SIGNING_PRIVATE_KEY' "$dmg"
+  grep -q 'SCHNEEFORGE_UPDATER_PUBKEY' "$dmg"
+
+  # PR required CI must stay secret-free.
+  run grep -q 'TAURI_SIGNING_PRIVATE_KEY' .github/workflows/check.yml
   [ "$status" -ne 0 ]
 }

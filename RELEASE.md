@@ -91,10 +91,35 @@ macOS 実機の full フローは [Final Acceptance 手順書](./docs/testing/ma
 - [ ] desktop (Tauri) で Diagnostics → Apply → Verify のフロー
 - [ ] fresh 環境で `install.sh` が成功 (rc.6 以降は managed source 経路: clone なし)
 
+### GUI self-update Step 2 activation（macOS aarch64）
+
+GUI updater のコードは production trust root を入れずに先行 merge できる。
+**以下を全て満たすまで updater を production activation しない。**
+
+- [ ] macOS Final Acceptance (Finder GUI / install.sh / full bootstrap を含む) が PASS
+- [ ] production Tauri updater key pair を release 担当者が生成
+- [ ] private key を GitHub Actions secret `TAURI_SIGNING_PRIVATE_KEY` に登録
+- [ ] encrypted key の場合は password を `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` に登録
+- [ ] private key / password の offline backup を repository 外の安全な保管先へ保存
+- [ ] public key を repository variable `SCHNEEFORGE_UPDATER_PUBKEY` に登録し review
+- [ ] 上記完了後にのみ repository variable `SCHNEEFORGE_UPDATER_ACTIVATED=true` を設定
+- [ ] tag release が `.app.tar.gz` / `.app.tar.gz.sig` / `latest.json` を生成
+- [ ] version N のDMGから signed N+1 をcheck → download/install → restartし N+1 を確認
+- [ ] artifactを改変した negative testで signature verification failureとなり、既存appが維持されることを確認
+
+通常のPR / develop buildでは `SCHNEEFORGE_UPDATER_ACTIVATED` は false のままとし、
+production signing secretを要求しない。updater disabled buildではDashboardの
+自動更新buttonを表示せず、既存のGitHub Releases linkをfallbackとして維持する。
+
+Key rotation時は、旧keyで署名したtransition releaseへ**新public keyを先に埋め込み**、
+そのreleaseが十分に配布されるまで旧private keyを破棄しない。その後のreleaseから
+新private keyで署名する。private keyをrepoへcommitしてはならない。
+
 ### アセット・ノート
 
 - [ ] リリースノート: 変更・既知の制限・未完了機能を記載
 - [ ] Release asset: `schneeforge-{aarch64-darwin,x86_64-linux}` / DMG / SBOM / `schneeforge-release.json` / CHECKSUMS.txt が生成される
+- [ ] GUI updater activation時のみ: `.app.tar.gz` / `.app.tar.gz.sig` / `latest.json` が生成され、CHECKSUMS / provenance対象に含まれる
 - [ ] `vX.Y.Z` の version 表記が `Cargo.toml` / `tauri.conf.json` / flake packages で揃っている
 - [ ] **`install.sh` の `SCHNEEFORGE_BOOTSTRAP_VERSION` を今回の `vX.Y.Z` に bump**
 - [ ] **README の Stable ワンライナー URL を今回の tag に差し替え**（`raw.githubusercontent.com/Lamy210/nix_setting/vX.Y.Z/install.sh`）
