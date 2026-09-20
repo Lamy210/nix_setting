@@ -1,0 +1,32 @@
+name: temp desktop quality v3
+
+on:
+  push:
+    branches: [test/gui-self-update-desktop-quality-v3]
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: install Tauri system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: desktop fmt
+        run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+
+      - name: desktop test
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib
+
+      - name: desktop clippy
+        run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --lib -- -D warnings
