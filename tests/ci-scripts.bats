@@ -399,3 +399,30 @@ PY
   run python3 "$script" --tag v0.3.0 --artifact 'https://evil.example/update.tar.gz' --signature-file "$tmp/update.sig" --output "$tmp/latest.json"
   [ "$status" -ne 0 ]
 }
+
+
+# --- GUI self-update Step 2 release activation contract ---
+
+@test "GUI updater release preparation is activation-gated and fail-closed" {
+  release=.github/workflows/release.yml
+  dmg=scripts/ci/build-release-macos-dmg.sh
+  generator=scripts/ci/generate-updater-manifest.py
+
+  [ -f "$generator" ]
+
+  grep -q 'SCHNEEFORGE_UPDATER_ACTIVATED' "$release"
+  grep -q 'SCHNEEFORGE_UPDATER_PUBKEY' "$release"
+  grep -q 'TAURI_SIGNING_PRIVATE_KEY' "$release"
+  grep -q 'generate-updater-manifest.py' "$release"
+  grep -q 'schneeforge-updater' "$release"
+  grep -q 'latest.json' "$release"
+
+  grep -q 'SCHNEEFORGE_UPDATER_ACTIVATED' "$dmg"
+  grep -q 'createUpdaterArtifacts' "$dmg"
+  grep -q 'TAURI_SIGNING_PRIVATE_KEY' "$dmg"
+  grep -q 'SCHNEEFORGE_UPDATER_PUBKEY' "$dmg"
+
+  # PR required CI must stay secret-free.
+  run grep -q 'TAURI_SIGNING_PRIVATE_KEY' .github/workflows/check.yml
+  [ "$status" -ne 0 ]
+}
