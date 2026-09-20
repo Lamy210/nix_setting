@@ -103,7 +103,7 @@ workflow_job_block() {
   # build script は target/<profile>/schneeforge を stage 元にするため、
   # tauri build の前に CLI build が必要
   CLI_BUILD_LINE="$(grep -n 'cargo build --release -p schneeforge' scripts/ci/build-release-macos-dmg.sh | cut -d: -f1)"
-  TAURI_BUILD_LINE="$(grep -n 'TAURI_BIN. build' scripts/ci/build-release-macos-dmg.sh | cut -d: -f1)"
+  TAURI_BUILD_LINE="$(grep -n 'TAURI_BIN. build' scripts/ci/build-release-macos-dmg.sh | cut -d: -f1 | head -1)"
   [ -n "$CLI_BUILD_LINE" ]
   [ -n "$TAURI_BUILD_LINE" ]
   [ "$CLI_BUILD_LINE" -lt "$TAURI_BUILD_LINE" ]
