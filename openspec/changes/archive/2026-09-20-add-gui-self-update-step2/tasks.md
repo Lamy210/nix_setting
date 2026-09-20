@@ -51,4 +51,4 @@
 - [x] 7.1 cargo test / fmt / clippy / desktop build
 - [x] 7.2 actionlint / bats / release artifact gate / required checks
 - [x] 7.3 implementation PR merge
-- [ ] 7.4 separate archive PR after implementation scope is complete
+- [x] 7.4 separate archive PR after implementation scope is complete
