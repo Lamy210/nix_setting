@@ -403,6 +403,7 @@ PY
     v1.2.03 \
     v1.2.3-01 \
     v1.2.3-alpha..1 \
+    'v1٢.2.3' \
     v1.2.3-; do
     run python3 "$script" --tag "$invalid_tag" --artifact SchneeForge.app.tar.gz --signature-file "$tmp/update.sig" --output "$tmp/latest.json"
     [ "$status" -ne 0 ]
