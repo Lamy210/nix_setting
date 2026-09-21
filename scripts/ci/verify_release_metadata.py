@@ -11,11 +11,9 @@ import json
 import re
 import sys
 
+from release_semver import channel_for_version, normalize_release_tag, validate_version
+
 EXPECTED_CONFIGURATION_SCHEMA = 1
-
-
-def channel_for(version: str) -> str:
-    return "preview" if re.search(r"-\w+", version) else "stable"
 
 
 def main() -> None:
@@ -30,12 +28,25 @@ def main() -> None:
     if m.get("schema") != 1:
         errors.append(f"schema must be 1, got {m.get('schema')!r}")
     version = m.get("version")
-    expected_version = tag[1:] if tag.startswith("v") else None
-    if expected_version is None:
-        errors.append(f"tag must start with 'v': {tag}")
-    elif version != expected_version:
+    try:
+        _, expected_version = normalize_release_tag(tag, require_v=True)
+    except ValueError as exc:
+        errors.append(str(exc))
+        expected_version = None
+
+    version_is_valid = False
+    if not isinstance(version, str):
+        errors.append(f"version must be a SemVer string, got {version!r}")
+    else:
+        try:
+            validate_version(version)
+            version_is_valid = True
+        except ValueError as exc:
+            errors.append(str(exc))
+
+    if expected_version is not None and version != expected_version:
         errors.append(f"version {version!r} does not match tag {tag!r}")
-    if version and m.get("channel") != channel_for(version):
+    if version_is_valid and m.get("channel") != channel_for_version(version):
         errors.append(
             f"channel {m.get('channel')!r} does not match version {version!r}"
         )
