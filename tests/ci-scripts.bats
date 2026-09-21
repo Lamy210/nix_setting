@@ -313,6 +313,7 @@ PY
 
   grep -q '^  workflow_dispatch:' "$workflow"
   grep -q 'runs-on: macos-15' "$workflow"
+  grep -q 'bash scripts/ci/macos-managed-nix-lifecycle.sh' "$workflow"
   grep -q 'run: bash scripts/ci/macos-managed-nix-lifecycle.sh' "$workflow"
   grep -q 'ACCEPTANCE_LOG_DIR' "$workflow"
 
