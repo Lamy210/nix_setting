@@ -396,9 +396,28 @@ PY
   python3 "$script" --tag v0.3.0 --artifact SchneeForge.app.tar.gz --signature-file "$tmp/update.sig" --output "$tmp/two.json"
   cmp "$tmp/one.json" "$tmp/two.json"
 
-  run python3 "$script" --tag not-semver --artifact SchneeForge.app.tar.gz --signature-file "$tmp/update.sig" --output "$tmp/latest.json"
-  [ "$status" -ne 0 ]
-  [ ! -e "$tmp/latest.json" ]
+  for invalid_tag in \
+    not-semver \
+    v01.2.3 \
+    v1.02.3 \
+    v1.2.03 \
+    v1.2.3-01 \
+    v1.2.3-alpha..1 \
+    'v1٢.2.3' \
+    v1.2.3-; do
+    run python3 "$script" --tag "$invalid_tag" --artifact SchneeForge.app.tar.gz --signature-file "$tmp/update.sig" --output "$tmp/latest.json"
+    [ "$status" -ne 0 ]
+    [ ! -e "$tmp/latest.json" ]
+  done
+
+  python3 "$script" --tag v1.2.3-rc.1+build.5 --artifact SchneeForge.app.tar.gz --signature-file "$tmp/update.sig" --output "$tmp/latest.json"
+  python3 - "$tmp/latest.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    doc = json.load(f)
+assert doc["version"] == "1.2.3-rc.1+build.5", doc
+assert "/v1.2.3-rc.1%2Bbuild.5/" in doc["platforms"]["darwin-aarch64"]["url"], doc
+PY
 
   : >"$tmp/empty.sig"
   run python3 "$script" --tag v0.3.0 --artifact SchneeForge.app.tar.gz --signature-file "$tmp/empty.sig" --output "$tmp/latest.json"

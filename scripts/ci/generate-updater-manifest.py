@@ -11,7 +11,12 @@ from pathlib import Path
 from urllib.parse import quote
 
 REPO_RELEASE_BASE = "https://github.com/Lamy210/nix_setting/releases/download"
-TAG_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$")
+SEMVER_IDENTIFIER = r"(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+SEMVER_RE = re.compile(
+    rf"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+    rf"(?:-(?:{SEMVER_IDENTIFIER})(?:\.(?:{SEMVER_IDENTIFIER}))*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
 ARTIFACT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 
 
@@ -31,11 +36,10 @@ def fail(message: str) -> "None":
 
 
 def normalize_version(tag: str) -> tuple[str, str]:
-    match = TAG_RE.fullmatch(tag)
-    if not match:
+    version = tag[1:] if tag.startswith("v") else tag
+    if not SEMVER_RE.fullmatch(version):
         fail(f"invalid release tag: {tag}")
-    canonical_tag = tag if tag.startswith("v") else f"v{tag}"
-    return canonical_tag, canonical_tag[1:]
+    return f"v{version}", version
 
 
 def validate_artifact(name: str) -> str:
