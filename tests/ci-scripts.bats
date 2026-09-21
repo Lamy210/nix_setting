@@ -481,6 +481,13 @@ def at_least_stable(value, minimum):
     numeric = tuple(int(part) for part in parts)
     return numeric > minimum or (numeric == minimum and not separator)
 
+# Guard the comparator itself: lexical string ordering would incorrectly
+# accept 2.9.0 as newer than 2.11.5, and the exact floor must reject prereleases.
+assert not at_least_stable("2.9.0", (2, 11, 5))
+assert not at_least_stable("2.11.5-rc.1", (2, 11, 5))
+assert at_least_stable("2.11.5", (2, 11, 5))
+assert at_least_stable("2.12.0", (2, 11, 5))
+
 tauri = version("tauri")
 updater = version("tauri-plugin-updater")
 assert at_least_stable(tauri, (2, 11, 5)), tauri
