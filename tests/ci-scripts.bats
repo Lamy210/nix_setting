@@ -430,6 +430,56 @@ PY
 }
 
 
+# --- Release metadata SemVer contract ---
+
+@test "release metadata scripts share fail-closed SemVer validation" {
+  tmp="$(mktemp -d)"
+  revision=0123456789abcdef0123456789abcdef01234567
+
+  ./scripts/ci/generate-release-metadata.sh \
+    v9.9.9-rc.1+build.5 "$revision" "$tmp/valid.json"
+  python3 - "$tmp/valid.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    doc = json.load(f)
+assert doc["version"] == "9.9.9-rc.1+build.5", doc
+assert doc["channel"] == "preview", doc
+assert doc["minimum_schneeforge_version"] == doc["version"], doc
+PY
+
+  for invalid_tag in \
+    9.9.9 \
+    v09.9.9 \
+    v9.09.9 \
+    v9.9.09 \
+    v9.9.9-01 \
+    v9.9.9-alpha..1 \
+    'v9٩.9.9' \
+    v9.9.9-; do
+    rm -f "$tmp/invalid.json"
+    run ./scripts/ci/generate-release-metadata.sh \
+      "$invalid_tag" "$revision" "$tmp/invalid.json"
+    [ "$status" -ne 0 ]
+    [ ! -e "$tmp/invalid.json" ]
+  done
+
+  cp "$tmp/valid.json" "$tmp/tampered.json"
+  python3 - "$tmp/tampered.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    doc = json.load(f)
+doc["version"] = "09.9.9"
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(doc, f)
+    f.write("\n")
+PY
+  run python3 scripts/ci/verify_release_metadata.py \
+    v9.9.9-rc.1+build.5 "$tmp/tampered.json"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "invalid SemVer version"
+}
+
 # --- GUI self-update Step 2 release activation contract ---
 
 @test "GUI updater release preparation is activation-gated and fail-closed" {
