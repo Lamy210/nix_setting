@@ -638,7 +638,7 @@ mod tests {
         assert_eq!(
             compare_semver(
                 "184467440737095516160.0.0",
-                "184467440737095516159.999.999"
+                "184467440737095516159.999.999",
             ),
             Some(Ordering::Greater),
             "SemVer numeric identifiers are not bounded to machine integers"
