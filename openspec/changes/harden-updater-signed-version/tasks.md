@@ -10,7 +10,7 @@
 
 - [x] 2.1 RED: add regression test requiring Tauri CLI 2.11.5 pin and `requireSignedVersion: true`
 - [x] 2.2 confirm RED against current 2.11.4 / missing config
-- [ ] 2.3 GREEN: update CLI pin + config and make contract pass
+- [x] 2.3 GREEN: update CLI pin + config and make contract pass
 
 ## 3. Release hardening
 
@@ -29,7 +29,7 @@
 
 - [x] 5.1 update RELEASE.md activation checklist
 - [x] 5.2 update STATUS.md
-- [ ] 5.3 cargo test / fmt / clippy / desktop build
-- [ ] 5.4 actionlint / shellcheck / Bats / OpenSpec strict / required checks green
+- [x] 5.3 cargo test / fmt / clippy / desktop build
+- [x] 5.4 actionlint / shellcheck / Bats / OpenSpec strict / required checks green
 - [ ] 5.5 squash merge implementation PR
 - [ ] 5.6 archive + canonical spec sync in separate PR
