@@ -167,7 +167,7 @@ PR #62-#68 を sequential chain で merge。
 - backend が pending update を保持し、`fetch_app_update` / `install_app_update` / progress event / restart を提供
 - Dashboard は updater capability が有効な build のみ自動更新 button を表示し、GitHub Releases link を fallback として維持
 - release pipeline は `SCHNEEFORGE_UPDATER_ACTIVATED=true` の場合だけ signed `.app.tar.gz` / `.sig` / `latest.json` を生成する staged activation
-- updater signature は app version と暗号学的にbindし、runtime は signed version と endpoint announced version の一致を必須化する（Tauri CLI 2.11.5+ / `requireSignedVersion=true`）
+- PR #115 で updater signature を app version と暗号学的にbindし、runtime は signed version と endpoint announced version の一致を必須化（Tauri CLI 2.11.5+ / `requireSignedVersion=true`）
 - production signing private key は Tauri build step のみに scope し、通常 PR/develop build は secret-free / updater-disabled
 - **未完了**: macOS manual Final Acceptance、production key pair/secret/public-key provision、signed N→N+1 E2E、tampered artifact signature mismatch E2E
 - 上記 activation gate 完了までは production updater を有効化せず、placeholder/test trust root は shipping しない
@@ -177,7 +177,7 @@ PR #62-#68 を sequential chain で merge。
 | 項目 | 進捗 | 場所 |
 |------|------|------|
 | macOS Apple Silicon Final Acceptance | rc.7 の CLI lifecycle 自動化後も Finder GUI / install.sh 対話 / full bootstrap manual gate は未完了 | `docs/testing/macOS-final-acceptance-checklist.md` |
-| GUI self-update Step 2 activation | 実装は merge 済み。production key provision / Final Acceptance / N→N+1・tamper E2E 完了まで disabled | `RELEASE.md`, `openspec/changes/add-gui-self-update-step2/` |
+| GUI self-update Step 2 activation | 実装は merge 済み。production key provision / Final Acceptance / N→N+1・tamper E2E 完了まで disabled | `RELEASE.md`, `openspec/specs/gui-dashboard/spec.md`, `openspec/specs/release-supply-chain/spec.md` |
 | DMG offline bundle 法務 ADR (issue #17) | ADR-0002 / OpenSpec は archive 済み。binary bundle / offline install 実装は弁護士確認後 | `docs/adr/0002-dmg-bundle-lgpl-redistribution.md`, `openspec/changes/archive/2026-09-17-add-dmg-offline-bundle-licensing/` |
 
 ## 既知のデグレ・機能漏れ（要対応）
