@@ -309,9 +309,6 @@ fn parse_semver(version: &str) -> Option<([u64; 3], Option<&str>)> {
 
     let (core, prerelease) = match without_build.split_once('-') {
         Some((core, prerelease)) => {
-            if prerelease.contains('-') && !valid_dot_identifiers(prerelease, true) {
-                return None;
-            }
             if !valid_dot_identifiers(prerelease, true) {
                 return None;
             }
@@ -492,8 +489,28 @@ mod tests {
             classify_release_tag("v0.5.0-rc.2"),
             Some((SourceKind::ReleasePreview, "preview"))
         );
+        assert_eq!(
+            classify_release_tag("v1.2.3+build.5"),
+            Some((SourceKind::ReleaseStable, "stable"))
+        );
         assert_eq!(classify_release_tag("experiment"), None);
         assert_eq!(classify_release_tag("1.2.3"), None); // v prefix 無し
+
+        for invalid in [
+            "v01.2.3",
+            "v1.02.3",
+            "v1.2.03",
+            "v1.2.3-01",
+            "v1.2.3-alpha..1",
+            "v1.2.3-",
+            "v1.2",
+        ] {
+            assert_eq!(
+                classify_release_tag(invalid),
+                None,
+                "{invalid} must not be accepted as a release tag"
+            );
+        }
     }
 
     #[test]
@@ -567,23 +584,41 @@ mod tests {
     }
 
     #[test]
-    fn latest_tag_filters_channel_and_sorts() {
+    fn latest_tag_filters_channel_and_sorts_by_semver_precedence() {
         let tags = vec![
             "v0.2.0".to_string(),
             "v0.10.0".to_string(),
             "v0.9.0".to_string(),
-            "v0.11.0-rc.1".to_string(),
+            "v0.11.0-rc.9".to_string(),
+            "v0.11.0-rc.10".to_string(),
+            "v0.11.0-10".to_string(),
+            "v0.11.0-alpha".to_string(),
+            "v00.12.0".to_string(),
+            "v0.12.0-01".to_string(),
             "experiment".to_string(),
         ];
-        assert_eq!(
-            latest_tag_for_channel(&tags, "stable"),
-            Some(&"v0.10.0".to_string())
-        );
+        assert_eq!(latest_tag_for_channel(&tags, "stable"), Some(&tags[1]));
         assert_eq!(
             latest_tag_for_channel(&tags, "preview"),
-            Some(&"v0.11.0-rc.1".to_string())
+            Some(&"v0.11.0-rc.10".to_string())
         );
-        assert_eq!(latest_tag_for_channel(&tags, "stable"), Some(&tags[1]));
+    }
+
+    #[test]
+    fn semver_prerelease_numeric_identifiers_sort_before_text_identifiers() {
+        assert_eq!(
+            compare_semver("1.0.0-1", "1.0.0-alpha"),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            compare_semver("1.0.0-alpha.9", "1.0.0-alpha.10"),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            compare_semver("1.0.0-rc.10+build.1", "1.0.0-rc.10+build.2"),
+            Some(Ordering::Equal),
+            "build metadata must not affect precedence"
+        );
     }
 
     #[test]
