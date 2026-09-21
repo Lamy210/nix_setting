@@ -106,6 +106,11 @@ impl ReleaseMetadata {
                 "tag must start with 'v': {tag}"
             )));
         }
+        if classify_release_tag(tag).is_none() {
+            return Err(Error::ReleaseMetadata(format!(
+                "invalid SemVer release tag: {tag}"
+            )));
+        }
         let text = download_text(&Self::asset_url(tag)).map_err(Error::ManagedNix)?;
         let metadata = Self::parse(&text)?;
         metadata.validate(tag)?;
