@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::managed_nix::download_text;
+use crate::source::classify_release_tag;
 
 pub const RELEASE_METADATA_SCHEMA: u32 = 1;
 const METADATA_ASSET: &str = "schneeforge-release.json";
@@ -68,13 +69,15 @@ impl ReleaseMetadata {
         let expected_version = tag
             .strip_prefix('v')
             .ok_or_else(|| Error::ReleaseMetadata(format!("tag must start with 'v': {tag}")))?;
+        let (_, expected_channel) = classify_release_tag(tag).ok_or_else(|| {
+            Error::ReleaseMetadata(format!("invalid SemVer release tag: {tag}"))
+        })?;
         if self.version != expected_version {
             return Err(Error::ReleaseMetadata(format!(
                 "version {} does not match tag {tag}",
                 self.version
             )));
         }
-        let expected_channel = channel_for_version(&self.version);
         if self.channel != expected_channel {
             return Err(Error::ReleaseMetadata(format!(
                 "channel {} does not match version {} (expected {expected_channel})",
@@ -189,6 +192,15 @@ mod tests {
     #[test]
     fn validate_accepts_consistent_metadata() {
         sample().validate("v0.2.0-rc.5").unwrap();
+    }
+
+    #[test]
+    fn validate_rejects_invalid_semver_tag() {
+        let err = sample().validate("v00.2.0-rc.5").unwrap_err();
+        assert!(
+            err.to_string().contains("invalid SemVer release tag"),
+            "{err}"
+        );
     }
 
     #[test]
