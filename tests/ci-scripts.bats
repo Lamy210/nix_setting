@@ -472,7 +472,25 @@ def version(name):
     m = re.search(r'\[\[package\]\]\nname = "' + re.escape(name) + r'"\nversion = "([^"]+)"', text)
     assert m, name
     return m.group(1)
-assert version("tauri") >= "2.11.5", version("tauri")
-assert version("tauri-plugin-updater") >= "2.12.0", version("tauri-plugin-updater")
+
+def at_least_stable(value, minimum):
+    without_build = value.split("+", 1)[0]
+    release, separator, _prerelease = without_build.partition("-")
+    parts = release.split(".")
+    assert len(parts) == 3 and all(part.isdigit() for part in parts), value
+    numeric = tuple(int(part) for part in parts)
+    return numeric > minimum or (numeric == minimum and not separator)
+
+# Guard the comparator itself: lexical string ordering would incorrectly
+# accept 2.9.0 as newer than 2.11.5, and the exact floor must reject prereleases.
+assert not at_least_stable("2.9.0", (2, 11, 5))
+assert not at_least_stable("2.11.5-rc.1", (2, 11, 5))
+assert at_least_stable("2.11.5", (2, 11, 5))
+assert at_least_stable("2.12.0", (2, 11, 5))
+
+tauri = version("tauri")
+updater = version("tauri-plugin-updater")
+assert at_least_stable(tauri, (2, 11, 5)), tauri
+assert at_least_stable(updater, (2, 12, 0)), updater
 PY
 }
