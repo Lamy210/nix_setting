@@ -31,11 +31,10 @@ def fail(message: str) -> "None":
 
 
 def normalize_version(tag: str) -> tuple[str, str]:
-    match = TAG_RE.fullmatch(tag)
-    if not match:
+    version = tag[1:] if tag.startswith("v") else tag
+    if not SEMVER_RE.fullmatch(version):
         fail(f"invalid release tag: {tag}")
-    canonical_tag = tag if tag.startswith("v") else f"v{tag}"
-    return canonical_tag, canonical_tag[1:]
+    return f"v{version}", version
 
 
 def validate_artifact(name: str) -> str:
