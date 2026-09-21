@@ -2,7 +2,7 @@
 //! source 種別を解決する。network access は行わない。
 
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::{cmp::Ordering, path::Path};
 
 use crate::error::Result;
 use crate::process::run_capture;
@@ -276,85 +276,134 @@ fn git_output(repo: &str, git: &ResolvedTool, args: &[&str]) -> Result<String> {
     run_capture(&git.path, &cmd_args)
 }
 
-/// release tag 名を分類する。`v` prefix + semver なら
+/// release tag 名を分類する。\`v\` prefix + SemVer なら
 /// prerelease suffix の有無で Stable/Preview を返す。
 /// managed source の設定時に tag から channel を導出するため public
 pub fn classify_release_tag(tag: &str) -> Option<(SourceKind, &'static str)> {
     let version = tag.strip_prefix('v')?;
-    if !is_semverish(version) {
-        return None;
-    }
-    if is_prerelease(version) {
+    let (_, prerelease) = parse_semver(version)?;
+    if prerelease.is_some() {
         Some((SourceKind::ReleasePreview, "preview"))
     } else {
         Some((SourceKind::ReleaseStable, "stable"))
     }
 }
 
-/// `X.Y.Z` で始まる緩い semver 判定 (`0.2.0`, `0.2.0-rc.5` 等)
-fn is_semverish(version: &str) -> bool {
-    let core = version.split(['-', '+']).next().unwrap_or("");
-    let parts: Vec<&str> = core.split('.').collect();
-    if parts.len() != 3 {
-        return false;
+/// SemVer 2.0.0 の release version を parse する。
+///
+/// - core は exactly 3 numeric identifiers
+/// - core / numeric prerelease の leading zero を拒否
+/// - prerelease / build identifier は ASCII alphanumeric + hyphen のみ
+/// - build metadata は precedence には影響しない
+fn parse_semver(version: &str) -> Option<([u64; 3], Option<&str>)> {
+    let (without_build, build) = match version.split_once('+') {
+        Some((base, build)) => {
+            if build.contains('+') || !valid_dot_identifiers(build, false) {
+                return None;
+            }
+            (base, Some(build))
+        }
+        None => (version, None),
+    };
+    let _ = build;
+
+    let (core, prerelease) = match without_build.split_once('-') {
+        Some((core, prerelease)) => {
+            if prerelease.contains('-') && !valid_dot_identifiers(prerelease, true) {
+                return None;
+            }
+            if !valid_dot_identifiers(prerelease, true) {
+                return None;
+            }
+            (core, Some(prerelease))
+        }
+        None => (without_build, None),
+    };
+
+    let mut parts = core.split('.');
+    let major = parse_core_identifier(parts.next()?)?;
+    let minor = parse_core_identifier(parts.next()?)?;
+    let patch = parse_core_identifier(parts.next()?)?;
+    if parts.next().is_some() {
+        return None;
     }
-    parts
-        .iter()
-        .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+
+    Some(([major, minor, patch], prerelease))
 }
 
-/// prerelease suffix (`-rc.N`, `-beta.N` 等) の有無
-fn is_prerelease(version: &str) -> bool {
-    version.contains('-')
+fn parse_core_identifier(value: &str) -> Option<u64> {
+    if value.is_empty()
+        || !value.bytes().all(|b| b.is_ascii_digit())
+        || (value.len() > 1 && value.starts_with('0'))
+    {
+        return None;
+    }
+    value.parse().ok()
+}
+
+fn valid_dot_identifiers(value: &str, reject_numeric_leading_zero: bool) -> bool {
+    !value.is_empty()
+        && value.split('.').all(|identifier| {
+            !identifier.is_empty()
+                && identifier
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                && !(reject_numeric_leading_zero
+                    && identifier.len() > 1
+                    && identifier.starts_with('0')
+                    && identifier.bytes().all(|b| b.is_ascii_digit()))
+        })
 }
 
 /// 候補 tag 列から channel に合う最新 tag を選ぶ純関数。
 /// stable は prerelease を含まない。preview は prerelease のみ。
-/// 同一 channel 内で semver 降順の先頭が最新。
+/// 同一 channel 内で SemVer precedence の最大値を最新とする。
 pub fn latest_tag_for_channel<'a>(tags: &'a [String], channel: &str) -> Option<&'a String> {
     let is_preview = channel == "preview";
     tags.iter()
-        .filter(|t| {
-            let version = match t.strip_prefix('v') {
-                Some(v) => v,
-                None => return false,
-            };
-            if !is_semverish(version) {
+        .filter(|tag| {
+            let Some(version) = tag.strip_prefix('v') else {
                 return false;
-            }
-            is_prerelease(version) == is_preview
+            };
+            parse_semver(version)
+                .is_some_and(|(_, prerelease)| prerelease.is_some() == is_preview)
         })
-        .max_by_key(|t| version_sort_key(t))
+        .max_by(|a, b| {
+            let a = a.strip_prefix('v').expect("filtered release tag");
+            let b = b.strip_prefix('v').expect("filtered release tag");
+            compare_semver(a, b).expect("filtered valid semver")
+        })
 }
 
-/// tag 名を version 比較用の key へ変換する。
-/// `v0.10.0` > `v0.9.0` が辞書順で破綻しないよう数値は桁揃えする。
-fn version_sort_key(tag: &str) -> Vec<(u32, String)> {
-    let version = tag.strip_prefix('v').unwrap_or(tag);
-    let mut parts: Vec<(u32, String)> = Vec::new();
-    let mut iter = version.splitn(3, '.');
-    for _ in 0..3 {
-        match iter.next() {
-            Some(p) => {
-                let num: u32 = p
-                    .split(['-', '+'])
-                    .next()
-                    .unwrap_or("")
-                    .parse()
-                    .unwrap_or(0);
-                parts.push((num, String::new()));
-            }
-            None => parts.push((0, String::new())),
+fn compare_semver(a: &str, b: &str) -> Option<Ordering> {
+    let (a_core, a_pre) = parse_semver(a)?;
+    let (b_core, b_pre) = parse_semver(b)?;
+
+    Some(a_core.cmp(&b_core).then_with(|| match (a_pre, b_pre) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some(a_pre), Some(b_pre)) => compare_prerelease(a_pre, b_pre),
+    }))
+}
+
+fn compare_prerelease(a: &str, b: &str) -> Ordering {
+    let a_parts: Vec<&str> = a.split('.').collect();
+    let b_parts: Vec<&str> = b.split('.').collect();
+
+    for (a_part, b_part) in a_parts.iter().zip(b_parts.iter()) {
+        let ordering = match (a_part.parse::<u64>(), b_part.parse::<u64>()) {
+            (Ok(a_num), Ok(b_num)) => a_num.cmp(&b_num),
+            (Ok(_), Err(_)) => Ordering::Less,
+            (Err(_), Ok(_)) => Ordering::Greater,
+            (Err(_), Err(_)) => a_part.cmp(b_part),
+        };
+        if ordering != Ordering::Equal {
+            return ordering;
         }
     }
-    if let Some(last) = parts.last_mut() {
-        last.1 = version
-            .split_once('.')
-            .and_then(|(_, rest)| rest.split_once('.'))
-            .map(|(_, suffix)| suffix.to_string())
-            .unwrap_or_default();
-    }
-    parts
+
+    a_parts.len().cmp(&b_parts.len())
 }
 
 #[cfg(test)]
