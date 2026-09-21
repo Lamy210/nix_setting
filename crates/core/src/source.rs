@@ -295,7 +295,7 @@ pub fn classify_release_tag(tag: &str) -> Option<(SourceKind, &'static str)> {
 /// - core / numeric prerelease の leading zero を拒否
 /// - prerelease / build identifier は ASCII alphanumeric + hyphen のみ
 /// - build metadata は precedence には影響しない
-fn parse_semver(version: &str) -> Option<([u64; 3], Option<&str>)> {
+fn parse_semver(version: &str) -> Option<([&str; 3], Option<&str>)> {
     let without_build = match version.split_once('+') {
         Some((base, build)) => {
             if build.contains('+') || !valid_dot_identifiers(build, false) {
@@ -317,9 +317,9 @@ fn parse_semver(version: &str) -> Option<([u64; 3], Option<&str>)> {
     };
 
     let mut parts = core.split('.');
-    let major = parse_core_identifier(parts.next()?)?;
-    let minor = parse_core_identifier(parts.next()?)?;
-    let patch = parse_core_identifier(parts.next()?)?;
+    let major = validate_core_identifier(parts.next()?)?;
+    let minor = validate_core_identifier(parts.next()?)?;
+    let patch = validate_core_identifier(parts.next()?)?;
     if parts.next().is_some() {
         return None;
     }
@@ -327,14 +327,14 @@ fn parse_semver(version: &str) -> Option<([u64; 3], Option<&str>)> {
     Some(([major, minor, patch], prerelease))
 }
 
-fn parse_core_identifier(value: &str) -> Option<u64> {
+fn validate_core_identifier(value: &str) -> Option<&str> {
     if value.is_empty()
         || !value.bytes().all(|b| b.is_ascii_digit())
         || (value.len() > 1 && value.starts_with('0'))
     {
         return None;
     }
-    value.parse().ok()
+    Some(value)
 }
 
 fn valid_dot_identifiers(value: &str, reject_numeric_leading_zero: bool) -> bool {
@@ -349,6 +349,20 @@ fn valid_dot_identifiers(value: &str, reject_numeric_leading_zero: bool) -> bool
                     && identifier.starts_with('0')
                     && identifier.bytes().all(|b| b.is_ascii_digit()))
         })
+}
+
+fn compare_numeric_identifier(a: &str, b: &str) -> Ordering {
+    a.len().cmp(&b.len()).then_with(|| a.cmp(b))
+}
+
+fn compare_core(a: [&str; 3], b: [&str; 3]) -> Ordering {
+    for (a_part, b_part) in a.into_iter().zip(b) {
+        let ordering = compare_numeric_identifier(a_part, b_part);
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+    }
+    Ordering::Equal
 }
 
 /// 候補 tag 列から channel に合う最新 tag を選ぶ純関数。
@@ -375,7 +389,7 @@ fn compare_semver(a: &str, b: &str) -> Option<Ordering> {
     let (a_core, a_pre) = parse_semver(a)?;
     let (b_core, b_pre) = parse_semver(b)?;
 
-    Some(a_core.cmp(&b_core).then_with(|| match (a_pre, b_pre) {
+    Some(compare_core(a_core, b_core).then_with(|| match (a_pre, b_pre) {
         (None, None) => Ordering::Equal,
         (None, Some(_)) => Ordering::Greater,
         (Some(_), None) => Ordering::Less,
@@ -388,11 +402,13 @@ fn compare_prerelease(a: &str, b: &str) -> Ordering {
     let b_parts: Vec<&str> = b.split('.').collect();
 
     for (a_part, b_part) in a_parts.iter().zip(b_parts.iter()) {
-        let ordering = match (a_part.parse::<u64>(), b_part.parse::<u64>()) {
-            (Ok(a_num), Ok(b_num)) => a_num.cmp(&b_num),
-            (Ok(_), Err(_)) => Ordering::Less,
-            (Err(_), Ok(_)) => Ordering::Greater,
-            (Err(_), Err(_)) => a_part.cmp(b_part),
+        let a_numeric = a_part.bytes().all(|b| b.is_ascii_digit());
+        let b_numeric = b_part.bytes().all(|b| b.is_ascii_digit());
+        let ordering = match (a_numeric, b_numeric) {
+            (true, true) => compare_numeric_identifier(a_part, b_part),
+            (true, false) => Ordering::Less,
+            (false, true) => Ordering::Greater,
+            (false, false) => a_part.cmp(b_part),
         };
         if ordering != Ordering::Equal {
             return ordering;
@@ -618,6 +634,14 @@ mod tests {
             compare_semver("1.0.0-rc.10+build.1", "1.0.0-rc.10+build.2"),
             Some(Ordering::Equal),
             "build metadata must not affect precedence"
+        );
+        assert_eq!(
+            compare_semver(
+                "184467440737095516160.0.0",
+                "184467440737095516159.999.999"
+            ),
+            Some(Ordering::Greater),
+            "SemVer numeric identifiers are not bounded to machine integers"
         );
     }
 
