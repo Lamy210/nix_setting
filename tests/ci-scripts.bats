@@ -396,9 +396,28 @@ PY
   python3 "$script" --tag v0.3.0 --artifact SchneeForge.app.tar.gz --signature-file "$tmp/update.sig" --output "$tmp/two.json"
   cmp "$tmp/one.json" "$tmp/two.json"
 
-  run python3 "$script" --tag not-semver --artifact SchneeForge.app.tar.gz --signature-file "$tmp/update.sig" --output "$tmp/latest.json"
-  [ "$status" -ne 0 ]
-  [ ! -e "$tmp/latest.json" ]
+  for invalid_tag in \
+    not-semver \
+    v01.2.3 \
+    v1.02.3 \
+    v1.2.03 \
+    v1.2.3-01 \
+    v1.2.3-alpha..1 \
+    'v1٢.2.3' \
+    v1.2.3-; do
+    run python3 "$script" --tag "$invalid_tag" --artifact SchneeForge.app.tar.gz --signature-file "$tmp/update.sig" --output "$tmp/latest.json"
+    [ "$status" -ne 0 ]
+    [ ! -e "$tmp/latest.json" ]
+  done
+
+  python3 "$script" --tag v1.2.3-rc.1+build.5 --artifact SchneeForge.app.tar.gz --signature-file "$tmp/update.sig" --output "$tmp/latest.json"
+  python3 - "$tmp/latest.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    doc = json.load(f)
+assert doc["version"] == "1.2.3-rc.1+build.5", doc
+assert "/v1.2.3-rc.1%2Bbuild.5/" in doc["platforms"]["darwin-aarch64"]["url"], doc
+PY
 
   : >"$tmp/empty.sig"
   run python3 "$script" --tag v0.3.0 --artifact SchneeForge.app.tar.gz --signature-file "$tmp/empty.sig" --output "$tmp/latest.json"
@@ -472,7 +491,25 @@ def version(name):
     m = re.search(r'\[\[package\]\]\nname = "' + re.escape(name) + r'"\nversion = "([^"]+)"', text)
     assert m, name
     return m.group(1)
-assert version("tauri") >= "2.11.5", version("tauri")
-assert version("tauri-plugin-updater") >= "2.12.0", version("tauri-plugin-updater")
+
+def at_least_stable(value, minimum):
+    without_build = value.split("+", 1)[0]
+    release, separator, _prerelease = without_build.partition("-")
+    parts = release.split(".")
+    assert len(parts) == 3 and all(part.isdigit() for part in parts), value
+    numeric = tuple(int(part) for part in parts)
+    return numeric > minimum or (numeric == minimum and not separator)
+
+# Guard the comparator itself: lexical string ordering would incorrectly
+# accept 2.9.0 as newer than 2.11.5, and the exact floor must reject prereleases.
+assert not at_least_stable("2.9.0", (2, 11, 5))
+assert not at_least_stable("2.11.5-rc.1", (2, 11, 5))
+assert at_least_stable("2.11.5", (2, 11, 5))
+assert at_least_stable("2.12.0", (2, 11, 5))
+
+tauri = version("tauri")
+updater = version("tauri-plugin-updater")
+assert at_least_stable(tauri, (2, 11, 5)), tauri
+assert at_least_stable(updater, (2, 12, 0)), updater
 PY
 }
