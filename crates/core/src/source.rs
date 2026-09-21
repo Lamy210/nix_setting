@@ -276,7 +276,7 @@ fn git_output(repo: &str, git: &ResolvedTool, args: &[&str]) -> Result<String> {
     run_capture(&git.path, &cmd_args)
 }
 
-/// release tag 名を分類する。\`v\` prefix + SemVer なら
+/// release tag 名を分類する。`v` prefix + SemVer なら
 /// prerelease suffix の有無で Stable/Preview を返す。
 /// managed source の設定時に tag から channel を導出するため public
 pub fn classify_release_tag(tag: &str) -> Option<(SourceKind, &'static str)> {
@@ -296,16 +296,15 @@ pub fn classify_release_tag(tag: &str) -> Option<(SourceKind, &'static str)> {
 /// - prerelease / build identifier は ASCII alphanumeric + hyphen のみ
 /// - build metadata は precedence には影響しない
 fn parse_semver(version: &str) -> Option<([u64; 3], Option<&str>)> {
-    let (without_build, build) = match version.split_once('+') {
+    let without_build = match version.split_once('+') {
         Some((base, build)) => {
             if build.contains('+') || !valid_dot_identifiers(build, false) {
                 return None;
             }
-            (base, Some(build))
+            base
         }
-        None => (version, None),
+        None => version,
     };
-    let _ = build;
 
     let (core, prerelease) = match without_build.split_once('-') {
         Some((core, prerelease)) => {
