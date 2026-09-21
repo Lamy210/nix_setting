@@ -2,7 +2,7 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-09-20
+最終更新: 2026-09-21
 
 ## 完成済み
 
@@ -161,11 +161,22 @@ PR #62-#68 を sequential chain で merge。
 - `macos-15-arm64` fresh host で release CLI checksum → Managed Nix install → receipt/ownership → store/local flake → doctor → `ExistingNixDetected` → uninstall → reinstall → final cleanup を実境界で確認
 - これは CLI lifecycle の自動 evidence であり、Finder GUI / `install.sh` D8 / nix-darwin full bootstrap の manual Final Acceptance を置き換えない
 
+### GUI self-update Step 2（2026-09-21 実装 merge 済み / production activation 未実施）
+
+- PR #113 で macOS aarch64 向け Tauri 2 signed updater の実装準備を `develop` へ merge
+- backend が pending update を保持し、`fetch_app_update` / `install_app_update` / progress event / restart を提供
+- Dashboard は updater capability が有効な build のみ自動更新 button を表示し、GitHub Releases link を fallback として維持
+- release pipeline は `SCHNEEFORGE_UPDATER_ACTIVATED=true` の場合だけ signed `.app.tar.gz` / `.sig` / `latest.json` を生成する staged activation
+- production signing private key は Tauri build step のみに scope し、通常 PR/develop build は secret-free / updater-disabled
+- **未完了**: macOS manual Final Acceptance、production key pair/secret/public-key provision、signed N→N+1 E2E、tampered artifact signature mismatch E2E
+- 上記 activation gate 完了までは production updater を有効化せず、placeholder/test trust root は shipping しない
+
 ## 進行中
 
 | 項目 | 進捗 | 場所 |
 |------|------|------|
 | macOS Apple Silicon Final Acceptance | rc.7 の CLI lifecycle 自動化後も Finder GUI / install.sh 対話 / full bootstrap manual gate は未完了 | `docs/testing/macOS-final-acceptance-checklist.md` |
+| GUI self-update Step 2 activation | 実装は merge 済み。production key provision / Final Acceptance / N→N+1・tamper E2E 完了まで disabled | `RELEASE.md`, `openspec/changes/add-gui-self-update-step2/` |
 | DMG offline bundle 法務 ADR (issue #17) | ADR-0002 / OpenSpec は archive 済み。binary bundle / offline install 実装は弁護士確認後 | `docs/adr/0002-dmg-bundle-lgpl-redistribution.md`, `openspec/changes/archive/2026-09-17-add-dmg-offline-bundle-licensing/` |
 
 ## 既知のデグレ・機能漏れ（要対応）
@@ -196,11 +207,14 @@ PR #62-#68 を sequential chain で merge。
    - `install.sh` D8 `/dev/tty` 経路
    - nix-darwin apply 済み full uninstall ordering
    - 全 gate 完了後にのみ ADR-0001 を `Accepted` へ昇格
-2. Phase 2/E follow-up
-   - GUI self-update Step 2 (v0.3)
+2. **GUI self-update Step 2 production activation**
+   - Final Acceptance PASS 後に production updater key pair を生成し、private key/password を Actions secret + offline backupへ保管
+   - public key を review して production config に固定
+   - signed N→N+1 updater E2E と tampered artifact signature mismatch E2E を通してから `SCHNEEFORGE_UPDATER_ACTIVATED=true`
+3. Phase 2/E follow-up
    - Windows release asset / coordinated launcher-helper update設計
    - Intel macOS release asset の検討
-3. **issue #17**
+4. **issue #17**
    - LGPL-2.1 再配布条件の弁護士確認後に DMG offline bundle 実装を開始
 
 ※ issue #14/#15/#16/#91 は close 済み。#17 は法務確認待ち。
