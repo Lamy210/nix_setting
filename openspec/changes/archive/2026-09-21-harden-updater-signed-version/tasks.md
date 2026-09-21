@@ -31,5 +31,5 @@
 - [x] 5.2 update STATUS.md
 - [x] 5.3 cargo test / fmt / clippy / desktop build
 - [x] 5.4 actionlint / shellcheck / Bats / OpenSpec strict / required checks green
-- [ ] 5.5 squash merge implementation PR
-- [ ] 5.6 archive + canonical spec sync in separate PR
+- [x] 5.5 squash merge implementation PR
+- [x] 5.6 archive + canonical spec sync in separate PR
