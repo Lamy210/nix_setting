@@ -444,3 +444,35 @@ PY
   run grep -q 'TAURI_SIGNING_PRIVATE_KEY' .github/workflows/check.yml
   [ "$status" -ne 0 ]
 }
+
+
+# --- GUI updater signed-version binding security contract ---
+
+@test "GUI updater requires version-bound signatures and Tauri CLI 2.11.5" {
+  dmg=scripts/ci/build-release-macos-dmg.sh
+  conf=apps/desktop/src-tauri/tauri.conf.json
+
+  grep -q '^TAURI_CLI_VERSION="2.11.5"$' "$dmg"
+  grep -q '^TAURI_CLI_SHA256="7734f1d942dbe6e5fea91c1575452f4bf2cc942e6902f2d9d78513baa8527b24"$' "$dmg"
+
+  python3 - "$conf" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    conf = json.load(f)
+updater = conf["plugins"]["updater"]
+assert updater["requireSignedVersion"] is True, updater
+assert updater["pubkey"] == "", "static config must not ship a placeholder/test trust root"
+PY
+
+  lock=apps/desktop/src-tauri/Cargo.lock
+  python3 - "$lock" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+def version(name):
+    m = re.search(r'\[\[package\]\]\nname = "' + re.escape(name) + r'"\nversion = "([^"]+)"', text)
+    assert m, name
+    return m.group(1)
+assert version("tauri") >= "2.11.5", version("tauri")
+assert version("tauri-plugin-updater") >= "2.12.0", version("tauri-plugin-updater")
+PY
+}
