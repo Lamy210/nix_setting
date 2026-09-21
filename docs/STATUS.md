@@ -167,6 +167,7 @@ PR #62-#68 を sequential chain で merge。
 - backend が pending update を保持し、`fetch_app_update` / `install_app_update` / progress event / restart を提供
 - Dashboard は updater capability が有効な build のみ自動更新 button を表示し、GitHub Releases link を fallback として維持
 - release pipeline は `SCHNEEFORGE_UPDATER_ACTIVATED=true` の場合だけ signed `.app.tar.gz` / `.sig` / `latest.json` を生成する staged activation
+- updater signature は app version と暗号学的にbindし、runtime は signed version と endpoint announced version の一致を必須化する（Tauri CLI 2.11.5+ / `requireSignedVersion=true`）
 - production signing private key は Tauri build step のみに scope し、通常 PR/develop build は secret-free / updater-disabled
 - **未完了**: macOS manual Final Acceptance、production key pair/secret/public-key provision、signed N→N+1 E2E、tampered artifact signature mismatch E2E
 - 上記 activation gate 完了までは production updater を有効化せず、placeholder/test trust root は shipping しない

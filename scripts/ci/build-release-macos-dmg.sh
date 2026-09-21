@@ -17,10 +17,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Tauri CLI の exact pin。update 時は SHA256 を GitHub release の digest と
-# 照合して更新すること (gh api repos/tauri-apps/tauri/releases/tags/tauri-cli-v${VERSION})
-TAURI_CLI_VERSION="2.11.4"
-TAURI_CLI_SHA256="82bdcb9ae7f407882321680ae50750f11623fae22445f8b00b096e10f815d604"
+# Tauri CLI の exact pin。2.11.5+ は updater signature の trusted comment に
+# app version を記録する。requireSignedVersion と対で downgrade/mismatch を防ぐ。
+# update 時は SHA256 を GitHub release の digest と照合して更新すること
+# (gh api repos/tauri-apps/tauri/releases/tags/tauri-cli-v${VERSION})
+TAURI_CLI_VERSION="2.11.5"
+TAURI_CLI_SHA256="7734f1d942dbe6e5fea91c1575452f4bf2cc942e6902f2d9d78513baa8527b24"
 TAURI_CLI_URL="https://github.com/tauri-apps/tauri/releases/download/tauri-cli-v${TAURI_CLI_VERSION}/cargo-tauri-aarch64-apple-darwin.zip"
 
 # GUI updater は production activation が明示された tag release でのみ有効にする。
