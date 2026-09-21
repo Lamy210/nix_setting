@@ -102,6 +102,7 @@ GUI updater のコードは production trust root を入れずに先行 merge �
 - [ ] encrypted key の場合は password を `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` に登録
 - [ ] private key / password の offline backup を repository 外の安全な保管先へ保存
 - [ ] public key を repository variable `SCHNEEFORGE_UPDATER_PUBKEY` に登録し review
+- [ ] updater runtime が `requireSignedVersion=true` で、release build が Tauri CLI 2.11.5+ の version-bound signature を生成することを確認
 - [ ] 上記完了後にのみ repository variable `SCHNEEFORGE_UPDATER_ACTIVATED=true` を設定
 - [ ] tag release が `.app.tar.gz` / `.app.tar.gz.sig` / `latest.json` を生成
 - [ ] version N のDMGから signed N+1 をcheck → download/install → restartし N+1 を確認
