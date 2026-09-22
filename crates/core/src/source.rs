@@ -403,7 +403,10 @@ mod tests {
     #[test]
     fn release_kind_exposes_canonical_channel() {
         assert_eq!(SourceKind::ReleaseStable.release_channel(), Some("stable"));
-        assert_eq!(SourceKind::ReleasePreview.release_channel(), Some("preview"));
+        assert_eq!(
+            SourceKind::ReleasePreview.release_channel(),
+            Some("preview")
+        );
         assert_eq!(SourceKind::GitTracking.release_channel(), None);
         assert_eq!(SourceKind::GitPinned.release_channel(), None);
         assert_eq!(SourceKind::Local.release_channel(), None);
