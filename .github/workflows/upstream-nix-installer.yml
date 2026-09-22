@@ -173,28 +173,47 @@ jobs:
         run: |
           set -euo pipefail
 
-          # x86_64-linux, aarch64-linux, aarch64-darwin の sha256 を SHA256SUMS から抽出
-          declare -A arch_to_asset=(
-            [x86_64-linux]=nix-installer-x86_64-linux
-            [aarch64-linux]=nix-installer-aarch64-linux
-            [aarch64-darwin]=nix-installer-aarch64-darwin
-          )
+          x86_sha=$(awk '$2 == "nix-installer-x86_64-linux" {print $1}' SHA256SUMS | tr 'A-F' 'a-f')
+          arm_linux_sha=$(awk '$2 == "nix-installer-aarch64-linux" {print $1}' SHA256SUMS | tr 'A-F' 'a-f')
+          arm_darwin_sha=$(awk '$2 == "nix-installer-aarch64-darwin" {print $1}' SHA256SUMS | tr 'A-F' 'a-f')
 
-          {
-            printf '[managed_nix]\n'
-            printf 'version = "%s"\n\n' "$TARGET_VERSION"
-            printf '[managed_nix.sha256_by_arch]\n'
-            for arch in x86_64-linux aarch64-linux aarch64-darwin; do
-              asset="${arch_to_asset[$arch]}"
-              sha=$(awk -v a="$asset" '$2 == a {print $1}' SHA256SUMS | tr 'A-F' 'a-f')
-              count=$(awk -v a="$asset" '$2 == a' SHA256SUMS | wc -l)
-              if [ "$count" -ne 1 ] || [ -z "$sha" ]; then
-                echo "::error::sha256 for $asset: found $count entries in SHA256SUMS (expected 1)"
-                exit 1
-              fi
-              printf '%s = "%s"\n' "$arch" "$sha"
-            done
-          } > "$MANIFEST_PATH"
+          for asset in nix-installer-x86_64-linux nix-installer-aarch64-linux nix-installer-aarch64-darwin; do
+            count=$(awk -v a="$asset" '$2 == a' SHA256SUMS | wc -l)
+            if [ "$count" -ne 1 ]; then
+              echo "::error::$asset found $count entries in SHA256SUMS (expected 1)"
+              exit 1
+            fi
+          done
+
+          TARGET_VERSION="$TARGET_VERSION" \
+          X86_SHA="$x86_sha" \
+          ARM_LINUX_SHA="$arm_linux_sha" \
+          ARM_DARWIN_SHA="$arm_darwin_sha" \
+          python3 - "$MANIFEST_PATH" <<'PY'
+          import os
+          import re
+          import sys
+
+          path = sys.argv[1]
+          with open(path, encoding="utf-8") as f:
+              text = f.read()
+
+          replacements = {
+              r'(?m)^version = "[^"]+"$': f'version = "{os.environ["TARGET_VERSION"]}"',
+              r'(?m)^x86_64-linux = "[0-9a-f]{64}"$': f'x86_64-linux = "{os.environ["X86_SHA"]}"',
+              r'(?m)^aarch64-linux = "[0-9a-f]{64}"$': f'aarch64-linux = "{os.environ["ARM_LINUX_SHA"]}"',
+              r'(?m)^aarch64-darwin = "[0-9a-f]{64}"$': f'aarch64-darwin = "{os.environ["ARM_DARWIN_SHA"]}"',
+          }
+
+          for pattern, replacement in replacements.items():
+              text, count = re.subn(pattern, replacement, text)
+              if count != 1:
+                  raise SystemExit(f"expected exactly one manifest field for {pattern!r}, found {count}")
+
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(text)
+          PY
+
           echo "::group::Updated manifest"
           cat "$MANIFEST_PATH"
           echo "::endgroup::"
