@@ -15,12 +15,14 @@ pub(crate) fn compare(a: &str, b: &str) -> Option<Ordering> {
     let (a_core, a_pre) = parse(a)?;
     let (b_core, b_pre) = parse(b)?;
 
-    Some(compare_core(a_core, b_core).then_with(|| match (a_pre, b_pre) {
-        (None, None) => Ordering::Equal,
-        (None, Some(_)) => Ordering::Greater,
-        (Some(_), None) => Ordering::Less,
-        (Some(a_pre), Some(b_pre)) => compare_prerelease(a_pre, b_pre),
-    }))
+    Some(
+        compare_core(a_core, b_core).then_with(|| match (a_pre, b_pre) {
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Greater,
+            (Some(_), None) => Ordering::Less,
+            (Some(a_pre), Some(b_pre)) => compare_prerelease(a_pre, b_pre),
+        }),
+    )
 }
 
 fn parse(version: &str) -> Option<([&str; 3], Option<&str>)> {
@@ -161,10 +163,7 @@ mod tests {
             "build metadata must not affect precedence"
         );
         assert_eq!(
-            compare(
-                "184467440737095516160.0.0",
-                "184467440737095516159.999.999",
-            ),
+            compare("184467440737095516160.0.0", "184467440737095516159.999.999",),
             Some(Ordering::Greater)
         );
     }
