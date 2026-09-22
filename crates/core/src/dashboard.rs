@@ -41,13 +41,16 @@ pub struct DashboardSnapshot {
     pub update_available: bool,
 }
 
-/// state から表示する channel を決定する。
-/// source が release kind で channel を持つならそれ、無ければ stable。
+/// state から表示・release 解決に使う channel を決定する。
+/// release kind 自体を source of truth とし、persisted channel の欠落・drift
+/// や non-release source の stale channel に semantic fallback しない。
+/// release source が無い場合だけ従来どおり stable を既定値にする。
 pub fn channel_of(state: Option<&State>) -> String {
     state
         .and_then(|s| s.source.as_ref())
-        .and_then(|s| s.channel.clone())
-        .unwrap_or_else(|| "stable".to_string())
+        .and_then(|s| s.kind.release_channel())
+        .unwrap_or("stable")
+        .to_string()
 }
 
 /// installed 側情報を組み立てる。profile は state 選択 > manifest default。
@@ -204,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn channel_of_defaults_to_stable() {
+    fn channel_of_defaults_to_stable_and_uses_release_kind() {
         assert_eq!(channel_of(None), "stable");
         assert_eq!(channel_of(Some(&State::default())), "stable");
         assert_eq!(
@@ -214,6 +217,25 @@ mod tests {
         assert_eq!(
             channel_of(Some(&state_with(Some("stable"), None))),
             "stable"
+        );
+
+        let mut mismatched = state_with(Some("preview"), None);
+        let source = mismatched.source.as_mut().unwrap();
+        source.channel = Some("stable".to_string());
+        assert_eq!(
+            channel_of(Some(&mismatched)),
+            "preview",
+            "release kind must win over stale persisted channel"
+        );
+
+        let mut non_release = state_with(Some("preview"), None);
+        let source = non_release.source.as_mut().unwrap();
+        source.kind = SourceKind::GitTracking;
+        source.channel = Some("preview".to_string());
+        assert_eq!(
+            channel_of(Some(&non_release)),
+            "stable",
+            "non-release source must not select a release channel from stale state"
         );
     }
 

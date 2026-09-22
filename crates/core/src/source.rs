@@ -30,6 +30,17 @@ impl SourceKind {
     pub fn is_release(&self) -> bool {
         matches!(self, SourceKind::ReleaseStable | SourceKind::ReleasePreview)
     }
+
+    /// release kind が表す canonical channel。
+    /// persisted `SourceState.channel` は互換性のため残すが、実行時判定は
+    /// kind を source of truth として drift を避ける。
+    pub fn release_channel(&self) -> Option<&'static str> {
+        match self {
+            SourceKind::ReleaseStable => Some("stable"),
+            SourceKind::ReleasePreview => Some("preview"),
+            SourceKind::GitTracking | SourceKind::GitPinned | SourceKind::Local => None,
+        }
+    }
 }
 
 impl std::fmt::Display for SourceKind {
@@ -387,6 +398,18 @@ mod tests {
         std::fs::write(dir.join(name), "x").unwrap();
         git_cmd(dir, &["add", name]);
         git_cmd(dir, &["commit", "-m", name]);
+    }
+
+    #[test]
+    fn release_kind_exposes_canonical_channel() {
+        assert_eq!(SourceKind::ReleaseStable.release_channel(), Some("stable"));
+        assert_eq!(
+            SourceKind::ReleasePreview.release_channel(),
+            Some("preview")
+        );
+        assert_eq!(SourceKind::GitTracking.release_channel(), None);
+        assert_eq!(SourceKind::GitPinned.release_channel(), None);
+        assert_eq!(SourceKind::Local.release_channel(), None);
     }
 
     #[test]

@@ -482,7 +482,7 @@ async fn run_source_init(
                 let mut out = format!(
                     "managed source set: {} ({})\n",
                     src.flake_ref().as_deref().unwrap_or(&src.ref_),
-                    src.channel.as_deref().unwrap_or("-")
+                    src.kind.release_channel().unwrap_or("-")
                 );
                 match &src.revision {
                     Some(rev) => out.push_str(&format!("revision verified: {rev}\n")),

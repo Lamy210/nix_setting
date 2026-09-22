@@ -228,7 +228,11 @@ fn managed_source_from(state: Option<&crate::state::State>) -> Option<ManagedSou
     }
     Some(ManagedSourceSummary {
         tag: src.ref_.clone(),
-        channel: src.channel.clone().unwrap_or_default(),
+        channel: src
+            .kind
+            .release_channel()
+            .expect("managed release kind must have a canonical channel")
+            .to_string(),
         flake_ref: src.flake_ref().unwrap_or_default(),
     })
 }
@@ -491,10 +495,10 @@ mod tests {
     }
 
     #[test]
-    fn managed_source_summary_reports_managed_state() {
+    fn managed_source_summary_reports_canonical_kind_channel() {
         let state = crate::state::State {
             source: Some(crate::source::SourceState {
-                kind: crate::source::SourceKind::ReleaseStable,
+                kind: crate::source::SourceKind::ReleasePreview,
                 ref_: "v0.2.0-rc.2".to_string(),
                 channel: Some("stable".to_string()),
                 managed: true,
@@ -505,7 +509,10 @@ mod tests {
         };
         let m = managed_source_from(Some(&state)).expect("managed state must yield Some");
         assert_eq!(m.tag, "v0.2.0-rc.2");
-        assert_eq!(m.channel, "stable");
+        assert_eq!(
+            m.channel, "preview",
+            "diagnostics must not expose stale persisted channel as runtime semantics"
+        );
         assert_eq!(m.flake_ref, "github:Lamy210/nix_setting/v0.2.0-rc.2");
     }
 
