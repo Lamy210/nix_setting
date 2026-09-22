@@ -99,6 +99,9 @@ fn read_verified_cache(
     file: &str,
     cache_base: &Path,
 ) -> Option<String> {
+    if !is_safe_cache_component(tag) || !is_safe_cache_component(file) {
+        return None;
+    }
     let path = cache_path(cache_base, tag, file);
     let provenance_path = cache_provenance_path(cache_base, tag, file);
     let content = std::fs::read_to_string(path).ok()?;
@@ -135,7 +138,7 @@ pub fn has_cached_files(source: &SourceState, cache_base: &Path) -> bool {
         let Some(file) = name.strip_suffix(CACHE_PROVENANCE_SUFFIX) else {
             return false;
         };
-        !file.is_empty()
+        is_safe_cache_component(file)
             && read_verified_cache(&repository, &source.ref_, file, cache_base).is_some()
     })
 }
@@ -462,6 +465,20 @@ mod tests {
         assert!(
             !has_cached_files(&source, &dir),
             "legacy content without provenance must not be reported as trusted cache"
+        );
+
+        let malicious_sidecar = dir
+            .join("sources")
+            .join("v0.2.0")
+            .join(format!("....{CACHE_PROVENANCE_SUFFIX}"));
+        std::fs::write(
+            malicious_sidecar,
+            r#"{"schema":1,"repository":"lamy210/nix_setting","sha256":"ignored"}"#,
+        )
+        .unwrap();
+        assert!(
+            !has_cached_files(&source, &dir),
+            "sidecar-derived file names must be validated before cache lookup"
         );
 
         let ok =
