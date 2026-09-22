@@ -80,9 +80,12 @@ fn sha256_text(content: &str) -> String {
 
 fn is_safe_cache_component(value: &str) -> bool {
     !value.is_empty()
-        && !value.contains('/')
-        && !value.contains('\\')
+        && value != "."
+        && value != ".."
         && !value.contains("..")
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'))
 }
 
 fn read_verified_cache(
@@ -302,6 +305,22 @@ mod tests {
                 "https://github.com/Lamy210/nix_setting.git",
                 "v0.2.0",
                 "nested\\schneeforge.toml"
+            )
+            .is_err()
+        );
+        assert!(
+            raw_url(
+                "https://github.com/Lamy210/nix_setting.git",
+                "v0.2.0",
+                "C:state.json"
+            )
+            .is_err()
+        );
+        assert!(
+            raw_url(
+                "https://github.com/Lamy210/nix_setting.git",
+                "v0.2.0",
+                "%2e%2e%2fstate.json"
             )
             .is_err()
         );
