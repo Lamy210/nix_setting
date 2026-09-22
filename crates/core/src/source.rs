@@ -96,8 +96,8 @@ impl SourceState {
     /// persisted managed source が immutable release source として整合するか検証する。
     ///
     /// managed=true は release source 専用で、ref は valid v<SemVer> tag、
-    /// tag の stable/preview 分類は SourceKind と一致し、remote は GitHub
-    /// owner/repo へ解決できなければならない。
+    /// tag の stable/preview 分類は SourceKind と一致しなければならない。
+    /// remote の transport / GitHub flake 可否は利用境界ごとに別途検証する。
     pub fn validate_managed_release(&self) -> Result<()> {
         if !self.managed {
             return Ok(());
@@ -118,12 +118,6 @@ impl SourceState {
             return Err(Error::State(format!(
                 "managed source kind {} does not match release tag {} ({tag_kind})",
                 self.kind, self.ref_
-            )));
-        }
-        let remote = self.remote_url();
-        if github_slug(&remote).is_none() {
-            return Err(Error::State(format!(
-                "managed source repository URL is not a supported GitHub repository: {remote}"
             )));
         }
         Ok(())
@@ -190,8 +184,11 @@ pub fn effective_ref(repo: &str, store: &crate::state::StateStore) -> Result<Str
     }
 
     source.validate_managed_release()?;
+    let remote = source.remote_url();
     source.flake_ref().ok_or_else(|| {
-        Error::State("validated managed release source could not produce a flake ref".to_string())
+        Error::State(format!(
+            "managed source repository URL is not a supported GitHub repository: {remote}"
+        ))
     })
 }
 
@@ -755,6 +752,19 @@ mod tests {
         let err = effective_ref("/tmp/repo", &store).unwrap_err();
         assert!(matches!(err, Error::State(_)), "{err}");
         assert!(err.to_string().contains("does not match"), "{err}");
+
+        state.source = Some(SourceState {
+            kind: SourceKind::ReleaseStable,
+            ref_: "v0.3.0".to_string(),
+            channel: Some("stable".to_string()),
+            managed: true,
+            remote: Some("/tmp/local-origin".to_string()),
+            revision: None,
+        });
+        store.save(&state).unwrap();
+        let err = effective_ref("/tmp/repo", &store).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("GitHub repository"), "{err}");
 
         // checkout 表現の source が記録されていても path のまま
         state.source = Some(SourceState {
