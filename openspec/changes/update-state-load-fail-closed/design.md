@@ -49,8 +49,8 @@ pub fn load(&self) -> Option<State> {
 
 - file not found: `Ok(None)`
 - valid JSON: `Ok(Some(state))`
-- other read error: `Err(Error::Io(...))`
-- JSON parse error: structured state/read error
+- other read error: `Err(Error::State(...))`
+- JSON parse error: `Err(Error::State(...))`
 
 `Error::State(String)` を追加し、既存 state file の read / parse failure を state-specific error として返す。missing file だけは error にしない。state path/context は message に含めるが、state JSON 本文は error へ含めない。
 
