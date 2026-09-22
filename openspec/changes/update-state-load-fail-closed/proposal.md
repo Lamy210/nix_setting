@@ -10,7 +10,7 @@ valid な legacy state JSON の後方互換は維持しつつ、「state が存�
 
 - **BREAKING (core API)**: `StateStore::load()` を `Result<Option<State>>` に変更する。
 - state file が存在しない場合のみ `Ok(None)` を返す。
-- existing file の read error / malformed JSON は structured error を返し、未初期化扱いしない。
+- existing file の read error / malformed JSON は dedicated `Error::State` を返し、未初期化扱いしない。
 - `source` / `profile` 等の field を持たない valid legacy JSON は従来どおり deserialize して `Ok(Some(State))` を返す。
 - apply / rollback / update / source init / profile mutation 等、state を保持・更新する操作は destructive/effectful action より前に strict load し、load error 時は副作用を開始しない。
 - source resolution / manifest loading / self-update channel selection は corrupt state を checkout/default/stable へ fallback しない。
