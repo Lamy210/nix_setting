@@ -677,15 +677,23 @@ pub fn source_init(
     channel: Option<String>,
     tag: Option<String>,
 ) -> Result<SourceInitResult> {
-    // Fail before the remote lookup when an existing state file is unreadable/corrupt.
+    // Fail before remote effects when persisted state / requested channel / repository
+    // identity is invalid. An explicit tag does not require remote tag discovery.
     store.load()?;
+    if let Some(channel) = channel.as_deref() {
+        validate_release_channel(channel)?;
+    }
     let url = crate::source::repo_url();
     if crate::source::github_slug(&url).is_none() {
         return Err(Error::Precondition(format!(
             "managed source repository URL is not a supported GitHub repository: {url}"
         )));
     }
-    let tags = crate::dashboard::remote_tags(&url, git)?;
+    let tags = if tag.is_some() {
+        Vec::new()
+    } else {
+        crate::dashboard::remote_tags(&url, git)?
+    };
     source_init_with(
         repo,
         store,
