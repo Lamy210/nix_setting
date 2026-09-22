@@ -1,0 +1,57 @@
+name: Managed Nix bump macOS acceptance
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - bootstrap-manifest.toml
+      - scripts/ci/macos-managed-nix-lifecycle.sh
+      - .github/workflows/managed-nix-bump-acceptance.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  managed-nix-macos-bump:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-managed-nix-bump
+
+      - name: Apple Silicon fresh-host diagnostics
+        run: |
+          set -euo pipefail
+          sw_vers
+          uname -m
+          test "$(uname -m)" = arm64
+          test ! -e /nix
+          ! command -v nix
+
+      - name: Build current branch release CLI
+        run: ./scripts/ci/build-release-macos-cli.sh
+
+      - name: Validate current branch Managed Nix lifecycle
+        env:
+          ACCEPTANCE_LOG_DIR: ${{ runner.temp }}/schneeforge-macos-bump-acceptance-logs
+        run: |
+          bash scripts/ci/macos-managed-nix-lifecycle.sh \
+            --local-binary "$PWD/target/release/schneeforge"
+
+      - name: Upload acceptance logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: macos-managed-nix-bump-${{ github.run_id }}
+          path: ${{ runner.temp }}/schneeforge-macos-bump-acceptance-logs
+          if-no-files-found: warn
+          retention-days: 14
