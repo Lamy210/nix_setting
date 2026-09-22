@@ -33,6 +33,11 @@ struct CacheProvenance {
 /// tag pinned の raw file URL
 /// (`raw.githubusercontent.com/<owner>/<repo>/<tag>/<file>`)
 pub fn raw_url(remote: &str, tag: &str, file: &str) -> Result<String> {
+    if !is_safe_cache_component(tag) || !is_safe_cache_component(file) {
+        return Err(Error::Precondition(format!(
+            "invalid tag or file name: {tag}/{file}"
+        )));
+    }
     let (owner, repo) = github_slug(remote).ok_or_else(|| {
         Error::Precondition(format!(
             "cannot resolve owner/repo from repository URL: {remote}"
@@ -284,6 +289,22 @@ mod tests {
             "https://raw.githubusercontent.com/Lamy210/nix_setting/v0.2.0/schneeforge.toml"
         );
         assert!(raw_url("https://gitlab.com/a/b.git", "v0.2.0", "f").is_err());
+        assert!(
+            raw_url(
+                "https://github.com/Lamy210/nix_setting.git",
+                "../main",
+                "schneeforge.toml"
+            )
+            .is_err()
+        );
+        assert!(
+            raw_url(
+                "https://github.com/Lamy210/nix_setting.git",
+                "v0.2.0",
+                "nested\\schneeforge.toml"
+            )
+            .is_err()
+        );
     }
 
     #[test]
