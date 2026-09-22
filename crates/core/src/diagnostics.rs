@@ -233,7 +233,9 @@ fn diagnose_with_store(
 /// state から managed Release source のサマリを導出する。
 /// managed Release 以外 (checkout 表現・source 未記録・未初期化) は None。
 /// managed=true の semantic inconsistency は未初期化へ fallback せず error。
-fn managed_source_from(state: Option<&crate::state::State>) -> Result<Option<ManagedSourceSummary>> {
+fn managed_source_from(
+    state: Option<&crate::state::State>,
+) -> Result<Option<ManagedSourceSummary>> {
     let Some(src) = state.and_then(|state| state.source.as_ref()) else {
         return Ok(None);
     };
@@ -559,11 +561,9 @@ mod tests {
     fn managed_source_summary_none_when_uninitialized() {
         // state ファイル無し / source 未記録
         assert!(managed_source_from(None).unwrap().is_none());
-        assert!(
-            managed_source_from(Some(&crate::state::State::default()))
-                .unwrap()
-                .is_none()
-        );
+        assert!(managed_source_from(Some(&crate::state::State::default()))
+            .unwrap()
+            .is_none());
     }
 
     #[test]
