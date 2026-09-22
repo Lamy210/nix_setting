@@ -292,14 +292,12 @@ mod tests {
             "https://raw.githubusercontent.com/Lamy210/nix_setting/v0.2.0/schneeforge.toml"
         );
         assert!(raw_url("https://gitlab.com/a/b.git", "v0.2.0", "f").is_err());
-        assert!(
-            raw_url(
-                "https://github.com/Lamy210/nix_setting.git",
-                "../main",
-                "schneeforge.toml"
-            )
-            .is_err()
-        );
+        assert!(raw_url(
+            "https://github.com/Lamy210/nix_setting.git",
+            "../main",
+            "schneeforge.toml"
+        )
+        .is_err());
         assert!(
             raw_url(
                 "https://github.com/Lamy210/nix_setting.git",
@@ -309,30 +307,24 @@ mod tests {
             .is_err(),
             "managed repo-file reads require an immutable release tag"
         );
-        assert!(
-            raw_url(
-                "https://github.com/Lamy210/nix_setting.git",
-                "v0.2.0",
-                "nested\\schneeforge.toml"
-            )
-            .is_err()
-        );
-        assert!(
-            raw_url(
-                "https://github.com/Lamy210/nix_setting.git",
-                "v0.2.0",
-                "C:state.json"
-            )
-            .is_err()
-        );
-        assert!(
-            raw_url(
-                "https://github.com/Lamy210/nix_setting.git",
-                "v0.2.0",
-                "%2e%2e%2fstate.json"
-            )
-            .is_err()
-        );
+        assert!(raw_url(
+            "https://github.com/Lamy210/nix_setting.git",
+            "v0.2.0",
+            "nested\\schneeforge.toml"
+        )
+        .is_err());
+        assert!(raw_url(
+            "https://github.com/Lamy210/nix_setting.git",
+            "v0.2.0",
+            "C:state.json"
+        )
+        .is_err());
+        assert!(raw_url(
+            "https://github.com/Lamy210/nix_setting.git",
+            "v0.2.0",
+            "%2e%2e%2fstate.json"
+        )
+        .is_err());
     }
 
     #[test]
@@ -488,8 +480,10 @@ mod tests {
     #[test]
     fn same_tag_from_different_repository_never_reuses_cache() {
         let dir = temp_dir("fork-collision");
-        let source_a = managed_source_from("https://github.com/example-a/nix_setting.git", "v0.2.0");
-        let source_b = managed_source_from("https://github.com/example-b/nix_setting.git", "v0.2.0");
+        let source_a =
+            managed_source_from("https://github.com/example-a/nix_setting.git", "v0.2.0");
+        let source_b =
+            managed_source_from("https://github.com/example-b/nix_setting.git", "v0.2.0");
 
         let fetch_a = |url: &str| -> std::result::Result<String, String> {
             assert!(url.contains("/example-a/nix_setting/"), "{url}");
@@ -500,9 +494,8 @@ mod tests {
             "from-a"
         );
 
-        let offline = |url: &str| -> std::result::Result<String, String> {
-            Err(format!("offline: {url}"))
-        };
+        let offline =
+            |url: &str| -> std::result::Result<String, String> { Err(format!("offline: {url}")) };
         let err =
             read_managed_file_with(&source_b, "schneeforge.toml", &dir, &offline).unwrap_err();
         assert!(
@@ -541,16 +534,11 @@ mod tests {
             |_url: &str| -> std::result::Result<String, String> { Ok(MANIFEST_TOML.to_string()) };
         read_managed_file_with(&source, "schneeforge.toml", &dir, &ok).unwrap();
 
-        std::fs::write(
-            cache_path(&dir, "v0.2.0", "schneeforge.toml"),
-            "tampered",
-        )
-        .unwrap();
+        std::fs::write(cache_path(&dir, "v0.2.0", "schneeforge.toml"), "tampered").unwrap();
         let offline = |url: &str| -> std::result::Result<String, String> {
             Err(format!("offline: {url}"))
         };
-        let err =
-            read_managed_file_with(&source, "schneeforge.toml", &dir, &offline).unwrap_err();
+        let err = read_managed_file_with(&source, "schneeforge.toml", &dir, &offline).unwrap_err();
         assert!(err.to_string().contains("failed to fetch"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
