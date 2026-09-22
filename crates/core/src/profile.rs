@@ -217,7 +217,10 @@ x86_64-linux = true
     fn save_and_clear_selection_roundtrip() {
         let store = setup_store("roundtrip", None);
         save_selection_with(&store, "minimal").unwrap();
-        assert_eq!(store.load().unwrap().unwrap().profile.as_deref(), Some("minimal"));
+        assert_eq!(
+            store.load().unwrap().unwrap().profile.as_deref(),
+            Some("minimal")
+        );
         let mut state = store.load().unwrap().unwrap();
         state.profile = None;
         store.save(&state).unwrap();
@@ -281,7 +284,10 @@ x86_64-linux = true
         let store = setup_store("set-valid", None);
         let repo = setup_repo("set-valid", MANIFEST);
         set_selection_with(&repo, &store, "minimal").unwrap();
-        assert_eq!(store.load().unwrap().unwrap().profile.as_deref(), Some("minimal"));
+        assert_eq!(
+            store.load().unwrap().unwrap().profile.as_deref(),
+            Some("minimal")
+        );
     }
 
     #[test]
