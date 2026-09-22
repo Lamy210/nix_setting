@@ -552,7 +552,9 @@ async fn get_dashboard(
 ) -> Result<schneeforge_core::DashboardSnapshot, String> {
     let tc = state.get_or_discover()?;
     tauri::async_runtime::spawn_blocking(move || {
-        let repo_state = schneeforge_core::StateStore::default().load();
+        let repo_state = schneeforge_core::StateStore::default()
+            .load()
+            .map_err(|e| e.to_string())?;
         let channel = schneeforge_core::channel_of(repo_state.as_ref());
         let repo_url =
             std::env::var("SCHNEEFORGE_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string());
@@ -561,15 +563,15 @@ async fn get_dashboard(
                 .map_err(|e| e.to_string()),
             None => Err("git not found; cannot resolve available release".to_string()),
         };
-        schneeforge_core::snapshot(
+        Ok(schneeforge_core::snapshot(
             env!("CARGO_PKG_VERSION"),
             repo_state.as_ref(),
             load_manifest().as_ref(),
             available,
-        )
+        ))
     })
     .await
-    .map_err(|e| format!("task error: {e}"))
+    .map_err(|e| format!("task error: {e}"))?
 }
 
 /// `open_release` (GUI 自己更新 Step 1 / Option B(1)): Dashboard の
