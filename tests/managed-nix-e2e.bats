@@ -22,6 +22,7 @@ BATS_NO_PARALLELIZE=1
 CT_NAME="schneeforge-e2e-bats"
 SCHNEEFORGE_BIN="$BATS_TEST_DIRNAME/../target/release/schneeforge"
 REPO_DIR="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+EXPECTED_INSTALLER_VERSION="$(awk -F'"' '/^version *= */ {print $2; exit}' "$REPO_DIR/bootstrap-manifest.toml")"
 UBUNTU_IMAGE="${E2E_UBUNTU_IMAGE:-ubuntu:24.04}"
 
 setup_file() {
@@ -30,6 +31,10 @@ setup_file() {
   fi
   if [ ! -x "$SCHNEEFORGE_BIN" ]; then
     echo "schneeforge binary not found at $SCHNEEFORGE_BIN" >&2
+    return 1
+  fi
+  if [ -z "$EXPECTED_INSTALLER_VERSION" ]; then
+    echo "managed Nix version not found in bootstrap-manifest.toml" >&2
     return 1
   fi
   # systemd を install して PID 1 として起動 (nix-installer の default
@@ -89,7 +94,7 @@ sf() {
   run docker exec -e NIX_SETTING_DIR=/opt/repo -e PATH="/nix/var/nix/profiles/default/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" "$CT_NAME" schneeforge nix doctor
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "receipt"
-  echo "$output" | grep -q "version: 2.35.1"
+  echo "$output" | grep -q "version: $EXPECTED_INSTALLER_VERSION"
   echo "$output" | grep -q "store accessible: true"
   echo "$output" | grep -q "flakes available: true"
 }
