@@ -73,6 +73,13 @@ fn sha256_text(content: &str) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+fn is_safe_cache_component(value: &str) -> bool {
+    !value.is_empty()
+        && !value.contains('/')
+        && !value.contains('\\')
+        && !value.contains("..")
+}
+
 fn read_verified_cache(
     repository: &str,
     tag: &str,
@@ -97,6 +104,9 @@ fn read_verified_cache(
 /// managed source の file cache があるか (offline で読み取れるかの目安)。
 /// repository identity + digest を検証できる entry だけを cache とみなす。
 pub fn has_cached_files(source: &SourceState, cache_base: &Path) -> bool {
+    if !is_safe_cache_component(&source.ref_) {
+        return false;
+    }
     let remote = source.remote_url();
     let Ok(repository) = repository_identity(&remote) else {
         return false;
@@ -128,7 +138,7 @@ pub fn read_managed_file_with(
     fetch: &dyn Fn(&str) -> std::result::Result<String, String>,
 ) -> Result<String> {
     let tag = &source.ref_;
-    if tag.contains('/') || tag.contains("..") || file.contains('/') || file.contains("..") {
+    if !is_safe_cache_component(tag) || !is_safe_cache_component(file) {
         return Err(Error::Precondition(format!(
             "invalid tag or file name: {tag}/{file}"
         )));
@@ -339,8 +349,15 @@ mod tests {
         };
         let mut source = managed_source("v0.2.0/../../etc");
         assert!(read_managed_file_with(&source, "schneeforge.toml", &dir, &fetch).is_err());
+        assert!(!has_cached_files(&source, &dir));
+
+        source = managed_source("v0.2.0\\..\\etc");
+        assert!(read_managed_file_with(&source, "schneeforge.toml", &dir, &fetch).is_err());
+        assert!(!has_cached_files(&source, &dir));
+
         source = managed_source("v0.2.0");
         assert!(read_managed_file_with(&source, "../state.json", &dir, &fetch).is_err());
+        assert!(read_managed_file_with(&source, "nested\\state.json", &dir, &fetch).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
