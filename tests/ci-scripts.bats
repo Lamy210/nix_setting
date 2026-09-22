@@ -360,6 +360,61 @@ PY
 }
 
 
+# --- Managed Nix bump manifest contract ---
+
+@test "bootstrap manifest updater preserves comments and fails closed on schema drift" {
+  script=scripts/ci/update-bootstrap-manifest.py
+  [ -f "$script" ]
+
+  tmp="$(mktemp -d)"
+  manifest="$tmp/bootstrap-manifest.toml"
+  cat >"$manifest" <<'EOF'
+# retained header
+# retained explanation
+
+[managed_nix]
+version = "2.35.1"
+
+[managed_nix.sha256_by_arch]
+x86_64-linux = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+aarch64-linux = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+aarch64-darwin = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+EOF
+
+  python3 "$script" "$manifest" \
+    --version 2.35.2 \
+    --x86-64-linux 5448a1cd70ad945cb4d36365defbaf3731eba38e23859f3dc8bd7418e1946acc \
+    --aarch64-linux a1b35e56da5adadbc117c3cf17b83948ac657f3c0bd79d47bbe0aa70832b5c8e \
+    --aarch64-darwin 6314b195321b3acc6826b1c5d66bb9cf9306c8231c6dbb745f51a04c3bcee235
+
+  grep -q '^# retained header$' "$manifest"
+  grep -q '^# retained explanation$' "$manifest"
+  grep -q '^version = "2.35.2"$' "$manifest"
+  grep -q '^x86_64-linux = "5448a1cd70ad945cb4d36365defbaf3731eba38e23859f3dc8bd7418e1946acc"$' "$manifest"
+  grep -q '^aarch64-linux = "a1b35e56da5adadbc117c3cf17b83948ac657f3c0bd79d47bbe0aa70832b5c8e"$' "$manifest"
+  grep -q '^aarch64-darwin = "6314b195321b3acc6826b1c5d66bb9cf9306c8231c6dbb745f51a04c3bcee235"$' "$manifest"
+
+  cp "$manifest" "$tmp/duplicate.toml"
+  printf '%s\n' 'version = "9.9.9"' >>"$tmp/duplicate.toml"
+  run python3 "$script" "$tmp/duplicate.toml" \
+    --version 2.35.2 \
+    --x86-64-linux 5448a1cd70ad945cb4d36365defbaf3731eba38e23859f3dc8bd7418e1946acc \
+    --aarch64-linux a1b35e56da5adadbc117c3cf17b83948ac657f3c0bd79d47bbe0aa70832b5c8e \
+    --aarch64-darwin 6314b195321b3acc6826b1c5d66bb9cf9306c8231c6dbb745f51a04c3bcee235
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q 'expected exactly one manifest field'
+
+  grep -v '^aarch64-linux = ' "$manifest" >"$tmp/missing.toml"
+  run python3 "$script" "$tmp/missing.toml" \
+    --version 2.35.2 \
+    --x86-64-linux 5448a1cd70ad945cb4d36365defbaf3731eba38e23859f3dc8bd7418e1946acc \
+    --aarch64-linux a1b35e56da5adadbc117c3cf17b83948ac657f3c0bd79d47bbe0aa70832b5c8e \
+    --aarch64-darwin 6314b195321b3acc6826b1c5d66bb9cf9306c8231c6dbb745f51a04c3bcee235
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q 'expected exactly one manifest field'
+}
+
+
 # --- GUI self-update Step 2 manifest generator contract ---
 
 @test "updater manifest generator emits darwin-aarch64 static JSON" {
