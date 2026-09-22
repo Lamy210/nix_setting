@@ -583,6 +583,25 @@ fn source_init_rejects_tag_channel_mismatch() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn source_status_rejects_semantically_invalid_managed_state() {
+    let dir = cli_dir("status-invalid-managed");
+    write_source_state(
+        &dir,
+        r#"{"kind":"release-stable","ref":"main","channel":"stable","managed":true,"remote":"https://github.com/Lamy210/nix_setting.git"}"#,
+    );
+
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("source")
+        .arg("status")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("valid release tag"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// v2 §7: managed state で `source status` は state 由来の情報を表示する
 /// (表現 / channel / rev 検証 / cache 有無)
 #[test]
@@ -814,6 +833,24 @@ fn self_update_fails_closed_for_non_github_origin() {
         .failure()
         .stderr(predicate::str::contains("owner/repo"));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn self_update_rejects_semantically_invalid_managed_state_before_release_lookup() {
+    let state = state_dir("self-update-invalid-managed");
+    write_source_state(
+        &state,
+        r#"{"kind":"release-stable","ref":"main","channel":"stable","managed":true,"remote":"https://github.com/Lamy210/nix_setting.git"}"#,
+    );
+
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("self-update")
+        .env("XDG_STATE_HOME", &state)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("valid release tag"));
+
+    let _ = std::fs::remove_dir_all(&state);
 }
 
 /// channel の最新が利用中の版より古い場合 (state 未初期化で channel が
