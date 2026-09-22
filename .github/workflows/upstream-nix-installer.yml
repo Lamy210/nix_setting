@@ -185,34 +185,11 @@ jobs:
             fi
           done
 
-          TARGET_VERSION="$TARGET_VERSION" \
-          X86_SHA="$x86_sha" \
-          ARM_LINUX_SHA="$arm_linux_sha" \
-          ARM_DARWIN_SHA="$arm_darwin_sha" \
-          python3 - "$MANIFEST_PATH" <<'PY'
-          import os
-          import re
-          import sys
-
-          path = sys.argv[1]
-          with open(path, encoding="utf-8") as f:
-              text = f.read()
-
-          replacements = {
-              r'(?m)^version = "[^"]+"$': f'version = "{os.environ["TARGET_VERSION"]}"',
-              r'(?m)^x86_64-linux = "[0-9a-f]{64}"$': f'x86_64-linux = "{os.environ["X86_SHA"]}"',
-              r'(?m)^aarch64-linux = "[0-9a-f]{64}"$': f'aarch64-linux = "{os.environ["ARM_LINUX_SHA"]}"',
-              r'(?m)^aarch64-darwin = "[0-9a-f]{64}"$': f'aarch64-darwin = "{os.environ["ARM_DARWIN_SHA"]}"',
-          }
-
-          for pattern, replacement in replacements.items():
-              text, count = re.subn(pattern, replacement, text)
-              if count != 1:
-                  raise SystemExit(f"expected exactly one manifest field for {pattern!r}, found {count}")
-
-          with open(path, "w", encoding="utf-8") as f:
-              f.write(text)
-          PY
+          python3 scripts/ci/update-bootstrap-manifest.py "$MANIFEST_PATH" \
+            --version "$TARGET_VERSION" \
+            --x86-64-linux "$x86_sha" \
+            --aarch64-linux "$arm_linux_sha" \
+            --aarch64-darwin "$arm_darwin_sha"
 
           echo "::group::Updated manifest"
           cat "$MANIFEST_PATH"
