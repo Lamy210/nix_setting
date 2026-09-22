@@ -30,7 +30,7 @@ pub struct ReleaseMetadata {
 }
 
 /// prerelease suffix の有無から channel を導出する。
-/// build metadata 内の \`-\` は prerelease separator として扱わない。
+/// build metadata 内の `-` は prerelease separator として扱わない。
 pub fn channel_for_version(version: &str) -> &'static str {
     let precedence_version = version.split_once('+').map_or(version, |(base, _)| base);
     if precedence_version.contains('-') {
