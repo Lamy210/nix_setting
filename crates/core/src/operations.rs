@@ -348,12 +348,17 @@ fn current_branch(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Option<
     }
 }
 
-/// state に記録された managed source (v2 §7)
+/// state に記録された managed source (v2 §7)。
+/// managed=true の semantic inconsistency は「managed ではない」へ fallback せず error。
 fn managed_source(store: &StateStore) -> Result<Option<crate::source::SourceState>> {
-    Ok(store
-        .load()?
-        .and_then(|s| s.source)
-        .filter(|s| s.is_managed_release()))
+    let Some(source) = store.load()?.and_then(|state| state.source) else {
+        return Ok(None);
+    };
+    if !source.managed {
+        return Ok(None);
+    }
+    source.validate_managed_release()?;
+    Ok(Some(source))
 }
 
 /// managed source の sync / git 実態前提処理への案内文
@@ -1464,6 +1469,33 @@ mod tests {
             err.to_string().contains("cannot be updated locally"),
             "{err}"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn managed_helpers_reject_semantically_invalid_managed_state() {
+        let (store, dir) = temp_state_store("invalid-managed-helper");
+        store
+            .save(&crate::state::State {
+                source: Some(crate::source::SourceState {
+                    kind: crate::source::SourceKind::ReleaseStable,
+                    ref_: "main".to_string(),
+                    channel: Some("stable".to_string()),
+                    managed: true,
+                    remote: Some("https://github.com/Lamy210/nix_setting.git".to_string()),
+                    revision: None,
+                }),
+                ..crate::state::State::default()
+            })
+            .unwrap();
+
+        let err = managed_source_note(&store).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("valid release tag"), "{err}");
+
+        let err = deps_update_with("/tmp/repo", &dummy_tc(), true, &store).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("valid release tag"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
