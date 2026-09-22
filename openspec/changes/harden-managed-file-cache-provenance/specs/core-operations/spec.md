@@ -29,6 +29,24 @@ filesystem を使う。
 - **WHEN** 同じ repository / tag / file を再度読み取る
 - **THEN** verified cache から返し network には行かない
 
+#### Scenario: 初回取得と cache
+
+- **WHEN** managed source の `schneeforge.toml` が未 cache の状態で読み取られる
+- **THEN** release tag pinned URL から取得して state dir へ content と provenance を保存し、内容を返す
+- **WHEN** 同 repository / tag で再度読み取られる
+- **THEN** verified cache から返し network には行かない
+
+#### Scenario: offline
+
+- **WHEN** verified cache が存在する状態で offline で読み取られる
+- **THEN** repository identity と content digest を検証した cache から返す
+- **AND** verified cache が存在しない場合は error を返す
+
+#### Scenario: 取得失敗
+
+- **WHEN** verified cache が無く取得に失敗する (offline 初回 / 404)
+- **THEN** fail-closed に error を返す
+
 #### Scenario: verified cache の offline 利用
 
 - **WHEN** repository identity と content digest が一致する verified cache が存在する
