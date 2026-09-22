@@ -531,6 +531,16 @@ fn note_output(note: &str, capture: bool) -> Option<String> {
     }
 }
 
+fn validate_release_channel(channel: &str) -> Result<()> {
+    if matches!(channel, "stable" | "preview") {
+        Ok(())
+    } else {
+        Err(Error::Precondition(format!(
+            "unknown channel '{channel}' (expected stable or preview)"
+        )))
+    }
+}
+
 /// managed Release の update: 同 channel の最新 tag を remote から解決して
 /// state の source を更新する (checkout 操作なし)
 fn update_managed(
@@ -559,6 +569,7 @@ fn update_managed_with(
     )
         -> std::result::Result<crate::release_metadata::ReleaseMetadata, String>,
 ) -> Result<UpdateResult> {
+    validate_release_channel(channel)?;
     let latest = crate::source::latest_tag_for_channel(tags, channel).cloned();
     let Some(latest) = latest else {
         let note = format!(
@@ -667,11 +678,7 @@ fn source_init_with(
         -> std::result::Result<crate::release_metadata::ReleaseMetadata, String>,
 ) -> Result<SourceInitResult> {
     if let Some(c) = &channel {
-        if c != "stable" && c != "preview" {
-            return Err(Error::Precondition(format!(
-                "unknown channel '{c}' (expected stable or preview)"
-            )));
-        }
+        validate_release_channel(c)?;
     }
 
     let (kind, resolved_tag, resolved_channel) = match tag {
@@ -734,6 +741,7 @@ fn update_release(
     channel: &str,
     capture: bool,
 ) -> Result<Option<String>> {
+    validate_release_channel(channel)?;
     if git_dirty(repo, git)? {
         return Err(Error::Busy(
             "repository has uncommitted changes; commit or stash first".to_string(),
@@ -1159,6 +1167,12 @@ mod tests {
         let msg = result.output.expect("note in capture mode");
         assert!(msg.contains("No stable release tags found"), "{msg}");
         assert!(msg.contains("current: v0.3.0"), "{msg}");
+
+        let err = update_managed_with(&store, &tags, &state, "nightly", true, &|t| {
+            Ok(metadata_of(t))
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("unknown channel"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -292,8 +292,13 @@ pub fn classify_release_tag(tag: &str) -> Option<(SourceKind, &'static str)> {
 /// 候補 tag 列から channel に合う最新 tag を選ぶ純関数。
 /// stable は prerelease を含まない。preview は prerelease のみ。
 /// 同一 channel 内で SemVer precedence の最大値を最新とする。
+/// 未対応 channel は stable へフォールバックせず fail-closed に None。
 pub fn latest_tag_for_channel<'a>(tags: &'a [String], channel: &str) -> Option<&'a String> {
-    let is_preview = channel == "preview";
+    let is_preview = match channel {
+        "stable" => false,
+        "preview" => true,
+        _ => return None,
+    };
     tags.iter()
         .filter(|tag| {
             let Some(version) = tag.strip_prefix('v') else {
@@ -507,6 +512,11 @@ mod tests {
         assert_eq!(
             latest_tag_for_channel(&tags, "preview"),
             Some(&"v0.11.0-rc.10".to_string())
+        );
+        assert_eq!(
+            latest_tag_for_channel(&tags, "unsupported"),
+            None,
+            "unsupported channels must not fall back to stable"
         );
     }
 
