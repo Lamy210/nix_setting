@@ -2,7 +2,7 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-09-21
+最終更新: 2026-09-23
 
 ## 完成済み
 
@@ -171,6 +171,36 @@ PR #62-#68 を sequential chain で merge。
 - production signing private key は Tauri build step のみに scope し、通常 PR/develop build は secret-free / updater-disabled
 - **未完了**: macOS manual Final Acceptance、production key pair/secret/public-key provision、signed N→N+1 E2E、tampered artifact signature mismatch E2E
 - 上記 activation gate 完了までは production updater を有効化せず、placeholder/test trust root は shipping しない
+
+### Release/source fail-closed hardening + Managed Nix 2.35.2（2026-09-23）
+
+release/source/update 境界の重複実装と silent fallback を整理し、Managed Nix provider bump の実機相当 acceptance を pre-merge で閉じた。
+
+- **SemVer / release metadata (#118-#121)**:
+  - updater manifest / release metadata の release tag を strict SemVer として fail-closed 検証
+  - release tag ordering を SemVer precedence 準拠へ修正し、巨大 numeric identifier / prerelease / build metadata を回帰テスト
+  - core の tag selection / Dashboard update comparison / CLI self-update を共通 strict SemVer comparator へ集約
+- **release channel fail-closed (#122/#129)**:
+  - `stable` / `preview` 以外を stable へ暗黙 fallback しない
+  - runtime channel は persisted free-form value ではなく release `SourceKind` から導出
+- **managed source trust boundary (#123/#125/#127/#128/#130)**:
+  - managed file cache を repository provenance + content digest に bind
+  - missing state と corrupt/unreadable state を分離し、state-dependent effect 前に error を伝播
+  - `managed=true` は immutable GitHub release source のみ許可し、mutable ref / kind-tag mismatch / unsupported remote を checkout fallback・network/cache effect 前に拒否
+  - Diagnostics / Dashboard / source status / self-update も semantic corruption を未初期化扱いしない
+- **upstream bump workflow hardening (#131)**:
+  - `bootstrap-manifest.toml` 全書き換えを廃止し、専用 helper で version + 3 architecture SHA256 のみ更新
+  - header comment / ordering / unrelated metadata を保持し、expected field の欠落・重複は fail-closed
+- **Managed Nix provider 2.35.2 (#132)**:
+  - NixOS/nix-installer `2.35.1 -> 2.35.2` を upstream diff / SLSA-verified bump / official asset SHA256 で評価
+  - current pin: **2.35.2**
+  - Linux x86_64 Docker full lifecycle（install / doctor / second-install rejection / uninstall / reinstall / repair）が green
+  - Managed Nix E2E の installer version expectation は manifest 由来へ変更し、将来 bump の hard-code drift を除去
+- **Managed Nix bump macOS acceptance (#133)**:
+  - `bootstrap-manifest.toml` 等を変更する PR に限定した `macos-15` fresh-host acceptance workflow を追加
+  - current branch の release CLI を Nix-less Apple Silicon runner 上で buildし、embedded manifestを使って install → receipt/ownership → store/local flake → doctor → `ExistingNixDetected` → uninstall → reinstall → final cleanup を自動検証
+  - #132 の **2.35.2 branch binary** でも full lifecycle green を確認
+  - published release tag を対象にする既存 manual lifecycle mode は維持
 
 ## 進行中
 
