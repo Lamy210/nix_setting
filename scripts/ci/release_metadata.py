@@ -11,6 +11,8 @@ import json
 import re
 import sys
 
+from release_semver import channel_for_version, normalize_release_tag
+
 SCHEMA = 1
 
 
@@ -51,11 +53,6 @@ def parse_manifest(path: str) -> dict:
     return {"schema": schema, "systems": systems}
 
 
-def channel_for(version: str) -> str:
-    # semver prerelease suffix (-rc.N / -beta.N 等) ありなら preview
-    return "preview" if re.search(r"-\w+", version) else "stable"
-
-
 def main() -> None:
     if len(sys.argv) != 5:
         raise SystemExit(
@@ -63,15 +60,16 @@ def main() -> None:
         )
     tag, source_sha, manifest_path, out_file = sys.argv[1:5]
 
-    if not tag.startswith("v"):
-        raise SystemExit(f"error: tag must start with 'v': {tag}")
-    version = tag[1:]
+    try:
+        _, version = normalize_release_tag(tag, require_v=True)
+    except ValueError as exc:
+        raise SystemExit(f"error: {exc}") from exc
 
     manifest = parse_manifest(manifest_path)
     metadata = {
         "schema": SCHEMA,
         "version": version,
-        "channel": channel_for(version),
+        "channel": channel_for_version(version),
         "source_revision": source_sha,
         # 本 repo では config の提供主体と schneeforge CLI が同一のため
         # release 版数をそのまま最低要件とする
