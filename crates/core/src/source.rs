@@ -733,11 +733,7 @@ mod tests {
         );
 
         // managed state は mutable ref / kind-tag mismatch を local path へ fallback しない
-        state.source = Some(managed_state(
-            SourceKind::ReleaseStable,
-            "main",
-            "stable",
-        ));
+        state.source = Some(managed_state(SourceKind::ReleaseStable, "main", "stable"));
         store.save(&state).unwrap();
         let err = effective_ref("/tmp/repo", &store).unwrap_err();
         assert!(matches!(err, Error::State(_)), "{err}");
@@ -790,11 +786,7 @@ mod tests {
             .unwrap();
         assert_eq!(resolved, stored);
 
-        let invalid_managed = managed_state(
-            SourceKind::ReleasePreview,
-            "v0.2.0",
-            "preview",
-        );
+        let invalid_managed = managed_state(SourceKind::ReleasePreview, "v0.2.0", "preview");
         let err = SourceResolver::new()
             .resolve(
                 dir.to_str().unwrap(),
