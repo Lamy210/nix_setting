@@ -448,8 +448,7 @@ mod tests {
         let fetch = |_url: &str| -> std::result::Result<String, String> {
             panic!("corrupt state must fail before source fallback/fetch");
         };
-        let err =
-            load_manifest_for_with("/tmp/fallback-repo", &store, &dir, &fetch).unwrap_err();
+        let err = load_manifest_for_with("/tmp/fallback-repo", &store, &dir, &fetch).unwrap_err();
         assert!(matches!(err, Error::State(_)), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
