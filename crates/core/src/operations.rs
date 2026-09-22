@@ -455,9 +455,10 @@ pub fn dispatch_update(state: &crate::source::SourceState) -> UpdateAction {
     if state.is_managed_release() {
         return UpdateAction::UpdateManagedRef {
             channel: state
-                .channel
-                .clone()
-                .unwrap_or_else(|| "stable".to_string()),
+                .kind
+                .release_channel()
+                .expect("managed release kind must have a canonical channel")
+                .to_string(),
         };
     }
     match state.kind {
@@ -1129,6 +1130,24 @@ mod tests {
             UpdateAction::UpdateManagedRef {
                 channel: "preview".to_string()
             }
+        );
+        let mut mismatched = managed_release_state("v0.3.0-rc.1", "preview");
+        mismatched.channel = Some("stable".to_string());
+        assert_eq!(
+            dispatch_update(&mismatched),
+            UpdateAction::UpdateManagedRef {
+                channel: "preview".to_string()
+            },
+            "managed update dispatch must trust release kind, not stale persisted channel"
+        );
+        let mut missing = managed_release_state("v0.3.0-rc.1", "preview");
+        missing.channel = None;
+        assert_eq!(
+            dispatch_update(&missing),
+            UpdateAction::UpdateManagedRef {
+                channel: "preview".to_string()
+            },
+            "managed preview must not fall back to stable when persisted channel is missing"
         );
         // managed flag が無ければ checkout 表現の dispatch
         assert!(matches!(
