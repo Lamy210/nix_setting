@@ -2,10 +2,11 @@
 //! source 種別を解決する。network access は行わない。
 
 use serde::{Deserialize, Serialize};
-use std::{cmp::Ordering, path::Path};
+use std::path::Path;
 
 use crate::error::Result;
 use crate::process::run_capture;
+use crate::semver;
 use crate::tool::ResolvedTool;
 
 /// source の種別 (v2 設計 §5-§7)
@@ -281,88 +282,11 @@ fn git_output(repo: &str, git: &ResolvedTool, args: &[&str]) -> Result<String> {
 /// managed source の設定時に tag から channel を導出するため public
 pub fn classify_release_tag(tag: &str) -> Option<(SourceKind, &'static str)> {
     let version = tag.strip_prefix('v')?;
-    let (_, prerelease) = parse_semver(version)?;
-    if prerelease.is_some() {
+    if semver::is_prerelease(version)? {
         Some((SourceKind::ReleasePreview, "preview"))
     } else {
         Some((SourceKind::ReleaseStable, "stable"))
     }
-}
-
-/// SemVer 2.0.0 の release version を parse する。
-///
-/// - core は exactly 3 numeric identifiers
-/// - core / numeric prerelease の leading zero を拒否
-/// - prerelease / build identifier は ASCII alphanumeric + hyphen のみ
-/// - build metadata は precedence には影響しない
-fn parse_semver(version: &str) -> Option<([&str; 3], Option<&str>)> {
-    let without_build = match version.split_once('+') {
-        Some((base, build)) => {
-            if build.contains('+') || !valid_dot_identifiers(build, false) {
-                return None;
-            }
-            base
-        }
-        None => version,
-    };
-
-    let (core, prerelease) = match without_build.split_once('-') {
-        Some((core, prerelease)) => {
-            if !valid_dot_identifiers(prerelease, true) {
-                return None;
-            }
-            (core, Some(prerelease))
-        }
-        None => (without_build, None),
-    };
-
-    let mut parts = core.split('.');
-    let major = validate_core_identifier(parts.next()?)?;
-    let minor = validate_core_identifier(parts.next()?)?;
-    let patch = validate_core_identifier(parts.next()?)?;
-    if parts.next().is_some() {
-        return None;
-    }
-
-    Some(([major, minor, patch], prerelease))
-}
-
-fn validate_core_identifier(value: &str) -> Option<&str> {
-    if value.is_empty()
-        || !value.bytes().all(|b| b.is_ascii_digit())
-        || (value.len() > 1 && value.starts_with('0'))
-    {
-        return None;
-    }
-    Some(value)
-}
-
-fn valid_dot_identifiers(value: &str, reject_numeric_leading_zero: bool) -> bool {
-    !value.is_empty()
-        && value.split('.').all(|identifier| {
-            !identifier.is_empty()
-                && identifier
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-                && !(reject_numeric_leading_zero
-                    && identifier.len() > 1
-                    && identifier.starts_with('0')
-                    && identifier.bytes().all(|b| b.is_ascii_digit()))
-        })
-}
-
-fn compare_numeric_identifier(a: &str, b: &str) -> Ordering {
-    a.len().cmp(&b.len()).then_with(|| a.cmp(b))
-}
-
-fn compare_core(a: [&str; 3], b: [&str; 3]) -> Ordering {
-    for (a_part, b_part) in a.into_iter().zip(b) {
-        let ordering = compare_numeric_identifier(a_part, b_part);
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
-    }
-    Ordering::Equal
 }
 
 /// 候補 tag 列から channel に合う最新 tag を選ぶ純関数。
@@ -375,48 +299,13 @@ pub fn latest_tag_for_channel<'a>(tags: &'a [String], channel: &str) -> Option<&
             let Some(version) = tag.strip_prefix('v') else {
                 return false;
             };
-            parse_semver(version).is_some_and(|(_, prerelease)| prerelease.is_some() == is_preview)
+            semver::is_prerelease(version).is_some_and(|preview| preview == is_preview)
         })
         .max_by(|a, b| {
             let a = a.strip_prefix('v').expect("filtered release tag");
             let b = b.strip_prefix('v').expect("filtered release tag");
-            compare_semver(a, b).expect("filtered valid semver")
+            semver::compare(a, b).expect("filtered valid semver")
         })
-}
-
-fn compare_semver(a: &str, b: &str) -> Option<Ordering> {
-    let (a_core, a_pre) = parse_semver(a)?;
-    let (b_core, b_pre) = parse_semver(b)?;
-
-    Some(
-        compare_core(a_core, b_core).then_with(|| match (a_pre, b_pre) {
-            (None, None) => Ordering::Equal,
-            (None, Some(_)) => Ordering::Greater,
-            (Some(_), None) => Ordering::Less,
-            (Some(a_pre), Some(b_pre)) => compare_prerelease(a_pre, b_pre),
-        }),
-    )
-}
-
-fn compare_prerelease(a: &str, b: &str) -> Ordering {
-    let a_parts: Vec<&str> = a.split('.').collect();
-    let b_parts: Vec<&str> = b.split('.').collect();
-
-    for (a_part, b_part) in a_parts.iter().zip(b_parts.iter()) {
-        let a_numeric = a_part.bytes().all(|b| b.is_ascii_digit());
-        let b_numeric = b_part.bytes().all(|b| b.is_ascii_digit());
-        let ordering = match (a_numeric, b_numeric) {
-            (true, true) => compare_numeric_identifier(a_part, b_part),
-            (true, false) => Ordering::Less,
-            (false, true) => Ordering::Greater,
-            (false, false) => a_part.cmp(b_part),
-        };
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
-    }
-
-    a_parts.len().cmp(&b_parts.len())
 }
 
 #[cfg(test)]
@@ -618,28 +507,6 @@ mod tests {
         assert_eq!(
             latest_tag_for_channel(&tags, "preview"),
             Some(&"v0.11.0-rc.10".to_string())
-        );
-    }
-
-    #[test]
-    fn semver_prerelease_numeric_identifiers_sort_before_text_identifiers() {
-        assert_eq!(
-            compare_semver("1.0.0-1", "1.0.0-alpha"),
-            Some(Ordering::Less)
-        );
-        assert_eq!(
-            compare_semver("1.0.0-alpha.9", "1.0.0-alpha.10"),
-            Some(Ordering::Less)
-        );
-        assert_eq!(
-            compare_semver("1.0.0-rc.10+build.1", "1.0.0-rc.10+build.2"),
-            Some(Ordering::Equal),
-            "build metadata must not affect precedence"
-        );
-        assert_eq!(
-            compare_semver("184467440737095516160.0.0", "184467440737095516159.999.999",),
-            Some(Ordering::Greater),
-            "SemVer numeric identifiers are not bounded to machine integers"
         );
     }
 
