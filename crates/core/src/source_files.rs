@@ -363,8 +363,7 @@ mod tests {
         let fetch = |_url: &str| -> std::result::Result<String, String> {
             panic!("invalid managed source must fail before network")
         };
-        let err =
-            read_managed_file_with(&source, "schneeforge.toml", &dir, &fetch).unwrap_err();
+        let err = read_managed_file_with(&source, "schneeforge.toml", &dir, &fetch).unwrap_err();
         assert!(matches!(err, Error::State(_)), "{err}");
         assert!(err.to_string().contains("does not match"), "{err}");
         assert!(!has_cached_files(&source, &dir));
