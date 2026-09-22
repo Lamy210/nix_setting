@@ -489,10 +489,7 @@ const TEST_MANAGED_REPO_URL: &str = "https://github.com/Lamy210/nix_setting.git"
 /// network-free に保つ。Git の url.<base>.insteadOf だけを process-local な
 /// GIT_CONFIG_GLOBAL 経由で差し込み、GitHub URL の ls-remote を local origin
 /// へ rewrite する。
-fn git_rewrite_config(
-    dir: &std::path::Path,
-    origin: &std::path::Path,
-) -> std::path::PathBuf {
+fn git_rewrite_config(dir: &std::path::Path, origin: &std::path::Path) -> std::path::PathBuf {
     let origin = origin.canonicalize().unwrap();
     let normalized = origin.to_string_lossy().replace('\\', "/");
     let file_url = if normalized.starts_with('/') {
@@ -503,9 +500,7 @@ fn git_rewrite_config(
     let config = dir.join("gitconfig");
     std::fs::write(
         &config,
-        format!(
-            "[url \"{file_url}\"]\n\tinsteadOf = {TEST_MANAGED_REPO_URL}\n"
-        ),
+        format!("[url \"{file_url}\"]\n\tinsteadOf = {TEST_MANAGED_REPO_URL}\n"),
     )
     .unwrap();
     config
