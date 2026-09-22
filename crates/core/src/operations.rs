@@ -1318,12 +1318,10 @@ mod tests {
         let git = resolved_git(std::path::Path::new("git"));
         let (store, dir) = temp_state_store("init-invalid-remote");
         let tags = vec!["v0.2.0".to_string()];
-        let fetch_meta = |_tag: &str| -> std::result::Result<
-            crate::release_metadata::ReleaseMetadata,
-            String,
-        > {
-            panic!("invalid managed remote must fail before metadata fetch")
-        };
+        let fetch_meta =
+            |_tag: &str| -> std::result::Result<crate::release_metadata::ReleaseMetadata, String> {
+                panic!("invalid managed remote must fail before metadata fetch")
+            };
 
         let err = source_init_with(
             repo.to_str().unwrap(),
