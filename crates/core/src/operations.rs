@@ -1495,18 +1495,15 @@ mod tests {
             .find(|check| check.name.starts_with("state"))
             .expect("state check must be present");
         assert!(
-            corrupt_check
-                .name
-                .contains("state error: parse"),
+            corrupt_check.name.contains("state error: parse"),
             "{}",
             corrupt_check.name
         );
         assert!(!corrupt_check.ok);
         assert!(
-            corrupt_report
-                .checks
-                .iter()
-                .any(|check| check.name.contains("source (state unavailable: state error: parse")),
+            corrupt_report.checks.iter().any(|check| check
+                .name
+                .contains("source (state unavailable: state error: parse")),
             "source semantics must also fail closed when state is corrupt"
         );
         let _ = std::fs::remove_dir_all(&corrupt_dir);
