@@ -218,7 +218,7 @@ x86_64-linux = true
         let store = setup_store("roundtrip", None);
         save_selection_with(&store, "minimal").unwrap();
         assert_eq!(store.load().unwrap().unwrap().profile.as_deref(), Some("minimal"));
-        let mut state = store.load().unwrap();
+        let mut state = store.load().unwrap().unwrap();
         state.profile = None;
         store.save(&state).unwrap();
         assert_eq!(store.load().unwrap().unwrap().profile, None);
@@ -290,7 +290,7 @@ x86_64-linux = true
         let repo = setup_repo("set-invalid", MANIFEST);
         let err = set_selection_with(&repo, &store, "unknown-profile").unwrap_err();
         assert!(err.to_string().contains("not in manifest"));
-        assert_eq!(store.load()?.and_then(|s| s.profile), None);
+        assert_eq!(store.load().unwrap().and_then(|s| s.profile), None);
     }
 
     #[test]
@@ -300,6 +300,6 @@ x86_64-linux = true
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         assert!(set_selection_with(dir.to_string_lossy().as_ref(), &store, "minimal").is_err());
-        assert_eq!(store.load()?.and_then(|s| s.profile), None);
+        assert_eq!(store.load().unwrap().and_then(|s| s.profile), None);
     }
 }
