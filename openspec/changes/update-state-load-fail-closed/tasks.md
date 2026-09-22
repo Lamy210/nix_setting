@@ -1,10 +1,11 @@
 ## 1. StateStore strict load contract
 
-- [ ] 1.1 Change `StateStore::load()` to `Result<Option<State>>`.
-- [ ] 1.2 Return `Ok(None)` only for missing state file.
-- [ ] 1.3 Return structured errors for malformed JSON and non-NotFound read failures.
-- [ ] 1.4 Preserve valid legacy JSON compatibility.
-- [ ] 1.5 Add deterministic unit tests for missing / legacy / malformed / read-error cases.
+- [ ] 1.1 Add a dedicated `Error::State(String)` variant for state read/parse failures.
+- [ ] 1.2 Change `StateStore::load()` to `Result<Option<State>>`.
+- [ ] 1.3 Return `Ok(None)` only for missing state file.
+- [ ] 1.4 Return `Error::State` for malformed JSON and non-NotFound read failures without embedding state contents.
+- [ ] 1.5 Preserve valid legacy JSON compatibility.
+- [ ] 1.6 Add deterministic unit tests for missing / legacy / malformed / read-error cases.
 
 ## 2. Core call-site migration
 
