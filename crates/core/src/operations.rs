@@ -65,8 +65,9 @@ pub fn apply(
     capture: bool,
 ) -> Result<ApplyResult> {
     let _guard = acquire()?;
+    let prev = store.load()?;
 
-    let repo_ref = crate::source::effective_ref(repo, store);
+    let repo_ref = crate::source::effective_ref(repo, store)?;
     let output = if capture {
         Some(actions::apply_captured(target, &repo_ref, tc)?)
     } else {
@@ -76,7 +77,7 @@ pub fn apply(
 
     // managed source は revision 記録を、それ以外は checkout の git revision
     // を applied revision に記録する
-    let revision = match managed_source(store) {
+    let revision = match managed_source(store)? {
         Some(src) => src.revision.clone(),
         None => tc
             .git
@@ -86,7 +87,6 @@ pub fn apply(
     let mut state = applied_state(target, revision);
     // profile 選択は user の恒久的な選択のため apply を跨いで保持する。
     // managed source は checkout から再検出できないため保持する
-    let prev = store.load();
     state.profile = prev.as_ref().and_then(|s| s.profile.clone());
     state.source = prev
         .as_ref()
@@ -109,8 +109,9 @@ pub fn rollback(
     capture: bool,
 ) -> Result<ApplyResult> {
     let _guard = acquire()?;
+    let prev = store.load()?;
 
-    let repo_ref = crate::source::effective_ref(repo, store);
+    let repo_ref = crate::source::effective_ref(repo, store)?;
     let output = if capture {
         Some(actions::rollback_captured(target, &repo_ref, tc)?)
     } else {
@@ -120,7 +121,6 @@ pub fn rollback(
 
     let mut state = rolled_back_state(target);
     // profile 選択と managed source は rollback を跨いでも保持する
-    let prev = store.load();
     state.profile = prev.as_ref().and_then(|s| s.profile.clone());
     state.source = prev
         .as_ref()
@@ -167,7 +167,7 @@ pub fn plan_target_with(repo: &str, store: &StateStore) -> Result<PlanResult> {
             arch: target.architecture().to_string(),
         });
     }
-    let repo_ref = crate::source::effective_ref(repo, store);
+    let repo_ref = crate::source::effective_ref(repo, store)?;
     Ok(PlanResult {
         host: target.name().to_string(),
         flake_target: target.build_ref(&repo_ref),
@@ -221,7 +221,13 @@ impl VerifyReport {
 /// verify: 環境・repo/manifest・state を検証する (各検査は infallible)
 pub fn verify(repo: &str, tc: &ToolInventory) -> VerifyReport {
     let state_store = StateStore::default();
-    let managed = managed_source(&state_store).is_some();
+    let state_result = state_store.load();
+    let managed = state_result
+        .as_ref()
+        .ok()
+        .and_then(|state| state.as_ref())
+        .and_then(|state| state.source.as_ref())
+        .is_some_and(|source| source.is_managed_release());
     let mut checks = Vec::new();
 
     // discover 済み inventory の各ツールが実際に実行可能か
@@ -258,7 +264,7 @@ pub fn verify(repo: &str, tc: &ToolInventory) -> VerifyReport {
     });
     checks.push(VerifyCheck {
         name: "state".to_string(),
-        ok: state_store.load().is_some(),
+        ok: matches!(state_result, Ok(Some(_))),
     });
 
     VerifyReport { checks }
@@ -316,20 +322,20 @@ fn current_branch(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Option<
 }
 
 /// state に記録された managed source (v2 §7)
-fn managed_source(store: &StateStore) -> Option<crate::source::SourceState> {
-    store
-        .load()
+fn managed_source(store: &StateStore) -> Result<Option<crate::source::SourceState>> {
+    Ok(store
+        .load()?
         .and_then(|s| s.source)
-        .filter(|s| s.is_managed_release())
+        .filter(|s| s.is_managed_release()))
 }
 
 /// managed source の sync / git 実態前提処理への案内文
-fn managed_source_note(store: &StateStore) -> Option<String> {
-    managed_source(store).map(|_| {
+fn managed_source_note(store: &StateStore) -> Result<Option<String>> {
+    Ok(managed_source(store)?.map(|_| {
         "Source is managed (github flake ref); there is no git working tree to sync. \
          Use `schneeforge update` to move to a newer release."
             .to_string()
-    })
+    }))
 }
 
 /// sync: dirty check と branch checkout の確認の後 `git pull --ff-only` で更新する。
@@ -337,7 +343,7 @@ fn managed_source_note(store: &StateStore) -> Option<String> {
 /// clean no-op として pinned である旨を返す。managed source は git 実態が無い
 /// 旨を案内して終了する (error にしない)。
 pub fn sync(repo: &str, tc: &ToolInventory, capture: bool) -> Result<Option<String>> {
-    if let Some(note) = managed_source_note(&StateStore::default()) {
+    if let Some(note) = managed_source_note(&StateStore::default())? {
         return Ok(note_output(&note, capture));
     }
     sync_with_lock(repo, tc, capture, OperationLock::global())
@@ -462,8 +468,9 @@ pub fn update(
 ) -> Result<UpdateResult> {
     let git = tc.require_git()?;
     let _guard = acquire()?;
+    let previous = store.load()?;
 
-    let stored = store.load().and_then(|s| s.source);
+    let stored = previous.as_ref().and_then(|s| s.source.clone());
     let state = crate::source::SourceResolver::new().resolve(repo, git, stored.as_ref())?;
     let action = dispatch_update(&state);
 
@@ -496,7 +503,7 @@ pub fn update(
 
     // 更新後の source 状態を State へ反映 (applied 情報は変えない)
     let new_source = crate::source::SourceResolver::new().detect(repo, git).ok();
-    let mut saved = store.load().unwrap_or_default();
+    let mut saved = previous.unwrap_or_default();
     saved.source = new_source.clone();
     store.save(&saved)?;
 
@@ -593,7 +600,7 @@ fn update_managed_with(
     new_state.ref_ = latest.clone();
     new_state.revision = record_revision(&latest, fetch_meta);
 
-    let mut saved = store.load().unwrap_or_default();
+    let mut saved = store.load()?.unwrap_or_default();
     saved.source = Some(new_state.clone());
     store.save(&saved)?;
 
@@ -677,6 +684,7 @@ fn source_init_with(
     )
         -> std::result::Result<crate::release_metadata::ReleaseMetadata, String>,
 ) -> Result<SourceInitResult> {
+    let mut saved = store.load()?.unwrap_or_default();
     if let Some(c) = &channel {
         validate_release_channel(c)?;
     }
@@ -723,7 +731,6 @@ fn source_init_with(
         .as_ref()
         .is_some_and(|c| !c.managed && c.kind == source.kind && c.ref_ == source.ref_);
 
-    let mut saved = store.load().unwrap_or_default();
     saved.source = Some(source.clone());
     store.save(&saved)?;
 
@@ -1122,7 +1129,7 @@ mod tests {
             Some("fedcba9876543210fedcba9876543210fedcba98")
         );
         // state に保存されている
-        let saved = store.load().unwrap();
+        let saved = store.load().unwrap().unwrap();
         assert_eq!(saved.source.as_ref().unwrap().ref_, "v0.3.0");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1225,7 +1232,7 @@ mod tests {
             Some("fedcba9876543210fedcba9876543210fedcba98")
         );
         // state に保存されている
-        assert_eq!(store.load().unwrap().source, Some(saved));
+        assert_eq!(store.load().unwrap().unwrap().source, Some(saved));
 
         // 別 tag を指定した場合は移行表示にならない
         let result = source_init_with(
@@ -1365,14 +1372,14 @@ mod tests {
     #[test]
     fn managed_source_note_only_for_managed_release() {
         let (store, dir) = temp_state_store("note-filter");
-        assert!(managed_source_note(&store).is_none());
+        assert!(managed_source_note(&store).unwrap().is_none());
         let mut state = crate::state::State {
             // checkout 表現の Release は案内対象外
             source: Some(checkout_state(crate::source::SourceKind::ReleaseStable)),
             ..crate::state::State::default()
         };
         store.save(&state).unwrap();
-        assert!(managed_source_note(&store).is_none());
+        assert!(managed_source_note(&store).unwrap().is_none());
         state.source = Some(managed_release_state("v0.2.0", "stable"));
         store.save(&state).unwrap();
         assert!(managed_source_note(&store).is_some());
