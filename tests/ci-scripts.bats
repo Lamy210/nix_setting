@@ -360,6 +360,37 @@ PY
 }
 
 
+# --- Managed Nix bump macOS acceptance contract ---
+
+@test "Managed Nix bump gets fresh-host macOS branch lifecycle acceptance" {
+  workflow=.github/workflows/managed-nix-bump-acceptance.yml
+  script=scripts/ci/macos-managed-nix-lifecycle.sh
+
+  [ -f "$workflow" ]
+  grep -q '^  pull_request:' "$workflow"
+  grep -q 'bootstrap-manifest.toml' "$workflow"
+  grep -q 'runs-on: macos-15' "$workflow"
+  grep -q 'build-release-macos-cli.sh' "$workflow"
+  grep -q -- '--local-binary' "$workflow"
+  grep -q 'test ! -e /nix' "$workflow"
+  grep -q '! command -v nix' "$workflow"
+  grep -q 'ACCEPTANCE_LOG_DIR' "$workflow"
+
+  # Acceptance must begin Nix-less; installing Nix before the lifecycle test
+  # would invalidate the fresh-host contract.
+  run grep -q 'install-nix-action' "$workflow"
+  [ "$status" -ne 0 ]
+
+  # The shared helper keeps release-tag verification and gains a local binary
+  # mode for pre-release branch validation.
+  grep -q 'MODE="release"' "$script"
+  grep -q -- '--local-binary' "$script"
+  grep -q 'using locally built branch CLI' "$script"
+  grep -q 'release CLI SHA256 mismatch' "$script"
+  grep -q 'Managed Nix branch lifecycle acceptance helper passed' "$script"
+}
+
+
 # --- Managed Nix bump manifest contract ---
 
 @test "bootstrap manifest updater preserves comments and fails closed on schema drift" {
