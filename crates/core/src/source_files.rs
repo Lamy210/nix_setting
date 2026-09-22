@@ -535,9 +535,8 @@ mod tests {
         read_managed_file_with(&source, "schneeforge.toml", &dir, &ok).unwrap();
 
         std::fs::write(cache_path(&dir, "v0.2.0", "schneeforge.toml"), "tampered").unwrap();
-        let offline = |url: &str| -> std::result::Result<String, String> {
-            Err(format!("offline: {url}"))
-        };
+        let offline =
+            |url: &str| -> std::result::Result<String, String> { Err(format!("offline: {url}")) };
         let err = read_managed_file_with(&source, "schneeforge.toml", &dir, &offline).unwrap_err();
         assert!(err.to_string().contains("failed to fetch"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
