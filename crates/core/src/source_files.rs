@@ -2,8 +2,9 @@
 //!
 //! managed source は local に source tree を持たないため、repo file
 //! (`schneeforge.toml` 等) は `raw.githubusercontent.com` から tag pinned で
-//! 取得し state dir (`sources/<tag>/`) へ原子保存する。tag は不変のため
-//! 一度保存した cache は無期限に正しく、2 回目以降の読み取り
+//! 取得し state dir (`sources/<tag>/`) へ原子保存する。cache entry は
+//! repository identity + content SHA-256 の sidecar に bind し、fork 間で
+//! 同一 tag の cache を誤再利用しない。検証済み cache の 2 回目以降の読み取り
 //! (offline 含む) は network を行わない。cache が無い状態での取得失敗
 //! (offline 初回 / 404) は fail-closed に error を返す。
 //! path source (checkout / Local) の file 読み取りは従来どおり local
@@ -11,14 +12,37 @@
 
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
 use crate::error::{Error, Result};
 use crate::manifest::Manifest;
-use crate::source::{github_slug, SourceState};
+use crate::source::{classify_release_tag, github_slug, SourceState};
 use crate::state::StateStore;
+
+const CACHE_PROVENANCE_SCHEMA: u32 = 1;
+const CACHE_PROVENANCE_SUFFIX: &str = ".schneeforge-cache.json";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct CacheProvenance {
+    schema: u32,
+    repository: String,
+    sha256: String,
+}
 
 /// tag pinned の raw file URL
 /// (`raw.githubusercontent.com/<owner>/<repo>/<tag>/<file>`)
 pub fn raw_url(remote: &str, tag: &str, file: &str) -> Result<String> {
+    if classify_release_tag(tag).is_none() {
+        return Err(Error::Precondition(format!(
+            "invalid managed release tag: {tag}"
+        )));
+    }
+    if !is_safe_cache_component(tag) || !is_safe_cache_file(file) {
+        return Err(Error::Precondition(format!(
+            "invalid tag or file name: {tag}/{file}"
+        )));
+    }
     let (owner, repo) = github_slug(remote).ok_or_else(|| {
         Error::Precondition(format!(
             "cannot resolve owner/repo from repository URL: {remote}"
@@ -30,13 +54,100 @@ pub fn raw_url(remote: &str, tag: &str, file: &str) -> Result<String> {
 }
 
 /// repo file cache の保存先 (`<base>/sources/<tag>/<file>`)
-pub fn cache_path(cache_base: &Path, tag: &str, file: &str) -> PathBuf {
+fn cache_path(cache_base: &Path, tag: &str, file: &str) -> PathBuf {
     cache_base.join("sources").join(tag).join(file)
 }
 
-/// managed source の file cache があるか (offline で読み取れるかの目安)
+fn cache_provenance_path(cache_base: &Path, tag: &str, file: &str) -> PathBuf {
+    cache_base
+        .join("sources")
+        .join(tag)
+        .join(format!("{file}{CACHE_PROVENANCE_SUFFIX}"))
+}
+
+fn repository_identity(remote: &str) -> Result<String> {
+    let (owner, repo) = github_slug(remote).ok_or_else(|| {
+        Error::Precondition(format!(
+            "cannot resolve owner/repo from repository URL: {remote}"
+        ))
+    })?;
+    Ok(format!(
+        "{}/{}",
+        owner.to_ascii_lowercase(),
+        repo.to_ascii_lowercase()
+    ))
+}
+
+fn sha256_text(content: &str) -> String {
+    let digest = Sha256::digest(content.as_bytes());
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn is_safe_cache_component(value: &str) -> bool {
+    !value.is_empty()
+        && value != "."
+        && value != ".."
+        && !value.contains("..")
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'))
+}
+
+fn is_safe_cache_file(file: &str) -> bool {
+    is_safe_cache_component(file) && !file.ends_with(CACHE_PROVENANCE_SUFFIX)
+}
+
+fn read_verified_cache(
+    repository: &str,
+    tag: &str,
+    file: &str,
+    cache_base: &Path,
+) -> Option<String> {
+    if !is_safe_cache_component(tag) || !is_safe_cache_file(file) {
+        return None;
+    }
+    let path = cache_path(cache_base, tag, file);
+    let provenance_path = cache_provenance_path(cache_base, tag, file);
+    let content = std::fs::read_to_string(path).ok()?;
+    let provenance_text = std::fs::read_to_string(provenance_path).ok()?;
+    let provenance: CacheProvenance = serde_json::from_str(&provenance_text).ok()?;
+
+    if provenance.schema != CACHE_PROVENANCE_SCHEMA
+        || provenance.repository != repository
+        || provenance.sha256 != sha256_text(&content)
+    {
+        return None;
+    }
+    Some(content)
+}
+
+/// managed source の file cache があるか (offline で読み取れるかの目安)。
+/// repository identity + digest を検証できる entry だけを cache とみなす。
 pub fn has_cached_files(source: &SourceState, cache_base: &Path) -> bool {
-    cache_base.join("sources").join(&source.ref_).is_dir()
+    if source.validate_managed_release().is_err()
+        || classify_release_tag(&source.ref_).is_none()
+        || !is_safe_cache_component(&source.ref_)
+    {
+        return false;
+    }
+    let remote = source.remote_url();
+    let Ok(repository) = repository_identity(&remote) else {
+        return false;
+    };
+    let dir = cache_base.join("sources").join(&source.ref_);
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+
+    entries.filter_map(std::result::Result::ok).any(|entry| {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let Some(file) = name.strip_suffix(CACHE_PROVENANCE_SUFFIX) else {
+            return false;
+        };
+        is_safe_cache_file(file)
+            && read_verified_cache(&repository, &source.ref_, file, cache_base).is_some()
+    })
 }
 
 /// managed source の repo file を読み取る。cache があればそれを返し
@@ -49,23 +160,51 @@ pub fn read_managed_file_with(
     cache_base: &Path,
     fetch: &dyn Fn(&str) -> std::result::Result<String, String>,
 ) -> Result<String> {
+    source.validate_managed_release()?;
     let tag = &source.ref_;
-    if tag.contains('/') || tag.contains("..") || file.contains('/') || file.contains("..") {
-        return Err(Error::Precondition(format!(
-            "invalid tag or file name: {tag}/{file}"
-        )));
+    let remote = source.remote_url();
+    // Validate the immutable release-tag boundary before consulting cache.
+    let url = raw_url(&remote, tag, file)?;
+    let repository = repository_identity(&remote)?;
+    if let Some(content) = read_verified_cache(&repository, tag, file, cache_base) {
+        return Ok(content);
     }
-    let path = cache_path(cache_base, tag, file);
-    if path.is_file() {
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            return Ok(content);
-        }
-    }
-    let url = raw_url(&source.remote_url(), tag, file)?;
     let content = fetch(&url)
         .map_err(|e| Error::Precondition(format!("failed to fetch repo file {url}: {e}")))?;
+    let path = cache_path(cache_base, tag, file);
+    let provenance_path = cache_provenance_path(cache_base, tag, file);
+
+    // Existing provenance must not survive a content replacement. If the process
+    // stops before the new sidecar is written, the next read treats the entry as
+    // an untrusted cache miss instead of returning mismatched content.
+    match std::fs::remove_file(&provenance_path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(Error::Io(format!(
+                "invalidate cache provenance {}: {e}",
+                provenance_path.display()
+            )));
+        }
+    }
+
     crate::machine::atomic_write(&path, &content)
         .map_err(|e| Error::Io(format!("write cache {}: {e}", path.display())))?;
+
+    let provenance = CacheProvenance {
+        schema: CACHE_PROVENANCE_SCHEMA,
+        repository,
+        sha256: sha256_text(&content),
+    };
+    let provenance_json = serde_json::to_string(&provenance)
+        .map_err(|e| Error::Io(format!("serialize cache provenance: {e}")))?;
+    crate::machine::atomic_write(&provenance_path, &provenance_json).map_err(|e| {
+        Error::Io(format!(
+            "write cache provenance {}: {e}",
+            provenance_path.display()
+        ))
+    })?;
+
     Ok(content)
 }
 
@@ -94,7 +233,7 @@ pub fn load_manifest_for_with(
     fetch: &dyn Fn(&str) -> std::result::Result<String, String>,
 ) -> Result<Manifest> {
     let managed = store
-        .load()
+        .load()?
         .and_then(|s| s.source)
         .filter(|s| s.is_managed_release());
     match managed {
@@ -115,12 +254,16 @@ mod tests {
     const MANIFEST_TOML: &str = "schema = 1\n[profiles]\ndefault = \"developer\"\navailable = [\"minimal\", \"developer\"]\n";
 
     fn managed_source(tag: &str) -> SourceState {
+        managed_source_from("https://github.com/Lamy210/nix_setting.git", tag)
+    }
+
+    fn managed_source_from(remote: &str, tag: &str) -> SourceState {
         SourceState {
             kind: SourceKind::ReleaseStable,
             ref_: tag.to_string(),
             channel: Some("stable".to_string()),
             managed: true,
-            remote: Some("https://github.com/Lamy210/nix_setting.git".to_string()),
+            remote: Some(remote.to_string()),
             revision: None,
         }
     }
@@ -160,12 +303,71 @@ mod tests {
             "https://raw.githubusercontent.com/Lamy210/nix_setting/v0.2.0/schneeforge.toml"
         );
         assert!(raw_url("https://gitlab.com/a/b.git", "v0.2.0", "f").is_err());
+        assert!(raw_url(
+            "https://github.com/Lamy210/nix_setting.git",
+            "../main",
+            "schneeforge.toml"
+        )
+        .is_err());
+        assert!(
+            raw_url(
+                "https://github.com/Lamy210/nix_setting.git",
+                "main",
+                "schneeforge.toml"
+            )
+            .is_err(),
+            "managed repo-file reads require an immutable release tag"
+        );
+        assert!(raw_url(
+            "https://github.com/Lamy210/nix_setting.git",
+            "v0.2.0",
+            "nested\\schneeforge.toml"
+        )
+        .is_err());
+        assert!(raw_url(
+            "https://github.com/Lamy210/nix_setting.git",
+            "v0.2.0",
+            "C:state.json"
+        )
+        .is_err());
+        assert!(raw_url(
+            "https://github.com/Lamy210/nix_setting.git",
+            "v0.2.0",
+            "%2e%2e%2fstate.json"
+        )
+        .is_err());
+        assert!(
+            raw_url(
+                "https://github.com/Lamy210/nix_setting.git",
+                "v0.2.0",
+                "schneeforge.toml.schneeforge-cache.json"
+            )
+            .is_err(),
+            "provenance sidecar namespace is reserved"
+        );
     }
 
     #[test]
     fn cache_path_is_under_sources_tag() {
         let p = cache_path(Path::new("/base"), "v0.2.0", "schneeforge.toml");
         assert_eq!(p, Path::new("/base/sources/v0.2.0/schneeforge.toml"));
+    }
+
+    #[test]
+    fn managed_file_read_rejects_kind_tag_mismatch_before_cache_or_network() {
+        let dir = temp_dir("kind-tag-mismatch");
+        let mut source = managed_source("v0.2.0-rc.1");
+        source.kind = crate::source::SourceKind::ReleaseStable;
+        source.channel = Some("stable".to_string());
+
+        let fetch = |_url: &str| -> std::result::Result<String, String> {
+            panic!("invalid managed source must fail before network")
+        };
+        let err = read_managed_file_with(&source, "schneeforge.toml", &dir, &fetch).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("does not match"), "{err}");
+        assert!(!has_cached_files(&source, &dir));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -180,8 +382,10 @@ mod tests {
         };
         let first = read_managed_file_with(&source, "schneeforge.toml", &dir, &fetch).unwrap();
         assert_eq!(first, MANIFEST_TOML);
-        // cache が保存されている
+        // content + provenance が保存されている
         assert!(cache_path(&dir, "v0.2.0", "schneeforge.toml").is_file());
+        assert!(cache_provenance_path(&dir, "v0.2.0", "schneeforge.toml").is_file());
+        assert!(has_cached_files(&source, &dir));
         // 2 回目は fetch が呼ばれない (network 不要)
         let second = read_managed_file_with(&source, "schneeforge.toml", &dir, &fetch).unwrap();
         assert_eq!(second, MANIFEST_TOML);
@@ -223,8 +427,19 @@ mod tests {
         };
         let mut source = managed_source("v0.2.0/../../etc");
         assert!(read_managed_file_with(&source, "schneeforge.toml", &dir, &fetch).is_err());
+        assert!(!has_cached_files(&source, &dir));
+
+        source = managed_source("v0.2.0\\..\\etc");
+        assert!(read_managed_file_with(&source, "schneeforge.toml", &dir, &fetch).is_err());
+        assert!(!has_cached_files(&source, &dir));
+
+        source = managed_source("main");
+        assert!(read_managed_file_with(&source, "schneeforge.toml", &dir, &fetch).is_err());
+        assert!(!has_cached_files(&source, &dir));
+
         source = managed_source("v0.2.0");
         assert!(read_managed_file_with(&source, "../state.json", &dir, &fetch).is_err());
+        assert!(read_managed_file_with(&source, "nested\\state.json", &dir, &fetch).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -243,6 +458,19 @@ mod tests {
         // 2 回目は cache から (fetch 呼び出し回数は 1 のまま)
         load_manifest_for_with("/nonexistent/repo", &store, &dir, &fetch).unwrap();
         assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_manifest_rejects_corrupt_existing_state() {
+        let dir = temp_dir("manifest-corrupt-state");
+        let store = StateStore::new(dir.join("state.json"));
+        std::fs::write(store.path(), "{not-json").unwrap();
+        let fetch = |_url: &str| -> std::result::Result<String, String> {
+            panic!("corrupt state must fail before source fallback/fetch");
+        };
+        let err = load_manifest_for_with("/tmp/fallback-repo", &store, &dir, &fetch).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -273,12 +501,108 @@ mod tests {
     }
 
     #[test]
-    fn has_cached_files_checks_tag_dir() {
+    fn has_cached_files_requires_verified_provenance() {
         let dir = temp_dir("has-cache");
         let source = managed_source("v0.2.0");
         assert!(!has_cached_files(&source, &dir));
-        std::fs::create_dir_all(cache_path(&dir, "v0.2.0", "schneeforge.toml")).unwrap();
+
+        let path = cache_path(&dir, "v0.2.0", "schneeforge.toml");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, MANIFEST_TOML).unwrap();
+        assert!(
+            !has_cached_files(&source, &dir),
+            "legacy content without provenance must not be reported as trusted cache"
+        );
+
+        let malicious_sidecar = dir
+            .join("sources")
+            .join("v0.2.0")
+            .join(format!("....{CACHE_PROVENANCE_SUFFIX}"));
+        std::fs::write(
+            malicious_sidecar,
+            r#"{"schema":1,"repository":"lamy210/nix_setting","sha256":"ignored"}"#,
+        )
+        .unwrap();
+        assert!(
+            !has_cached_files(&source, &dir),
+            "sidecar-derived file names must be validated before cache lookup"
+        );
+
+        let ok =
+            |_url: &str| -> std::result::Result<String, String> { Ok(MANIFEST_TOML.to_string()) };
+        read_managed_file_with(&source, "schneeforge.toml", &dir, &ok).unwrap();
         assert!(has_cached_files(&source, &dir));
+
+        std::fs::write(&path, "tampered").unwrap();
+        assert!(
+            !has_cached_files(&source, &dir),
+            "digest mismatch must invalidate cache availability"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn same_tag_from_different_repository_never_reuses_cache() {
+        let dir = temp_dir("fork-collision");
+        let source_a =
+            managed_source_from("https://github.com/example-a/nix_setting.git", "v0.2.0");
+        let source_b =
+            managed_source_from("https://github.com/example-b/nix_setting.git", "v0.2.0");
+
+        let fetch_a = |url: &str| -> std::result::Result<String, String> {
+            assert!(url.contains("/example-a/nix_setting/"), "{url}");
+            Ok("from-a".to_string())
+        };
+        assert_eq!(
+            read_managed_file_with(&source_a, "schneeforge.toml", &dir, &fetch_a).unwrap(),
+            "from-a"
+        );
+
+        let offline =
+            |url: &str| -> std::result::Result<String, String> { Err(format!("offline: {url}")) };
+        let err =
+            read_managed_file_with(&source_b, "schneeforge.toml", &dir, &offline).unwrap_err();
+        assert!(
+            err.to_string().contains("failed to fetch"),
+            "fork B must not receive fork A cache: {err}"
+        );
+        assert!(!has_cached_files(&source_b, &dir));
+
+        let fetch_b = |url: &str| -> std::result::Result<String, String> {
+            assert!(url.contains("/example-b/nix_setting/"), "{url}");
+            Ok("from-b".to_string())
+        };
+        assert_eq!(
+            read_managed_file_with(&source_b, "schneeforge.toml", &dir, &fetch_b).unwrap(),
+            "from-b"
+        );
+        assert_eq!(
+            read_managed_file_with(&source_b, "schneeforge.toml", &dir, &offline).unwrap(),
+            "from-b"
+        );
+
+        let err =
+            read_managed_file_with(&source_a, "schneeforge.toml", &dir, &offline).unwrap_err();
+        assert!(
+            err.to_string().contains("failed to fetch"),
+            "fork A must not receive fork B cache: {err}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tampered_cached_content_is_not_returned_offline() {
+        let dir = temp_dir("tampered-cache");
+        let source = managed_source("v0.2.0");
+        let ok =
+            |_url: &str| -> std::result::Result<String, String> { Ok(MANIFEST_TOML.to_string()) };
+        read_managed_file_with(&source, "schneeforge.toml", &dir, &ok).unwrap();
+
+        std::fs::write(cache_path(&dir, "v0.2.0", "schneeforge.toml"), "tampered").unwrap();
+        let offline =
+            |url: &str| -> std::result::Result<String, String> { Err(format!("offline: {url}")) };
+        let err = read_managed_file_with(&source, "schneeforge.toml", &dir, &offline).unwrap_err();
+        assert!(err.to_string().contains("failed to fetch"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

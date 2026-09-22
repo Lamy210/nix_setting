@@ -4,8 +4,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::process::run_capture;
+use crate::semver;
 use crate::tool::ResolvedTool;
 
 /// source の種別 (v2 設計 §5-§7)
@@ -28,6 +29,17 @@ impl SourceKind {
     /// release channel 系か (tag checkout で表現される source)
     pub fn is_release(&self) -> bool {
         matches!(self, SourceKind::ReleaseStable | SourceKind::ReleasePreview)
+    }
+
+    /// release kind が表す canonical channel。
+    /// persisted `SourceState.channel` は互換性のため残すが、実行時判定は
+    /// kind を source of truth として drift を避ける。
+    pub fn release_channel(&self) -> Option<&'static str> {
+        match self {
+            SourceKind::ReleaseStable => Some("stable"),
+            SourceKind::ReleasePreview => Some("preview"),
+            SourceKind::GitTracking | SourceKind::GitPinned | SourceKind::Local => None,
+        }
     }
 }
 
@@ -81,11 +93,47 @@ impl SourceState {
         self.remote.clone().unwrap_or_else(repo_url)
     }
 
+    /// persisted managed source が immutable release source として整合するか検証する。
+    ///
+    /// managed=true は release source 専用で、ref は valid v<SemVer> tag、
+    /// tag の stable/preview 分類は SourceKind と一致しなければならない。
+    /// remote の transport / GitHub flake 可否は利用境界ごとに別途検証する。
+    pub fn validate_managed_release(&self) -> Result<()> {
+        if !self.managed {
+            return Ok(());
+        }
+        if !self.kind.is_release() {
+            return Err(Error::State(format!(
+                "managed source kind {} is not a release kind",
+                self.kind
+            )));
+        }
+        let (tag_kind, _) = classify_release_tag(&self.ref_).ok_or_else(|| {
+            Error::State(format!(
+                "managed source ref {} is not a valid release tag",
+                self.ref_
+            ))
+        })?;
+        if tag_kind != self.kind {
+            return Err(Error::State(format!(
+                "managed source kind {} does not match release tag {} ({tag_kind})",
+                self.kind, self.ref_
+            )));
+        }
+        let remote = self.remote_url();
+        if github_slug(&remote).is_none() {
+            return Err(Error::State(format!(
+                "managed source repository URL is not a supported GitHub repository: {remote}"
+            )));
+        }
+        Ok(())
+    }
+
     /// managed source の flake ref (`github:<owner>/<repo>/<tag>`)。
-    /// managed でない Release や URL から owner/repo が解決できない
-    /// 場合は None
+    /// invariant を満たさない managed state は None とし、effectful caller は
+    /// validate_managed_release / effective_ref で structured error にする。
     pub fn flake_ref(&self) -> Option<String> {
-        if !self.is_managed_release() {
+        if !self.is_managed_release() || self.validate_managed_release().is_err() {
             return None;
         }
         let (owner, repo) = github_slug(&self.remote_url())?;
@@ -132,12 +180,22 @@ fn is_slug_component(s: &str) -> bool {
 
 /// nix 引数に渡す repository 参照。state が managed Release を示す場合は
 /// flake ref (`github:<owner>/<repo>/<tag>`)、それ以外は path をそのまま返す
-pub fn effective_ref(repo: &str, store: &crate::state::StateStore) -> String {
-    store
-        .load()
-        .and_then(|s| s.source)
-        .and_then(|src| src.flake_ref())
-        .unwrap_or_else(|| repo.to_string())
+pub fn effective_ref(repo: &str, store: &crate::state::StateStore) -> Result<String> {
+    let source = store.load()?.and_then(|s| s.source);
+    let Some(source) = source else {
+        return Ok(repo.to_string());
+    };
+    if !source.managed {
+        return Ok(repo.to_string());
+    }
+
+    source.validate_managed_release()?;
+    let remote = source.remote_url();
+    source.flake_ref().ok_or_else(|| {
+        Error::State(format!(
+            "managed source repository URL is not a supported GitHub repository: {remote}"
+        ))
+    })
 }
 
 /// checkout の実態から SourceKind を解決する
@@ -223,7 +281,8 @@ impl SourceResolver {
         stored: Option<&SourceState>,
     ) -> Result<SourceState> {
         if let Some(state) = stored {
-            if state.is_managed_release() {
+            if state.managed {
+                state.validate_managed_release()?;
                 return Ok(state.clone());
             }
         }
@@ -276,85 +335,40 @@ fn git_output(repo: &str, git: &ResolvedTool, args: &[&str]) -> Result<String> {
     run_capture(&git.path, &cmd_args)
 }
 
-/// release tag 名を分類する。`v` prefix + semver なら
+/// release tag 名を分類する。`v` prefix + SemVer なら
 /// prerelease suffix の有無で Stable/Preview を返す。
 /// managed source の設定時に tag から channel を導出するため public
 pub fn classify_release_tag(tag: &str) -> Option<(SourceKind, &'static str)> {
     let version = tag.strip_prefix('v')?;
-    if !is_semverish(version) {
-        return None;
-    }
-    if is_prerelease(version) {
+    if semver::is_prerelease(version)? {
         Some((SourceKind::ReleasePreview, "preview"))
     } else {
         Some((SourceKind::ReleaseStable, "stable"))
     }
 }
 
-/// `X.Y.Z` で始まる緩い semver 判定 (`0.2.0`, `0.2.0-rc.5` 等)
-fn is_semverish(version: &str) -> bool {
-    let core = version.split(['-', '+']).next().unwrap_or("");
-    let parts: Vec<&str> = core.split('.').collect();
-    if parts.len() != 3 {
-        return false;
-    }
-    parts
-        .iter()
-        .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
-}
-
-/// prerelease suffix (`-rc.N`, `-beta.N` 等) の有無
-fn is_prerelease(version: &str) -> bool {
-    version.contains('-')
-}
-
 /// 候補 tag 列から channel に合う最新 tag を選ぶ純関数。
 /// stable は prerelease を含まない。preview は prerelease のみ。
-/// 同一 channel 内で semver 降順の先頭が最新。
+/// 同一 channel 内で SemVer precedence の最大値を最新とする。
+/// 未対応 channel は stable へフォールバックせず fail-closed に None。
 pub fn latest_tag_for_channel<'a>(tags: &'a [String], channel: &str) -> Option<&'a String> {
-    let is_preview = channel == "preview";
+    let is_preview = match channel {
+        "stable" => false,
+        "preview" => true,
+        _ => return None,
+    };
     tags.iter()
-        .filter(|t| {
-            let version = match t.strip_prefix('v') {
-                Some(v) => v,
-                None => return false,
-            };
-            if !is_semverish(version) {
+        .filter(|tag| {
+            let Some(version) = tag.strip_prefix('v') else {
                 return false;
-            }
-            is_prerelease(version) == is_preview
+            };
+            semver::is_prerelease(version).is_some_and(|preview| preview == is_preview)
         })
-        .max_by_key(|t| version_sort_key(t))
-}
-
-/// tag 名を version 比較用の key へ変換する。
-/// `v0.10.0` > `v0.9.0` が辞書順で破綻しないよう数値は桁揃えする。
-fn version_sort_key(tag: &str) -> Vec<(u32, String)> {
-    let version = tag.strip_prefix('v').unwrap_or(tag);
-    let mut parts: Vec<(u32, String)> = Vec::new();
-    let mut iter = version.splitn(3, '.');
-    for _ in 0..3 {
-        match iter.next() {
-            Some(p) => {
-                let num: u32 = p
-                    .split(['-', '+'])
-                    .next()
-                    .unwrap_or("")
-                    .parse()
-                    .unwrap_or(0);
-                parts.push((num, String::new()));
-            }
-            None => parts.push((0, String::new())),
-        }
-    }
-    if let Some(last) = parts.last_mut() {
-        last.1 = version
-            .split_once('.')
-            .and_then(|(_, rest)| rest.split_once('.'))
-            .map(|(_, suffix)| suffix.to_string())
-            .unwrap_or_default();
-    }
-    parts
+        .max_by(|a, b| {
+            let a = a.strip_prefix('v').expect("filtered release tag");
+            let b = b.strip_prefix('v').expect("filtered release tag");
+            semver::compare(a, b).expect("filtered valid semver")
+        })
 }
 
 #[cfg(test)]
@@ -434,6 +448,18 @@ mod tests {
     }
 
     #[test]
+    fn release_kind_exposes_canonical_channel() {
+        assert_eq!(SourceKind::ReleaseStable.release_channel(), Some("stable"));
+        assert_eq!(
+            SourceKind::ReleasePreview.release_channel(),
+            Some("preview")
+        );
+        assert_eq!(SourceKind::GitTracking.release_channel(), None);
+        assert_eq!(SourceKind::GitPinned.release_channel(), None);
+        assert_eq!(SourceKind::Local.release_channel(), None);
+    }
+
+    #[test]
     fn classify_stable_and_preview_tags() {
         assert_eq!(
             classify_release_tag("v0.2.0"),
@@ -443,8 +469,29 @@ mod tests {
             classify_release_tag("v0.5.0-rc.2"),
             Some((SourceKind::ReleasePreview, "preview"))
         );
+        assert_eq!(
+            classify_release_tag("v1.2.3+build.5"),
+            Some((SourceKind::ReleaseStable, "stable"))
+        );
         assert_eq!(classify_release_tag("experiment"), None);
         assert_eq!(classify_release_tag("1.2.3"), None); // v prefix 無し
+
+        for invalid in [
+            "v01.2.3",
+            "v1.02.3",
+            "v1.2.03",
+            "v1.2.3-01",
+            "v1.2.3-alpha..1",
+            "v1٢.2.3",
+            "v1.2.3-",
+            "v1.2",
+        ] {
+            assert_eq!(
+                classify_release_tag(invalid),
+                None,
+                "{invalid} must not be accepted as a release tag"
+            );
+        }
     }
 
     #[test]
@@ -518,23 +565,29 @@ mod tests {
     }
 
     #[test]
-    fn latest_tag_filters_channel_and_sorts() {
+    fn latest_tag_filters_channel_and_sorts_by_semver_precedence() {
         let tags = vec![
             "v0.2.0".to_string(),
             "v0.10.0".to_string(),
             "v0.9.0".to_string(),
-            "v0.11.0-rc.1".to_string(),
+            "v0.11.0-rc.9".to_string(),
+            "v0.11.0-rc.10".to_string(),
+            "v0.11.0-10".to_string(),
+            "v0.11.0-alpha".to_string(),
+            "v00.12.0".to_string(),
+            "v0.12.0-01".to_string(),
             "experiment".to_string(),
         ];
-        assert_eq!(
-            latest_tag_for_channel(&tags, "stable"),
-            Some(&"v0.10.0".to_string())
-        );
+        assert_eq!(latest_tag_for_channel(&tags, "stable"), Some(&tags[1]));
         assert_eq!(
             latest_tag_for_channel(&tags, "preview"),
-            Some(&"v0.11.0-rc.1".to_string())
+            Some(&"v0.11.0-rc.10".to_string())
         );
-        assert_eq!(latest_tag_for_channel(&tags, "stable"), Some(&tags[1]));
+        assert_eq!(
+            latest_tag_for_channel(&tags, "unsupported"),
+            None,
+            "unsupported channels must not fall back to stable"
+        );
     }
 
     #[test]
@@ -673,7 +726,7 @@ mod tests {
         let store = crate::state::StateStore::new(dir.join("state.json"));
 
         // managed でない場合は path をそのまま返す
-        assert_eq!(effective_ref("/tmp/repo", &store), "/tmp/repo");
+        assert_eq!(effective_ref("/tmp/repo", &store).unwrap(), "/tmp/repo");
 
         let mut state = crate::state::State {
             source: Some(managed_state(SourceKind::ReleaseStable, "v0.2.0", "stable")),
@@ -681,9 +734,39 @@ mod tests {
         };
         store.save(&state).unwrap();
         assert_eq!(
-            effective_ref("/tmp/repo", &store),
+            effective_ref("/tmp/repo", &store).unwrap(),
             "github:Lamy210/nix_setting/v0.2.0"
         );
+
+        // managed state は mutable ref / kind-tag mismatch を local path へ fallback しない
+        state.source = Some(managed_state(SourceKind::ReleaseStable, "main", "stable"));
+        store.save(&state).unwrap();
+        let err = effective_ref("/tmp/repo", &store).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("valid release tag"), "{err}");
+
+        state.source = Some(managed_state(
+            SourceKind::ReleaseStable,
+            "v0.3.0-rc.1",
+            "stable",
+        ));
+        store.save(&state).unwrap();
+        let err = effective_ref("/tmp/repo", &store).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("does not match"), "{err}");
+
+        state.source = Some(SourceState {
+            kind: SourceKind::ReleaseStable,
+            ref_: "v0.3.0".to_string(),
+            channel: Some("stable".to_string()),
+            managed: true,
+            remote: Some("/tmp/local-origin".to_string()),
+            revision: None,
+        });
+        store.save(&state).unwrap();
+        let err = effective_ref("/tmp/repo", &store).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("GitHub repository"), "{err}");
 
         // checkout 表現の source が記録されていても path のまま
         state.source = Some(SourceState {
@@ -695,7 +778,7 @@ mod tests {
             revision: None,
         });
         store.save(&state).unwrap();
-        assert_eq!(effective_ref("/tmp/repo", &store), "/tmp/repo");
+        assert_eq!(effective_ref("/tmp/repo", &store).unwrap(), "/tmp/repo");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -708,6 +791,35 @@ mod tests {
             .resolve(dir.to_str().unwrap(), &resolved_git(), Some(&stored))
             .unwrap();
         assert_eq!(resolved, stored);
+
+        let invalid_managed = managed_state(SourceKind::ReleasePreview, "v0.2.0", "preview");
+        let err = SourceResolver::new()
+            .resolve(
+                dir.to_str().unwrap(),
+                &resolved_git(),
+                Some(&invalid_managed),
+            )
+            .unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("does not match"), "{err}");
+
+        let invalid_remote = SourceState {
+            kind: SourceKind::ReleaseStable,
+            ref_: "v0.2.0".to_string(),
+            channel: Some("stable".to_string()),
+            managed: true,
+            remote: Some("/tmp/local-origin".to_string()),
+            revision: None,
+        };
+        let err = SourceResolver::new()
+            .resolve(
+                dir.to_str().unwrap(),
+                &resolved_git(),
+                Some(&invalid_remote),
+            )
+            .unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("GitHub repository"), "{err}");
 
         // managed でない state (旧 state.json 相当) は checkout 検出に fallthrough
         let checkout_state = SourceState {

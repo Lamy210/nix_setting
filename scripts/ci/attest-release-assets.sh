@@ -50,9 +50,12 @@ for artifact in "$@"; do
     --bundle "${OUT_DIR}/${name}.provenance.bundle" \
     "$artifact"
 
-  # 3. SPDX SBOM (CLI binary のみ。syft は UDIF (DMG) を scan できない)
+  # 3. SPDX SBOM。実行/アプリ archive は scan するが、DMG・Tauri
+  # signature・latest.json は package payload ではないため対象外。
   case "$name" in
-  *.dmg) echo "    (skip SBOM: syft cannot scan DMG)" ;;
+  *.dmg | *.sig | latest.json)
+    echo "    (skip SBOM for metadata/container artifact: $name)"
+    ;;
   *)
     nix run nixpkgs#syft -- scan "$artifact" -o "spdx-json=${OUT_DIR}/${name}.spdx.json" >/dev/null
     ;;

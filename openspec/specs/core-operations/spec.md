@@ -480,30 +480,90 @@ source の実体は flake ref `github:<owner>/<repo>/<tag>` であり、nix が
 ### Requirement: repo file の tag-pinned 取得
 
 core SHALL は managed source について、repo file (`schneeforge.toml` /
-`bootstrap-manifest.toml` 等) を tag pinned で取得できる。取得は
-`raw.githubusercontent.com/<owner>/<repo>/<tag>/<file>` とし、結果は
-state dir (`sources/<tag>/`) へ原子保存する。tag は不変のため一度
-保存した cache は無期限に有効で、2 回目以降の読み取りは network を
-行わない。path source (checkout / Local) の file 読み取りは従来どおり
-local filesystem を使う。
+`bootstrap-manifest.toml` 等) を release tag pinned で取得できる。取得は
+`raw.githubusercontent.com/<owner>/<repo>/<tag>/<file>` とする。
+
+cache content は state dir の `sources/<tag>/<file>` に原子保存し、各
+entry は repository identity と content SHA-256 を持つ provenance
+sidecar で検証する。repository / digest / provenance schema のすべてが
+一致する verified cache のみを cache hit として扱う。verified cache は
+2 回目以降 network を行わず offline でも利用できる。
+
+provenance を持たない legacy cache、repository 不一致、digest 不一致、
+未対応 provenance schema は cache miss として扱い、network から再取得
+できなければ fail-closed に error を返す。
+
+managed repo-file の ref は valid `v<SemVer>` release tag に限定し、
+mutable ref や path traversal に利用できる tag/file component は拒否する。
+path source (checkout / Local) の file 読み取りは従来どおり local
+filesystem を使う。
+
+#### Scenario: 初回取得と verified cache
+
+- **WHEN** managed source の `schneeforge.toml` に verified cache が無い状態で読み取られる
+- **THEN** release tag pinned URL から取得する
+- **AND** content と repository/digest provenance を state dir へ保存する
+- **WHEN** 同じ repository / tag / file を再度読み取る
+- **THEN** verified cache から返し network には行かない
 
 #### Scenario: 初回取得と cache
 
-- **WHEN** managed source の `schneeforge.toml` が未 cache の状態で
-  読み取られる
-- **THEN** tag pinned で取得して state dir へ保存し、内容を返す
-- **WHEN** 同 tag で再度読み取られる
-- **THEN** cache から返し network には行かない
+- **WHEN** managed source の `schneeforge.toml` が未 cache の状態で読み取られる
+- **THEN** release tag pinned URL から取得して state dir へ content と provenance を保存し、内容を返す
+- **WHEN** 同 repository / tag で再度読み取られる
+- **THEN** verified cache から返し network には行かない
 
 #### Scenario: offline
 
-- **WHEN** cache が存在する状態で offline で読み取られる
-- **THEN** cache から返す (error にしない)
+- **WHEN** verified cache が存在する状態で offline で読み取られる
+- **THEN** repository identity と content digest を検証した cache から返す
+- **AND** verified cache が存在しない場合は error を返す
 
 #### Scenario: 取得失敗
 
-- **WHEN** cache が無く取得に失敗する (offline 初回 / 404)
+- **WHEN** verified cache が無く取得に失敗する (offline 初回 / 404)
 - **THEN** fail-closed に error を返す
+
+#### Scenario: verified cache の offline 利用
+
+- **WHEN** repository identity と content digest が一致する verified cache が存在する
+- **AND** network が利用できない
+- **THEN** cache から内容を返す
+
+#### Scenario: 同じ tag を持つ別 repository
+
+- **WHEN** repository A の tag `vX.Y.Z` cache が存在する
+- **AND** source が repository B の同じ tag へ切り替わる
+- **THEN** repository A の cache を repository B の content として返さない
+- **AND** repository B を fetch できなければ error を返す
+
+#### Scenario: cache content の tamper / corruption
+
+- **WHEN** cached content の SHA-256 が provenance と一致しない
+- **THEN** cache hit として返さない
+- **AND** network から再取得できなければ error を返す
+
+#### Scenario: legacy cache
+
+- **WHEN** content file は存在するが provenance sidecar が存在しない
+- **THEN** legacy cache を untrusted miss として扱う
+- **AND** network が利用可能なら再取得して verified cache へ移行する
+- **AND** network が利用できなければ error を返す
+
+#### Scenario: mutable ref を cache boundary にしない
+
+- **WHEN** managed source ref が `main` 等の valid release SemVer tag ではない
+- **THEN** repo-file read は fetch/cache lookup の前に error を返す
+
+#### Scenario: unsafe path component
+
+- **WHEN** tag/file に traversal、path separator、percent-encoded traversal、または provenance sidecar namespace と衝突する file name が指定される
+- **THEN** raw URL / cache path を使用する前に error を返す
+
+#### Scenario: path source
+
+- **WHEN** source が checkout または Local で managed release ではない
+- **THEN** repo file は従来どおり local filesystem から読み取る
 
 ### Requirement: 本体の自己更新
 
@@ -544,3 +604,61 @@ filesystem 上の temp file → rename で atomic に行い、検証失敗時は
 - **THEN** 手動更新 (`sudo` 実行または install.sh) を案内する structured
   error を返す
 
+### Requirement: State 読み込みの fail-closed semantics
+
+core SHALL distinguish an intentionally missing State file from an existing State file that cannot be trusted. Missing state is a valid uninitialized condition, while read or parse failure of an existing state MUST be surfaced as an error and MUST NOT be converted to an empty/default State.
+
+#### Scenario: State file が存在しない
+
+- **WHEN** `StateStore::load` is called and the state file does not exist
+- **THEN** it returns a successful missing-state result
+- **AND** callers may apply their documented first-run defaults
+
+#### Scenario: valid legacy State を読み込む
+
+- **WHEN** an existing state JSON is valid but omits newer optional fields such as `source` or `profile`
+- **THEN** it is loaded successfully
+- **AND** omitted compatible fields retain their existing default/None semantics
+
+#### Scenario: malformed State JSON
+
+- **WHEN** the state file exists but contains malformed or incompatible JSON
+- **THEN** `StateStore::load` returns a structured error
+- **AND** callers MUST NOT treat the state as missing or replace it with `State::default()`
+
+#### Scenario: State file の read failure
+
+- **WHEN** the state path exists but cannot be read as a state file
+- **THEN** `StateStore::load` returns a structured error
+- **AND** the error is distinguishable from a missing file
+
+### Requirement: State-dependent operation の fail-fast
+
+Operations that depend on persisted source/profile/state semantics SHALL load and validate existing State before performing effects that could mutate the machine, checkout, or persisted State. A state read failure MUST abort the operation rather than silently selecting checkout/default/stable behavior.
+
+#### Scenario: corrupt State で mutation を開始しない
+
+- **WHEN** an existing state file is unreadable or malformed
+- **AND** apply, rollback, update, source initialization, or profile mutation is requested
+- **THEN** the operation returns an error before its state-dependent external mutation begins
+- **AND** the existing state file is not overwritten with a default State
+
+#### Scenario: managed source を checkout へ fallback しない
+
+- **WHEN** an existing state file cannot be loaded
+- **AND** source resolution or managed repo-file loading is requested
+- **THEN** core returns a state error
+- **AND** it MUST NOT infer Local/Git checkout behavior from the missing in-memory State
+
+#### Scenario: corrupt State で stable channel を選ばない
+
+- **WHEN** an existing state file cannot be loaded
+- **AND** self-update or Dashboard release resolution needs the selected channel
+- **THEN** the caller receives an explicit state error
+- **AND** `stable` is not selected merely because State loading failed
+
+#### Scenario: read-only surface が corruption を未設定表示しない
+
+- **WHEN** status, diagnostics, source status, or Dashboard observes an existing invalid state file
+- **THEN** the surface reports the state read failure explicitly
+- **AND** it MUST NOT report the state as simply uninitialized or absent

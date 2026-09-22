@@ -4,6 +4,7 @@ const { listen } = window.__TAURI__.event;
 const $ = (id) => document.getElementById(id);
 
 let setupStep = 0;
+let appUpdaterEnabled = false;
 
 function row(key, val) {
   return `<div class="row"><span class="key">${key}</span><span class="val">${val}</span></div>`;
@@ -28,7 +29,10 @@ async function refresh() {
     $("profile").textContent = s.profile ?? "-";
     $("nix").textContent = s.tools.nix.available ? "yes" : "no";
     $("homebrew").textContent = s.tools.homebrew.available ? "yes" : "no";
-    $("applied").textContent = s.applied_revision ?? "(never)";
+    $("applied").textContent = s.state_error ? "(state unavailable)" : (s.applied_revision ?? "(never)");
+    if (s.state_error) {
+      $("output").textContent = `state error: ${s.state_error}`;
+    }
     // managed source では flake.lock 更新 (アップグレード) は core が
     // fail-closed で拒否するためボタンを隠す (checkout 表現では表示のまま)
     const upgradeBtn = $("upgrade");
@@ -74,7 +78,94 @@ async function refreshDashboard() {
     const linkBtn = $("dash-release-link");
     if (linkBtn) linkBtn.hidden = true;
   }
+  await refreshAppUpdaterCapability();
   await refreshProfileSelect();
+}
+
+async function refreshAppUpdaterCapability() {
+  const btn = $("app-update-check");
+  const status = $("app-update-status");
+  if (!btn || !status) return;
+
+  try {
+    const capability = await invoke("get_app_updater_capability");
+    appUpdaterEnabled = Boolean(capability.enabled);
+    btn.hidden = !appUpdaterEnabled;
+    status.textContent = appUpdaterEnabled ? "" : "";
+    btn.title = appUpdaterEnabled ? "署名済みアプリ更新を確認" : capability.reason ?? "";
+  } catch (e) {
+    appUpdaterEnabled = false;
+    btn.hidden = true;
+    status.textContent = "";
+  }
+}
+
+async function checkAndInstallAppUpdate() {
+  const btn = $("app-update-check");
+  const status = $("app-update-status");
+  if (!btn || !status || !appUpdaterEnabled) return;
+
+  btn.disabled = true;
+  status.textContent = "アプリ更新を確認しています...";
+  try {
+    const update = await invoke("fetch_app_update");
+    if (!update) {
+      status.textContent = "SchneeForge.app は最新です";
+      return;
+    }
+
+    const notes = update.notes ? `\n\n${update.notes}` : "";
+    const proceed = confirm(
+      `SchneeForge.app を v${update.currentVersion} から v${update.version} へ更新しますか?${notes}`
+    );
+    if (!proceed) {
+      status.textContent = `v${update.version} の更新をキャンセルしました`;
+      return;
+    }
+
+    let unlisten = null;
+    try {
+      unlisten = await listen("app-update-progress", (e) => {
+        const p = e.payload || {};
+        if (p.phase === "downloading") {
+          const total = p.contentLength
+            ? ` / ${p.contentLength} bytes`
+            : "";
+          status.textContent = `更新をダウンロード中: ${p.downloaded ?? 0}${total}`;
+        } else if (p.phase === "downloaded") {
+          status.textContent = "署名検証済み更新をインストールしています...";
+        } else if (p.phase === "installed") {
+          status.textContent = "更新をインストールしました";
+        }
+      });
+    } catch (_) {
+      // progress listener が使えなくても署名検証/install自体は継続する
+    }
+
+    let result;
+    try {
+      result = await invoke("install_app_update");
+    } finally {
+      if (unlisten) unlisten();
+    }
+    if (!result.success) {
+      throw new Error(result.output || "app update failed");
+    }
+
+    status.textContent = result.output;
+    $("output").textContent =
+      `${result.output}\n\n問題がある場合は GitHub Releases からDMGを手動取得できます。`;
+    if (confirm("更新を反映するため SchneeForge を再起動しますか?")) {
+      await invoke("restart_app");
+    }
+  } catch (e) {
+    status.textContent = `自動更新に失敗しました: ${e}`;
+    $("output").textContent =
+      `自動更新に失敗しました: ${e}\nGitHub Releases から手動更新できます。`;
+    // Releases link は既存 Dashboard state の fallback としてそのまま維持する。
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ---------- Releases 誘導 (GUI 自己更新 Step 1 / Option B(1)) ----------
@@ -593,7 +684,11 @@ async function boot() {
   // setup は「source が未初期化」(checkout 無し かつ managed source 無し) の
   // 場合のみ表示する。managed source だけで初期化済みの machine (repo 無し) は
   // main UI へ直接進む
-  if (s && !s.repo_exists && !s.managed_source) {
+  if (s && s.state_error) {
+    // Corrupt/unreadable state is not an uninitialized machine. Keep setup from
+    // overwriting semantic state and surface the backend error in the ready view.
+    showReady();
+  } else if (s && !s.repo_exists && !s.managed_source) {
     showSetup();
   } else {
     showReady();
@@ -620,6 +715,7 @@ $("update").addEventListener("click", async () => {
 $("verify").addEventListener("click", verify);
 $("nix-uninstall").addEventListener("click", nixUninstall);
 $("dash-release-link").addEventListener("click", openReleasePage);
+$("app-update-check").addEventListener("click", checkAndInstallAppUpdate);
 $("profile-set").addEventListener("click", switchProfile);
 $("profile-clear").addEventListener("click", clearProfile);
 

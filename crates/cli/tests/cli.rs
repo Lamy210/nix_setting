@@ -483,6 +483,29 @@ fn origin_repo(dir: &std::path::Path, tags: &[&str]) -> std::path::PathBuf {
     origin
 }
 
+const TEST_MANAGED_REPO_URL: &str = "https://github.com/Lamy210/nix_setting.git";
+
+/// managed source invariant は GitHub URL を要求する一方、integration test は
+/// network-free に保つ。Git の url.<base>.insteadOf だけを process-local な
+/// GIT_CONFIG_GLOBAL 経由で差し込み、GitHub URL の ls-remote を local origin
+/// へ rewrite する。
+fn git_rewrite_config(dir: &std::path::Path, origin: &std::path::Path) -> std::path::PathBuf {
+    let origin = origin.canonicalize().unwrap();
+    let normalized = origin.to_string_lossy().replace('\\', "/");
+    let file_url = if normalized.starts_with('/') {
+        format!("file://{normalized}")
+    } else {
+        format!("file:///{normalized}")
+    };
+    let config = dir.join("gitconfig");
+    std::fs::write(
+        &config,
+        format!("[url \"{file_url}\"]\n\tinsteadOf = {TEST_MANAGED_REPO_URL}\n"),
+    )
+    .unwrap();
+    config
+}
+
 /// state.json に source を直接書き込む (XDG_STATE_HOME 配下)
 fn write_source_state(dir: &std::path::Path, source_json: &str) {
     let state_dir = dir.join("schneeforge");
@@ -495,9 +518,8 @@ fn write_source_state(dir: &std::path::Path, source_json: &str) {
 }
 
 /// v2 §7: `source init --tag` は managed source を state に設定する。
-/// tag 解決の ls-remote は SCHNEEFORGE_REPO_URL を local origin へ向けて
-/// network 無しで実行する。metadata asset が無い tag は警告付き skip のため
-/// offline でも成功する
+/// state/env には production contract と同じ GitHub URL を使い、Git の
+/// insteadOf 設定だけ local origin へ向けて network-free に tag 解決する。
 #[test]
 fn source_init_with_tag_sets_managed_state() {
     if !git_available() {
@@ -506,13 +528,15 @@ fn source_init_with_tag_sets_managed_state() {
     }
     let dir = cli_dir("init-tag");
     let origin = origin_repo(&dir, &["v0.1.0"]);
+    let git_config = git_rewrite_config(&dir, &origin);
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("source")
         .arg("init")
         .arg("--tag")
         .arg("v0.1.0")
         .env("XDG_STATE_HOME", &dir)
-        .env("SCHNEEFORGE_REPO_URL", &origin)
+        .env("SCHNEEFORGE_REPO_URL", TEST_MANAGED_REPO_URL)
+        .env("GIT_CONFIG_GLOBAL", &git_config)
         .assert()
         .success()
         .stdout(predicate::str::contains("managed source set"));
@@ -520,11 +544,15 @@ fn source_init_with_tag_sets_managed_state() {
     assert!(state.contains("\"managed\": true"), "state: {state}");
     assert!(state.contains("\"ref\": \"v0.1.0\""), "state: {state}");
     assert!(state.contains("\"channel\": \"stable\""), "state: {state}");
+    assert!(
+        state.contains(TEST_MANAGED_REPO_URL),
+        "managed source must persist the GitHub repository URL: {state}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// v2 §7: `source init` の tag と channel の不整合は fail-closed。
-/// tag 解決の ls-remote は local origin を向けるため network 不要
+/// GitHub URL は insteadOf で local origin へ rewrite し network-free にする。
 #[test]
 fn source_init_rejects_tag_channel_mismatch() {
     if !git_available() {
@@ -533,6 +561,7 @@ fn source_init_rejects_tag_channel_mismatch() {
     }
     let dir = cli_dir("init-mismatch");
     let origin = origin_repo(&dir, &["v0.2.0"]);
+    let git_config = git_rewrite_config(&dir, &origin);
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("source")
         .arg("init")
@@ -541,10 +570,30 @@ fn source_init_rejects_tag_channel_mismatch() {
         .arg("--tag")
         .arg("v0.3.0-rc.1")
         .env("XDG_STATE_HOME", &dir)
-        .env("SCHNEEFORGE_REPO_URL", &origin)
+        .env("SCHNEEFORGE_REPO_URL", TEST_MANAGED_REPO_URL)
+        .env("GIT_CONFIG_GLOBAL", &git_config)
         .assert()
         .failure()
         .stderr(predicate::str::contains("is preview"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn source_status_rejects_semantically_invalid_managed_state() {
+    let dir = cli_dir("status-invalid-managed");
+    write_source_state(
+        &dir,
+        r#"{"kind":"release-stable","ref":"main","channel":"stable","managed":true,"remote":"https://github.com/Lamy210/nix_setting.git"}"#,
+    );
+
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("source")
+        .arg("status")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("valid release tag"));
+
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -604,8 +653,8 @@ fn legacy_state_without_managed_is_checkout_representation() {
 }
 
 /// v2 §7: managed source の update は state の tag 更新のみ行う
-/// (checkout は操作しない)。tag 解決は local origin の ls-remote
-/// (network 不要)。metadata は警告付き skip。
+/// (checkout は操作しない)。state は GitHub remote を保持し、Git の
+/// insteadOf で local origin へ rewrite して tag 解決を network-free にする。
 #[test]
 fn managed_update_moves_state_without_touching_checkout() {
     if !git_available() {
@@ -633,20 +682,19 @@ fn managed_update_moves_state_without_touching_checkout() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    // state は managed v0.2.0 (remote = local origin)
+    // state は managed v0.2.0。remote は production contract と同じ GitHub URL。
     write_source_state(
         &dir,
-        &format!(
-            r#"{{"kind":"release-stable","ref":"v0.2.0","channel":"stable","managed":true,"remote":"{}"}}"#,
-            origin.display()
-        ),
+        r#"{"kind":"release-stable","ref":"v0.2.0","channel":"stable","managed":true,"remote":"https://github.com/Lamy210/nix_setting.git"}"#,
     );
+    let git_config = git_rewrite_config(&dir, &origin);
 
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("--repo")
         .arg(&checkout)
         .arg("update")
         .env("XDG_STATE_HOME", &dir)
+        .env("GIT_CONFIG_GLOBAL", &git_config)
         .assert()
         .success()
         .stdout(
@@ -780,6 +828,24 @@ fn self_update_fails_closed_for_non_github_origin() {
         .failure()
         .stderr(predicate::str::contains("owner/repo"));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn self_update_rejects_semantically_invalid_managed_state_before_release_lookup() {
+    let state = state_dir("self-update-invalid-managed");
+    write_source_state(
+        &state,
+        r#"{"kind":"release-stable","ref":"main","channel":"stable","managed":true,"remote":"https://github.com/Lamy210/nix_setting.git"}"#,
+    );
+
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("self-update")
+        .env("XDG_STATE_HOME", &state)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("valid release tag"));
+
+    let _ = std::fs::remove_dir_all(&state);
 }
 
 /// channel の最新が利用中の版より古い場合 (state 未初期化で channel が

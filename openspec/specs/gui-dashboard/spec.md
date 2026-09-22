@@ -1,8 +1,10 @@
 # gui-dashboard Specification
 
 ## Purpose
-TBD - created by archiving change add-gui-dashboard. Update Purpose after archive.
+SchneeForge Desktop の Dashboard で、現在適用中の version / profile / channel / revision と取得可能な release 情報を安全に可視化し、offline 時も診断可能な状態を保ちながら更新有無と GitHub Releases への導線を提供する。
+
 ## Requirements
+
 ### Requirement: Dashboard 情報の提供
 
 desktop SHALL は async command `get_dashboard` で `DashboardSnapshot`
@@ -78,8 +80,61 @@ button を表示し、押下で available release の page を既定 browser で
 - **THEN** `open_release` command が available version を受けて実行され、
   `v<version>` tag の release page が既定 browser で開く
 
-#### Scenario: 開けなかった場合は error を表示する
+### Requirement: macOS GUI signed self-update
 
-- **WHEN** opener が URL を開けない (関連付け無し等)
-- **THEN** CommandOutput の失敗として error が表示され、GUI は稼働を続ける
+SchneeForge Desktop SHALL provide an in-app update path on supported macOS aarch64 builds using the Tauri updater signature verification model. The updater action MUST NOT be exposed when the build is not configured with an active production updater trust root.
 
+#### Scenario: Signed update is available
+- **WHEN** a macOS aarch64 build with updater enabled checks the configured endpoint and a newer signed update is available
+- **THEN** Dashboard exposes an app update action with the available version
+- **AND** installation occurs only after the user explicitly confirms the update
+- **AND** download/install progress is visible
+
+#### Scenario: Update check or install fails
+- **WHEN** network, manifest, signature verification, download, or install fails
+- **THEN** the currently installed app remains usable and unchanged
+- **AND** the GitHub Releases link fallback remains available
+- **AND** the error is shown without converting the failure into a successful update state
+
+#### Scenario: Updater is disabled or unsupported
+- **WHEN** the app runs on Linux, Windows, or a build without production updater activation
+- **THEN** automatic app update controls are not shown
+- **AND** the existing release/update guidance remains available
+
+#### Scenario: Update install completes on macOS
+- **WHEN** the signed update is installed successfully
+- **THEN** the user can restart SchneeForge to run the new version
+- **AND** no downgrade is performed automatically
+
+### Requirement: GUI updater IPC contract
+
+Desktop backend SHALL own updater check/install state and expose stable Tauri commands to the frontend. Pending update state MUST NOT be reconstructed from untrusted frontend-supplied URL or signature data.
+
+#### Scenario: Frontend checks for update
+- **WHEN** frontend invokes the updater check command
+- **THEN** backend returns only serializable update metadata and stores the pending signed update internally
+
+#### Scenario: Frontend installs pending update
+- **WHEN** frontend invokes install after confirmation
+- **THEN** backend installs only the internally stored pending update
+- **AND** frontend does not provide the artifact URL or signature used for verification
+
+### Requirement: GUI updater binds signed artifact version to announced version
+
+Activated macOS GUI updater builds MUST require the updater signature to carry the app version and MUST reject
+an update when the signed version differs from the version announced by the updater endpoint.
+
+#### Scenario: Signed version matches announced version
+- **WHEN** updater endpoint announces version N and the downloaded artifact signature is bound to version N
+- **THEN** signature/version validation may proceed to the existing update installation flow
+
+#### Scenario: Signed version is missing
+- **WHEN** updater signature does not contain a signed app version
+- **THEN** the update is rejected
+- **AND** the existing app remains unchanged
+- **AND** the GitHub Releases fallback remains available
+
+#### Scenario: Signed version differs from announced version
+- **WHEN** updater endpoint announces version N but the valid artifact signature is bound to version M
+- **THEN** the update is rejected as a signed-version mismatch
+- **AND** no downgrade or replacement occurs

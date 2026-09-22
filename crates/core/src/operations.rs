@@ -65,8 +65,9 @@ pub fn apply(
     capture: bool,
 ) -> Result<ApplyResult> {
     let _guard = acquire()?;
+    let prev = store.load()?;
 
-    let repo_ref = crate::source::effective_ref(repo, store);
+    let repo_ref = crate::source::effective_ref(repo, store)?;
     let output = if capture {
         Some(actions::apply_captured(target, &repo_ref, tc)?)
     } else {
@@ -76,7 +77,11 @@ pub fn apply(
 
     // managed source は revision 記録を、それ以外は checkout の git revision
     // を applied revision に記録する
-    let revision = match managed_source(store) {
+    let revision = match prev
+        .as_ref()
+        .and_then(|s| s.source.as_ref())
+        .filter(|src| src.is_managed_release())
+    {
         Some(src) => src.revision.clone(),
         None => tc
             .git
@@ -86,7 +91,6 @@ pub fn apply(
     let mut state = applied_state(target, revision);
     // profile 選択は user の恒久的な選択のため apply を跨いで保持する。
     // managed source は checkout から再検出できないため保持する
-    let prev = store.load();
     state.profile = prev.as_ref().and_then(|s| s.profile.clone());
     state.source = prev
         .as_ref()
@@ -109,8 +113,9 @@ pub fn rollback(
     capture: bool,
 ) -> Result<ApplyResult> {
     let _guard = acquire()?;
+    let prev = store.load()?;
 
-    let repo_ref = crate::source::effective_ref(repo, store);
+    let repo_ref = crate::source::effective_ref(repo, store)?;
     let output = if capture {
         Some(actions::rollback_captured(target, &repo_ref, tc)?)
     } else {
@@ -120,7 +125,6 @@ pub fn rollback(
 
     let mut state = rolled_back_state(target);
     // profile 選択と managed source は rollback を跨いでも保持する
-    let prev = store.load();
     state.profile = prev.as_ref().and_then(|s| s.profile.clone());
     state.source = prev
         .as_ref()
@@ -167,7 +171,7 @@ pub fn plan_target_with(repo: &str, store: &StateStore) -> Result<PlanResult> {
             arch: target.architecture().to_string(),
         });
     }
-    let repo_ref = crate::source::effective_ref(repo, store);
+    let repo_ref = crate::source::effective_ref(repo, store)?;
     Ok(PlanResult {
         host: target.name().to_string(),
         flake_target: target.build_ref(&repo_ref),
@@ -220,8 +224,33 @@ impl VerifyReport {
 
 /// verify: 環境・repo/manifest・state を検証する (各検査は infallible)
 pub fn verify(repo: &str, tc: &ToolInventory) -> VerifyReport {
-    let state_store = StateStore::default();
-    let managed = managed_source(&state_store).is_some();
+    verify_with_store(repo, tc, &StateStore::default())
+}
+
+/// [`verify`] の state store 注入版。diagnostics と同様に state failure を
+/// process-global env を変更せず hermetic に検証できるようにする。
+fn verify_with_store(repo: &str, tc: &ToolInventory, state_store: &StateStore) -> VerifyReport {
+    let state_result = state_store.load();
+    let managed = state_result
+        .as_ref()
+        .ok()
+        .and_then(|state| state.as_ref())
+        .and_then(|state| state.source.as_ref())
+        .is_some_and(|source| source.is_managed_release());
+    let state_check = match &state_result {
+        Ok(Some(_)) => VerifyCheck {
+            name: "state".to_string(),
+            ok: true,
+        },
+        Ok(None) => VerifyCheck {
+            name: "state (not initialized)".to_string(),
+            ok: false,
+        },
+        Err(e) => VerifyCheck {
+            name: format!("state ({e})"),
+            ok: false,
+        },
+    };
     let mut checks = Vec::new();
 
     // discover 済み inventory の各ツールが実際に実行可能か
@@ -251,15 +280,19 @@ pub fn verify(repo: &str, tc: &ToolInventory) -> VerifyReport {
         });
     }
 
-    checks.push(repository_check(repo, managed));
+    if let Err(e) = &state_result {
+        checks.push(VerifyCheck {
+            name: format!("source (state unavailable: {e})"),
+            ok: false,
+        });
+    } else {
+        checks.push(repository_check(repo, managed));
+    }
     checks.push(VerifyCheck {
         name: "machine input".to_string(),
         ok: machine::default_machine_nix_path().is_file(),
     });
-    checks.push(VerifyCheck {
-        name: "state".to_string(),
-        ok: state_store.load().is_some(),
-    });
+    checks.push(state_check);
 
     VerifyReport { checks }
 }
@@ -315,21 +348,26 @@ fn current_branch(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Option<
     }
 }
 
-/// state に記録された managed source (v2 §7)
-fn managed_source(store: &StateStore) -> Option<crate::source::SourceState> {
-    store
-        .load()
-        .and_then(|s| s.source)
-        .filter(|s| s.is_managed_release())
+/// state に記録された managed source (v2 §7)。
+/// managed=true の semantic inconsistency は「managed ではない」へ fallback せず error。
+fn managed_source(store: &StateStore) -> Result<Option<crate::source::SourceState>> {
+    let Some(source) = store.load()?.and_then(|state| state.source) else {
+        return Ok(None);
+    };
+    if !source.managed {
+        return Ok(None);
+    }
+    source.validate_managed_release()?;
+    Ok(Some(source))
 }
 
 /// managed source の sync / git 実態前提処理への案内文
-fn managed_source_note(store: &StateStore) -> Option<String> {
-    managed_source(store).map(|_| {
+fn managed_source_note(store: &StateStore) -> Result<Option<String>> {
+    Ok(managed_source(store)?.map(|_| {
         "Source is managed (github flake ref); there is no git working tree to sync. \
          Use `schneeforge update` to move to a newer release."
             .to_string()
-    })
+    }))
 }
 
 /// sync: dirty check と branch checkout の確認の後 `git pull --ff-only` で更新する。
@@ -337,7 +375,7 @@ fn managed_source_note(store: &StateStore) -> Option<String> {
 /// clean no-op として pinned である旨を返す。managed source は git 実態が無い
 /// 旨を案内して終了する (error にしない)。
 pub fn sync(repo: &str, tc: &ToolInventory, capture: bool) -> Result<Option<String>> {
-    if let Some(note) = managed_source_note(&StateStore::default()) {
+    if let Some(note) = managed_source_note(&StateStore::default())? {
         return Ok(note_output(&note, capture));
     }
     sync_with_lock(repo, tc, capture, OperationLock::global())
@@ -422,9 +460,10 @@ pub fn dispatch_update(state: &crate::source::SourceState) -> UpdateAction {
     if state.is_managed_release() {
         return UpdateAction::UpdateManagedRef {
             channel: state
-                .channel
-                .clone()
-                .unwrap_or_else(|| "stable".to_string()),
+                .kind
+                .release_channel()
+                .expect("managed release kind must have a canonical channel")
+                .to_string(),
         };
     }
     match state.kind {
@@ -462,8 +501,9 @@ pub fn update(
 ) -> Result<UpdateResult> {
     let git = tc.require_git()?;
     let _guard = acquire()?;
+    let previous = store.load()?;
 
-    let stored = store.load().and_then(|s| s.source);
+    let stored = previous.as_ref().and_then(|s| s.source.clone());
     let state = crate::source::SourceResolver::new().resolve(repo, git, stored.as_ref())?;
     let action = dispatch_update(&state);
 
@@ -496,7 +536,7 @@ pub fn update(
 
     // 更新後の source 状態を State へ反映 (applied 情報は変えない)
     let new_source = crate::source::SourceResolver::new().detect(repo, git).ok();
-    let mut saved = store.load().unwrap_or_default();
+    let mut saved = previous.unwrap_or_default();
     saved.source = new_source.clone();
     store.save(&saved)?;
 
@@ -531,6 +571,16 @@ fn note_output(note: &str, capture: bool) -> Option<String> {
     }
 }
 
+fn validate_release_channel(channel: &str) -> Result<()> {
+    if matches!(channel, "stable" | "preview") {
+        Ok(())
+    } else {
+        Err(Error::Precondition(format!(
+            "unknown channel '{channel}' (expected stable or preview)"
+        )))
+    }
+}
+
 /// managed Release の update: 同 channel の最新 tag を remote から解決して
 /// state の source を更新する (checkout 操作なし)
 fn update_managed(
@@ -559,6 +609,7 @@ fn update_managed_with(
     )
         -> std::result::Result<crate::release_metadata::ReleaseMetadata, String>,
 ) -> Result<UpdateResult> {
+    validate_release_channel(channel)?;
     let latest = crate::source::latest_tag_for_channel(tags, channel).cloned();
     let Some(latest) = latest else {
         let note = format!(
@@ -582,7 +633,7 @@ fn update_managed_with(
     new_state.ref_ = latest.clone();
     new_state.revision = record_revision(&latest, fetch_meta);
 
-    let mut saved = store.load().unwrap_or_default();
+    let mut saved = store.load()?.unwrap_or_default();
     saved.source = Some(new_state.clone());
     store.save(&saved)?;
 
@@ -631,8 +682,23 @@ pub fn source_init(
     channel: Option<String>,
     tag: Option<String>,
 ) -> Result<SourceInitResult> {
+    // Fail before remote effects when persisted state / requested channel / repository
+    // identity is invalid. An explicit tag does not require remote tag discovery.
+    store.load()?;
+    if let Some(channel) = channel.as_deref() {
+        validate_release_channel(channel)?;
+    }
     let url = crate::source::repo_url();
-    let tags = crate::dashboard::remote_tags(&url, git)?;
+    if crate::source::github_slug(&url).is_none() {
+        return Err(Error::Precondition(format!(
+            "managed source repository URL is not a supported GitHub repository: {url}"
+        )));
+    }
+    let tags = if tag.is_some() {
+        Vec::new()
+    } else {
+        crate::dashboard::remote_tags(&url, git)?
+    };
     source_init_with(
         repo,
         store,
@@ -666,12 +732,9 @@ fn source_init_with(
     )
         -> std::result::Result<crate::release_metadata::ReleaseMetadata, String>,
 ) -> Result<SourceInitResult> {
+    let mut saved = store.load()?.unwrap_or_default();
     if let Some(c) = &channel {
-        if c != "stable" && c != "preview" {
-            return Err(Error::Precondition(format!(
-                "unknown channel '{c}' (expected stable or preview)"
-            )));
-        }
+        validate_release_channel(c)?;
     }
 
     let (kind, resolved_tag, resolved_channel) = match tag {
@@ -707,6 +770,7 @@ fn source_init_with(
         remote: Some(remote.url.to_string()),
         revision: None,
     };
+    source.validate_managed_release()?;
     source.revision = record_revision(&resolved_tag, fetch_meta);
 
     // 既存 checkout が同 tag を pin していれば移行として表示する
@@ -716,7 +780,6 @@ fn source_init_with(
         .as_ref()
         .is_some_and(|c| !c.managed && c.kind == source.kind && c.ref_ == source.ref_);
 
-    let mut saved = store.load().unwrap_or_default();
     saved.source = Some(source.clone());
     store.save(&saved)?;
 
@@ -734,6 +797,7 @@ fn update_release(
     channel: &str,
     capture: bool,
 ) -> Result<Option<String>> {
+    validate_release_channel(channel)?;
     if git_dirty(repo, git)? {
         return Err(Error::Busy(
             "repository has uncommitted changes; commit or stash first".to_string(),
@@ -847,7 +911,7 @@ fn source_sync_with(
     capture: bool,
     store: &StateStore,
 ) -> Result<Option<String>> {
-    if let Some(note) = managed_source_note(store) {
+    if let Some(note) = managed_source_note(store)? {
         return Ok(note_output(&note, capture));
     }
     let git = tc.require_git()?;
@@ -880,7 +944,7 @@ fn deps_update_with(
     capture: bool,
     store: &StateStore,
 ) -> Result<Option<String>> {
-    if managed_source(store).is_some() {
+    if managed_source(store)?.is_some() {
         return Err(Error::Precondition(DEPS_MANAGED_ERROR.to_string()));
     }
     let warning = release_lock_warning(repo, tc);
@@ -1086,6 +1150,24 @@ mod tests {
                 channel: "preview".to_string()
             }
         );
+        let mut mismatched = managed_release_state("v0.3.0-rc.1", "preview");
+        mismatched.channel = Some("stable".to_string());
+        assert_eq!(
+            dispatch_update(&mismatched),
+            UpdateAction::UpdateManagedRef {
+                channel: "preview".to_string()
+            },
+            "managed update dispatch must trust release kind, not stale persisted channel"
+        );
+        let mut missing = managed_release_state("v0.3.0-rc.1", "preview");
+        missing.channel = None;
+        assert_eq!(
+            dispatch_update(&missing),
+            UpdateAction::UpdateManagedRef {
+                channel: "preview".to_string()
+            },
+            "managed preview must not fall back to stable when persisted channel is missing"
+        );
         // managed flag が無ければ checkout 表現の dispatch
         assert!(matches!(
             dispatch_update(&checkout_state(crate::source::SourceKind::ReleaseStable)),
@@ -1114,7 +1196,7 @@ mod tests {
             Some("fedcba9876543210fedcba9876543210fedcba98")
         );
         // state に保存されている
-        let saved = store.load().unwrap();
+        let saved = store.load().unwrap().unwrap();
         assert_eq!(saved.source.as_ref().unwrap().ref_, "v0.3.0");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1159,6 +1241,12 @@ mod tests {
         let msg = result.output.expect("note in capture mode");
         assert!(msg.contains("No stable release tags found"), "{msg}");
         assert!(msg.contains("current: v0.3.0"), "{msg}");
+
+        let err = update_managed_with(&store, &tags, &state, "nightly", true, &|t| {
+            Ok(metadata_of(t))
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("unknown channel"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1211,7 +1299,7 @@ mod tests {
             Some("fedcba9876543210fedcba9876543210fedcba98")
         );
         // state に保存されている
-        assert_eq!(store.load().unwrap().source, Some(saved));
+        assert_eq!(store.load().unwrap().unwrap().source, Some(saved));
 
         // 別 tag を指定した場合は移行表示にならない
         let result = source_init_with(
@@ -1228,6 +1316,42 @@ mod tests {
         )
         .unwrap();
         assert!(!result.migrated_from_checkout);
+        let _ = std::fs::remove_dir_all(&repo);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn source_init_rejects_non_github_remote_before_metadata_fetch() {
+        let (repo, _git_bin) = (
+            std::env::temp_dir().join(format!("sf-init-invalid-remote-{}", std::process::id())),
+            (),
+        );
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = resolved_git(std::path::Path::new("git"));
+        let (store, dir) = temp_state_store("init-invalid-remote");
+        let tags = vec!["v0.2.0".to_string()];
+        let fetch_meta =
+            |_tag: &str| -> std::result::Result<crate::release_metadata::ReleaseMetadata, String> {
+                panic!("invalid managed remote must fail before metadata fetch")
+            };
+
+        let err = source_init_with(
+            repo.to_str().unwrap(),
+            &store,
+            &git,
+            &RemoteTags {
+                url: "/tmp/local-origin",
+                tags: &tags,
+            },
+            None,
+            Some("v0.2.0".to_string()),
+            &fetch_meta,
+        )
+        .unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("GitHub repository"), "{err}");
+        assert!(store.load().unwrap().and_then(|s| s.source).is_none());
         let _ = std::fs::remove_dir_all(&repo);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1349,19 +1473,46 @@ mod tests {
     }
 
     #[test]
+    fn managed_helpers_reject_semantically_invalid_managed_state() {
+        let (store, dir) = temp_state_store("invalid-managed-helper");
+        store
+            .save(&crate::state::State {
+                source: Some(crate::source::SourceState {
+                    kind: crate::source::SourceKind::ReleaseStable,
+                    ref_: "main".to_string(),
+                    channel: Some("stable".to_string()),
+                    managed: true,
+                    remote: Some("https://github.com/Lamy210/nix_setting.git".to_string()),
+                    revision: None,
+                }),
+                ..crate::state::State::default()
+            })
+            .unwrap();
+
+        let err = managed_source_note(&store).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("valid release tag"), "{err}");
+
+        let err = deps_update_with("/tmp/repo", &dummy_tc(), true, &store).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("valid release tag"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn managed_source_note_only_for_managed_release() {
         let (store, dir) = temp_state_store("note-filter");
-        assert!(managed_source_note(&store).is_none());
+        assert!(managed_source_note(&store).unwrap().is_none());
         let mut state = crate::state::State {
             // checkout 表現の Release は案内対象外
             source: Some(checkout_state(crate::source::SourceKind::ReleaseStable)),
             ..crate::state::State::default()
         };
         store.save(&state).unwrap();
-        assert!(managed_source_note(&store).is_none());
+        assert!(managed_source_note(&store).unwrap().is_none());
         state.source = Some(managed_release_state("v0.2.0", "stable"));
         store.save(&state).unwrap();
-        assert!(managed_source_note(&store).is_some());
+        assert!(managed_source_note(&store).unwrap().is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1422,6 +1573,44 @@ mod tests {
     }
 
     #[test]
+    fn verify_distinguishes_corrupt_state_from_missing_state() {
+        let tc = dummy_tc();
+
+        let (missing_store, missing_dir) = temp_state_store("verify-missing");
+        let missing_report = verify_with_store("/tmp", &tc, &missing_store);
+        let missing_check = missing_report
+            .checks
+            .iter()
+            .find(|check| check.name.starts_with("state"))
+            .expect("state check must be present");
+        assert_eq!(missing_check.name, "state (not initialized)");
+        assert!(!missing_check.ok);
+        let _ = std::fs::remove_dir_all(&missing_dir);
+
+        let (corrupt_store, corrupt_dir) = temp_state_store("verify-corrupt");
+        std::fs::write(corrupt_store.path(), "{not-json").unwrap();
+        let corrupt_report = verify_with_store("/tmp", &tc, &corrupt_store);
+        let corrupt_check = corrupt_report
+            .checks
+            .iter()
+            .find(|check| check.name.starts_with("state"))
+            .expect("state check must be present");
+        assert!(
+            corrupt_check.name.contains("state error: parse"),
+            "{}",
+            corrupt_check.name
+        );
+        assert!(!corrupt_check.ok);
+        assert!(
+            corrupt_report.checks.iter().any(|check| check
+                .name
+                .contains("source (state unavailable: state error: parse")),
+            "source semantics must also fail closed when state is corrupt"
+        );
+        let _ = std::fs::remove_dir_all(&corrupt_dir);
+    }
+
+    #[test]
     fn sync_returns_git_not_found_when_git_missing() {
         // Git 未解決の環境では sync は GitNotFound (Precondition) で弾かれる。
         // 独立 lock + precondition を lock 前に評価することで、lock file の作成先が
@@ -1477,6 +1666,19 @@ mod tests {
 
     fn resolved_git(git_bin: &std::path::Path) -> ResolvedTool {
         ResolvedTool::new(git_bin.to_path_buf(), ToolSource::Path)
+    }
+
+    static OPERATION_LOCK_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    fn temp_operation_lock(name: &str) -> (OperationLock, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "sf-ops-lock-{name}-{}-{}",
+            std::process::id(),
+            OPERATION_LOCK_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        (OperationLock::new(dir.join("operation.lock")), dir)
     }
 
     #[test]
@@ -1541,7 +1743,11 @@ mod tests {
             git: Some(git),
             ..dummy_tc()
         };
-        let out = sync(clone_dir.to_str().unwrap(), &tc, true).unwrap();
+
+        // Issue #91: use an independent lock path so this test can run in
+        // parallel without contending with production-style global locking tests.
+        let (lock, lock_dir) = temp_operation_lock("detached-sync");
+        let out = sync_with_lock(clone_dir.to_str().unwrap(), &tc, true, &lock).unwrap();
         let msg = out.expect("capture mode should return the pinned note");
         assert!(
             msg.contains("pinned to a release checkout"),
@@ -1553,8 +1759,9 @@ mod tests {
         );
 
         // 対称性: 通常の branch checkout は pinned 扱いにならず pull が走る。
-        // sync は global lock を取るため、同一 test 内で直列に検証する
-        // (cargo test は test を並列実行し、別 test での lock 競合が Busy になる)
+        // detached checkout とは独立した test-local lock path を使い、
+        // scenario 間の lock lifecycle 自体をこの test の責務にしない。
+        let (branch_lock, branch_lock_dir) = temp_operation_lock("branch-sync");
         let branch_clone =
             std::env::temp_dir().join(format!("sf-sync-branch-clone-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&branch_clone);
@@ -1574,7 +1781,13 @@ mod tests {
             git: Some(resolved_git(&git_bin)),
             ..dummy_tc()
         };
-        let out = sync(branch_clone.to_str().unwrap(), &tc_branch, true).unwrap();
+        let out = sync_with_lock(
+            branch_clone.to_str().unwrap(),
+            &tc_branch,
+            true,
+            &branch_lock,
+        )
+        .unwrap();
         let msg = out.expect("capture mode should return pull output");
         assert!(
             !msg.contains("pinned to a release checkout"),
@@ -1584,5 +1797,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&src);
         let _ = std::fs::remove_dir_all(&clone_dir);
         let _ = std::fs::remove_dir_all(&branch_clone);
+        let _ = std::fs::remove_dir_all(&lock_dir);
+        let _ = std::fs::remove_dir_all(&branch_lock_dir);
     }
 }

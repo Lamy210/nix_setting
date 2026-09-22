@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 use crate::discovery::{current_user, detect_arch, detect_platform, detect_target};
+use crate::error::{Error, Result};
 use crate::managed_nix::status::{classify_current, StatusReport};
 use crate::manifest::Validation;
 use crate::process::{command_succeeds, run_capture};
@@ -40,6 +41,9 @@ pub struct Diagnostics {
     pub profile: Option<String>,
     /// state に保存された明示選択 (manifest default と同じか未選択なら None)
     pub selected_profile: Option<String>,
+    /// existing state file の read/parse/semantic validation failure。missing state は None。
+    /// Diagnostics は他の独立 check を維持しつつ、この field で corruption を明示する。
+    pub state_error: Option<String>,
     /// 実行 OS ユーザー (manifest の username とは独立)
     pub system_user: Option<String>,
     /// 実行ユーザーの HOME
@@ -128,6 +132,14 @@ impl From<&ResolvedTool> for ResolvedToolSummary {
 /// 呼び出すことで、起動直後の PATH 補正 (`fix_path_env::fix`) が反映された
 /// 同一の解決結果を Diagnostics と apply 系操作で共有できる。
 pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
+    diagnose_with_store(tc, cli_repo, &StateStore::default())
+}
+
+fn diagnose_with_store(
+    tc: &ToolInventory,
+    cli_repo: Option<&str>,
+    store: &StateStore,
+) -> Diagnostics {
     let resolver = ToolResolver::new();
     let homebrew = tc
         .homebrew
@@ -156,17 +168,33 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
     let repo_exists = std::path::Path::new(&repo_path).is_dir();
 
     let (manifest_found, manifest_error, manifest_default, validation) =
-        manifest_diagnostics(&repo_path, target.name());
+        manifest_diagnostics(&repo_path, target.name(), store);
 
-    let state = StateStore::default().load();
+    let (state, mut state_error) = match store.load() {
+        Ok(state) => (state, None),
+        Err(e) => (None, Some(e.to_string())),
+    };
     let selected_profile = state.as_ref().and_then(|s| s.profile.clone());
-    let managed_source = managed_source_from(state.as_ref());
-    // 実効 profile: 明示選択 (manifest available 検証済み) > manifest default
-    let profile = if manifest_found {
-        match crate::profile::resolve(&repo_path) {
+    let managed_source = if state_error.is_some() {
+        None
+    } else {
+        match managed_source_from(state.as_ref()) {
+            Ok(summary) => summary,
+            Err(e) => {
+                state_error = Some(e.to_string());
+                None
+            }
+        }
+    };
+    // corrupt / semantically invalid state は manifest default へ semantic fallback しない。
+    // valid/missing state の場合だけ従来どおり profile 解決を行う。
+    let profile = if state_error.is_some() {
+        None
+    } else if manifest_found {
+        match crate::profile::resolve_with(&repo_path, store) {
             Ok((name, _)) => Some(name),
-            // 選択が manifest と不整合なら表示は default に fallback
-            // (apply 時は fail-closed で error になる)
+            // state 自体は valid だが profile/manifest が不整合な場合は、
+            // diagnostics を継続するため manifest default を表示する。
             Err(_) => manifest_default.clone(),
         }
     } else {
@@ -183,6 +211,7 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
         manifest_error,
         profile,
         selected_profile,
+        state_error,
         system_user: current_user(),
         home: std::env::var("HOME").ok(),
         validation,
@@ -202,17 +231,32 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
 }
 
 /// state から managed Release source のサマリを導出する。
-/// managed Release 以外 (checkout 表現・source 未記録・未初期化) は None
-fn managed_source_from(state: Option<&crate::state::State>) -> Option<ManagedSourceSummary> {
-    let src = state?.source.as_ref()?;
-    if !src.is_managed_release() {
-        return None;
+/// managed Release 以外 (checkout 表現・source 未記録・未初期化) は None。
+/// managed=true の semantic inconsistency は未初期化へ fallback せず error。
+fn managed_source_from(
+    state: Option<&crate::state::State>,
+) -> Result<Option<ManagedSourceSummary>> {
+    let Some(src) = state.and_then(|state| state.source.as_ref()) else {
+        return Ok(None);
+    };
+    if !src.managed {
+        return Ok(None);
     }
-    Some(ManagedSourceSummary {
+
+    src.validate_managed_release()?;
+    let flake_ref = src.flake_ref().ok_or_else(|| {
+        Error::State("managed source did not produce a validated GitHub flake ref".to_string())
+    })?;
+
+    Ok(Some(ManagedSourceSummary {
         tag: src.ref_.clone(),
-        channel: src.channel.clone().unwrap_or_default(),
-        flake_ref: src.flake_ref().unwrap_or_default(),
-    })
+        channel: src
+            .kind
+            .release_channel()
+            .expect("validated managed release kind must have a canonical channel")
+            .to_string(),
+        flake_ref,
+    }))
 }
 
 /// Nix のヘルスを検査する。store 接続（`nix store ping`）と flakes 有効性
@@ -320,8 +364,9 @@ fn xdg_state_profile_dir() -> Option<std::path::PathBuf> {
 fn manifest_diagnostics(
     repo_path: &str,
     system: &str,
+    store: &StateStore,
 ) -> (bool, Option<String>, Option<String>, Option<Validation>) {
-    match crate::source_files::load_manifest_for(repo_path, &StateStore::default()) {
+    match crate::source_files::load_manifest_for(repo_path, store) {
         Ok(m) => {
             let validation = m.validate(system);
             let profile = m.profiles.default.clone();
@@ -362,6 +407,32 @@ mod tests {
         assert!(d.manifest_error.is_some());
         assert_eq!(d.profile, None);
         assert_eq!(d.validation, None);
+    }
+
+    #[test]
+    fn diagnose_reports_corrupt_state_without_semantic_fallback() {
+        let tc = dummy_tc();
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-diagnostics-corrupt-state-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = StateStore::new(dir.join("state.json"));
+        std::fs::write(store.path(), "{not-json").unwrap();
+
+        let d = diagnose_with_store(&tc, Some("/definitely/not/a/real/repo"), &store);
+        assert!(d
+            .state_error
+            .as_deref()
+            .is_some_and(|e| e.contains("state error")));
+        assert_eq!(d.selected_profile, None);
+        assert_eq!(d.profile, None);
+        assert!(d.managed_source.is_none());
+
+        let whole = serde_json::to_string(&d).expect("Diagnostics must be serializable");
+        assert!(whole.contains("state_error"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -446,10 +517,10 @@ mod tests {
     }
 
     #[test]
-    fn managed_source_summary_reports_managed_state() {
+    fn managed_source_summary_reports_canonical_kind_channel() {
         let state = crate::state::State {
             source: Some(crate::source::SourceState {
-                kind: crate::source::SourceKind::ReleaseStable,
+                kind: crate::source::SourceKind::ReleasePreview,
                 ref_: "v0.2.0-rc.2".to_string(),
                 channel: Some("stable".to_string()),
                 managed: true,
@@ -458,9 +529,14 @@ mod tests {
             }),
             ..Default::default()
         };
-        let m = managed_source_from(Some(&state)).expect("managed state must yield Some");
+        let m = managed_source_from(Some(&state))
+            .expect("valid managed state")
+            .expect("managed state must yield Some");
         assert_eq!(m.tag, "v0.2.0-rc.2");
-        assert_eq!(m.channel, "stable");
+        assert_eq!(
+            m.channel, "preview",
+            "diagnostics must not expose stale persisted channel as runtime semantics"
+        );
         assert_eq!(m.flake_ref, "github:Lamy210/nix_setting/v0.2.0-rc.2");
     }
 
@@ -478,14 +554,69 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert!(managed_source_from(Some(&state)).is_none());
+        assert!(managed_source_from(Some(&state)).unwrap().is_none());
     }
 
     #[test]
     fn managed_source_summary_none_when_uninitialized() {
         // state ファイル無し / source 未記録
-        assert!(managed_source_from(None).is_none());
-        assert!(managed_source_from(Some(&crate::state::State::default())).is_none());
+        assert!(managed_source_from(None).unwrap().is_none());
+        assert!(managed_source_from(Some(&crate::state::State::default()))
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn managed_source_summary_rejects_semantically_invalid_managed_state() {
+        let state = crate::state::State {
+            source: Some(crate::source::SourceState {
+                kind: crate::source::SourceKind::ReleaseStable,
+                ref_: "main".to_string(),
+                channel: Some("stable".to_string()),
+                managed: true,
+                remote: Some("https://github.com/Lamy210/nix_setting".to_string()),
+                revision: None,
+            }),
+            ..Default::default()
+        };
+
+        let err = managed_source_from(Some(&state)).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("valid release tag"), "{err}");
+    }
+
+    #[test]
+    fn diagnose_surfaces_semantically_invalid_managed_state() {
+        let tc = dummy_tc();
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-diagnostics-invalid-managed-state-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = StateStore::new(dir.join("state.json"));
+        store
+            .save(&crate::state::State {
+                source: Some(crate::source::SourceState {
+                    kind: crate::source::SourceKind::ReleaseStable,
+                    ref_: "main".to_string(),
+                    channel: Some("stable".to_string()),
+                    managed: true,
+                    remote: Some("https://github.com/Lamy210/nix_setting".to_string()),
+                    revision: None,
+                }),
+                ..Default::default()
+            })
+            .unwrap();
+
+        let d = diagnose_with_store(&tc, Some("/definitely/not/a/real/repo"), &store);
+        assert!(d
+            .state_error
+            .as_deref()
+            .is_some_and(|e| e.contains("valid release tag")));
+        assert!(d.managed_source.is_none());
+        assert_eq!(d.profile, None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

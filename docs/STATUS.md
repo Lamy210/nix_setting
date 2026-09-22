@@ -2,17 +2,17 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-08-22
+最終更新: 2026-09-21
 
 ## 完成済み
 
 | 領域 | 内容 |
 |------|------|
 | Nix 基盤 | flake-parts / hosts / profiles / manifest / 3システム / CI 10+ジョブ |
-| Rust core | actions / discovery / diagnostics / manifest / repo / state / time / tool / lock / operations / process / bootstrap / self_update（+ 303 unit tests） |
-| CLI | 12 コマンド（core 委譲のみの adapter 化済み / `with_toolchain` wrapper） |
+| Rust core | actions / discovery / execution / diagnostics / manifest / repo / state / time / tool / lock / operations / process / bootstrap / self_update |
+| CLI | native macOS/Linux adapter + experimental Windows launcher / WSL2 delegation |
 | Tauri GUI | 診断 Status + First Run Wizard + 非同期コマンド + CSP + 状態機械 + Plan/Verify ボタン + `fix-path-env-rs` による macOS PATH 補正 |
-| OpenSpec | `gui-normalization` 63/63 merge 済み・アーカイブ済み / `runtime-tool-resolution-hardening` 実装完了（archive 待ち）/ main specs 5件 |
+| OpenSpec | `gui-normalization` / runtime hardening / managed source / release supply-chain / development workflow hardening 等を archive 済み。active change は下記「進行中」を参照 |
 
 ### gui-normalization（63/63 完了・PR #4 merge 済み）
 
@@ -35,7 +35,7 @@
 | config.toml 生成の冪等化 + username 空ガード（#2/#3） | #9 |
 | Ready 画面 Plan/Verify ボタン（#13） | #6 |
 | uninstall の副作用排除（#10） | #7 |
-| archive-before-pr のドキュメント修正（プロセス改善） | #8 |
+| archive-before-pr のドキュメント修正（当時のプロセス改善。2026-09-16 の workflow hardening で後続運用へ更新） | #8 |
 
 ### runtime-tool-resolution-hardening（実装完了・merge 済み #11）
 
@@ -48,8 +48,8 @@ P0-1〜P0-5 を 1 change に統合して実装。PR #11 (squash) で develop へ
 - **P0-5 install.sh / bootstrap.sh 探索統一**: `scripts/resolve-tools.sh` 新設。Rust 側と同一の探索順序。`tests/resolve-tools.bats` (11 ケース) で回帰テスト。
 - **前提**: `fix-path-env-rs` 追加（macOS の Finder/Spotlight 起動時の PATH 欠損を補正）。
 - **CI 再発防止**: `lint` job に "forbid raw tool spawns" step 追加。`tool.rs` / `cli/tests/` 以外での文字列リテラル spawn を禁止。
-- **GUI 側**: `CachedToolchain` (`Mutex<Option<Toolchain>>`) を `tauri::State` で保持。フロントエンド型定義の更新（`NixHealth` / `ToolchainSummary` 表示）は後続の GUI P1 変更で対応。
-- **未完了**: macOS desktop build + Finder launch 実機検証 (CI の macos-check は green だが実機 smoke は別途)。→ 「次の作業」1 の macOS Apple Silicon Final Acceptance に統合済み。
+- **GUI 側**: `CachedToolchain` (`Mutex<Option<Toolchain>>`) を `tauri::State` で保持。
+- **未完了**: macOS desktop build + Finder launch 実機検証は macOS Final Acceptance に統合。
 
 ### docs/release-checklist-and-tap-sync（merge 済み #12）
 
@@ -59,127 +59,175 @@ RELEASE.md のリリースチェックリスト再構築 + weekly workflow の�
 
 2026-08-18 に develop へ squash merge 済み (PR #43-#52)。詳細は各 archive 済み change を参照。
 
-- **v2 P0/P1 (PR #43/#44/#45)**: MachineFacts (repo を書かない machine input 生成) / ConfigurationSource (ADR-0003 Accepted, SourceKind 5 種 + update dispatch) / archive 整備
+- **v2 P0/P1 (PR #43/#44/#45)**: MachineFacts / ConfigurationSource / archive 整備
 - **Distribution Manifest (PR #46/#47)**: `schneeforge.toml` (schema 1 / profiles / systems) で旧 config.toml 置換
-- **profile 選択の flake 注入 (PR #48/#49)**: flake input `profile` + `modules/profile-input.nix`、CLI `profile list/set/clear/show`。file 指す path input の override は `path:<abs>` URL 形式が必須 (nix 2.35)
-- **Release Metadata (PR #50)**: `schneeforge-release.json` (schema 1) の parse/validate/fetch + CLI `source metadata`。metadata asset は次回 release (rc.6 以降) から同梱
-- **GUI Dashboard §28 (PR #52/#53)**: core `dashboard.rs` (snapshot + version 比較純関数) + desktop `get_dashboard` + Dashboard card。network は引数差し込みで hermetic
+- **profile 選択の flake 注入 (PR #48/#49)**: flake input `profile` + `modules/profile-input.nix`、CLI `profile list/set/clear/show`
+- **Release Metadata (PR #50)**: `schneeforge-release.json` parse/validate/fetch + CLI `source metadata`
+- **GUI Dashboard §28 (PR #52/#53)**: core `dashboard.rs` + desktop `get_dashboard` + Dashboard card
 
 ### managed source 3 change + 初期化経路 unified (2026-08-20 merge 済み, develop a0bc0c5)
 
-CLI / install.sh / GUI wizard の初期化経路が unified (v2 §7 完結)。詳細は各 archive 済み change を参照。
+CLI / install.sh / GUI wizard の初期化経路が unified (v2 §7 完結)。
 
-- **GUI profile 切替 (PR #56 / 0fddc8f + archive #58)**: core `ProfileList` / `set_selection`、desktop `get_profiles`/`set_profile`/`clear_profile`、Dashboard の profile 切替 UI (選択 → 適用 / 既定へ)
-- **HOME env race 修正 (PR #57 / d6cd751)**: `MachineFacts::detect_with_home_from(|k| std::env::var_os(k))` で env 差し込み可能にし、detect 中の HOME 読みを hermetic 化
-- **install.sh fresh 経路の managed source 化 (PR #59 / 77a4d20 + archive #61)**: 初回 install での git clone を廃止。`fetch_schneeforge_binary` (release asset 取得) → `source init --tag pin` → `apply`。dotfile backup、`ManagedNix::load_prefer_repo` (repo 無し時は embedded fallback)
-- **GUI wizard の managed source 対応 (PR #60 / 60e2846 + archive #61)**: `Diagnostics.managed_source`、wizard の source 選択 step (managed 既定 + clone 選択肢)、boot gate `!repo_exists && !managed_source`、Managed Nix install の repo gate 削除
+- **GUI profile 切替 (PR #56 / 0fddc8f + archive #58)**: core `ProfileList` / `set_selection`、desktop profile 操作、Dashboard profile 切替 UI
+- **HOME env race 修正 (PR #57 / d6cd751)**: MachineFacts detect の env 差し込みで test race を解消
+- **install.sh fresh 経路の managed source 化 (PR #59 / 77a4d20 + archive #61)**: release asset CLI → source init --tag pin → apply
+- **GUI wizard の managed source 対応 (PR #60 / 60e2846 + archive #61)**: managed source を既定経路へ追加
 
 ### GUI source 更新 + test 隔離 + ドキュメント整備 + provenance (2026-08-21 merge 済み, develop d1f049a)
 
-PR #62-#68 を sequential chain (各 rebase → CI 全 green → squash merge) で merge。`openspec/changes/` の残存は `add-dmg-offline-bundle-licensing` (法務待ち) のみ。
+PR #62-#68 を sequential chain で merge。
 
-- **GUI からの source 更新 (PR #62 / f0a880b + archive #68)**: `run_update` Tauri command (core `update()` を昇格なし in-process 実行) +「ソース更新」ボタン + managed source での「アップグレード」隠蔽
-- **cli test の state/network 隔離 (PR #63 / a6621e2)**: `state_dir()` helper で state 読み得る全起動を XDG_STATE_HOME 隔離、`source_init_with_tag` の ls-remote を local origin 化 (network hang 解消)
-- **docs (PR #64-#66)**: STATUS.md (2026-08-20 版) / Final Acceptance 手順書 gate I (managed source) 新設 / RELEASE.md checklist を実 CI と rc.6 前提へ更新
-- **release asset provenance (PR #67 / a1fb376 + archive #68)**: release.yml に `actions/attest-build-provenance` (v4.2.2 SHA pin) 追加。subject は asset 全て、`id-token: write` は release job のみ、fail-closed。実生成は rc.7 の tag push で確認 (rc.6 は `attestations: write` 権限不足で失敗 → PR #76 で fix)
+- **GUI からの source 更新 (PR #62 / f0a880b + archive #68)**: `run_update` Tauri command +「ソース更新」ボタン
+- **cli test の state/network 隔離 (PR #63 / a6621e2)**: XDG_STATE_HOME 隔離 + local origin 化
+- **docs (PR #64-#66)**: STATUS / Final Acceptance / RELEASE checklist 更新
+- **release asset provenance (PR #67 / a1fb376 + archive #68)**: `actions/attest-build-provenance` を追加
 
 ### v0.2.0-rc.7 release (2026-08-22)
 
-**rc.7 を release 済み** (PR #77 / main f6a1f33 / tag v0.2.0-rc.7)。rc.5 以降の develop 全変更を同梱する最初の release。
+**rc.7 を release 済み** (PR #77 / main f6a1f33 / tag v0.2.0-rc.7)。
 
-- **rc.6 → rc.7 の切り直し**: rc.6 は release job の `attest build provenance` が `Resource not accessible by integration` で失敗 (attestation 永続化 API に必要な **`attestations: write`** 権限が release job に無かった。`id-token: write` は OIDC 用で別 scope)。`create release` は skipped で asset は一度も作成されず、tag v0.2.0-rc.6 は削除して rc.7 で切り直し (fix: PR #76)
-- **asset 検証 (rc.7)**: asset 6 個 (CLI 2 + DMG + SBOM + `schneeforge-release.json` + CHECKSUMS.txt) 全生成。CHECKSUMS 全項目一致 (tag 時点 flake.lock 含む)。provenance attestation は 1 bundle が **6 asset 全てを subject として保有** (workflow ref `refs/tags/v0.2.0-rc.7` / commit f6a1f33 を attestations API の dsse payload で確認。この gh version は `gh attestation` 未対応のため API 直確認)。Linux binary は static-pie (musl static) を file(1) で確認、`schneeforge --version` smoke 通過
-- **初同梱**: managed release source (v2 §7) / `schneeforge-release.json` asset / SLSA provenance attestation / CLI self-update
+- rc.6 は `attestations: write` 不足で release workflow が失敗し、rc.7 へ切り直し (PR #76)
+- asset 6 個の CHECKSUMS 一致、provenance attestation subject を確認
+- managed release source / `schneeforge-release.json` / SLSA provenance / CLI self-update を初同梱
 
 ### CLI 自己更新 self-update (2026-08-22 merge 済み, develop 653fc1f)
 
-Phase E 残件の self-update を実装 (PR #70 / 2401c50 + archive #71 / 653fc1f)。
+- `schneeforge self-update`: channel latest tag 解決 → release binary download → checksum verify → atomic replace
+- core は純関数と effect を分離し hermetic test 化
+- GUI 内自己更新は別 change。Step 1 Releases link は PR #81 で実装済み
 
-- **`schneeforge self-update`**: channel の最新 tag 解決 (`git ls-remote --tags` → `latest_tag_for_channel`) → release binary asset download → `CHECKSUMS.txt` との sha256 突合 → 実行 binary と同一 directory の temp file + rename による atomic 置換。検証失敗時は実行 binary を変更しない (fail-closed)。権限なしは `sudo` / install.sh 案内の structured error (自動昇格なし)
-- **core `self_update.rs`**: 純関数 (platform asset 選択 / checksums parse / plan / URL 構築) と effect (`run`) を分離し hermetic test 化 (dashboard と同じ分離方針)。platform gating は install.sh と同一 (darwin aarch64 / linux x86_64)。URL は `SCHNEEFORGE_REPO_URL` 規約 (fork 対応)
-- **設計判断**: GUI 内自己更新 (tauri-plugin-updater) は minisign 鍵管理 + `latest.json` asset が必須で既存の SHA256SUMS + provenance モデルと別系統の署名基盤が増えるため**別 change で判断**。**設計提案 `add-gui-app-self-update` を merge 済み (PR #74)** — 推奨は Step 1 = Releases link button 先行 / Step 2 = tauri-plugin-updater を鍵管理方針決定後に導入。Open Questions 4 件は **2026-08-23 に全て決定** (Step 1 は PR #81 で実装済み、Step 2 の決定内容は下記)
-- test: core 11 件 (asset 選択 / parse / plan / fs 置換) + cli 3 件 (help 列挙 / tag 無し origin / non-github origin の fail-closed、network 不要)
+### rc.7 後 follow-up (2026-08-23〜08-30)
 
-### rc.7 後 follow-up: Homebrew tap 更新 + GUI 自己更新 Step 1 + self-update 表示 fix (2026-08-23 merge 済み, develop 2f1e9be)
-
-- **Homebrew tap を rc.7 へ更新** ([homebrew-tap#1](https://github.com/Lamy210/homebrew-tap/pull/1) / 85001c1 merge 済み): repo root の `schneeforge.rb` の url / version / sha256 を rc.7 に差し替え (sha256 は release CHECKSUMS.txt と突合済み)。`brew install schneeforge` で rc.7 が入る。`brew audit --strict` は macOS 実機で未実施 (Final Acceptance のタイミングで確認推奨)
-- **RELEASE.md の tap 節を実態に修正 (PR #80 / f133e3d)**: formula path を repo root の `schneeforge.rb` へ (`Formula/` は存在しない)、`on_arm`/`on_intel` セレクタ・edge formula の記述を未提供の実態へ
-- **GUI 自己更新 Step 1 = Releases link button (PR #81 / 5bb41cd + archive)**: Dashboard の update 案内に「GitHub Releases を開く」button (`update_available && available` 時のみ表示)。`open_release` command が core の純関数 `release_page_url` (`<repo>/releases/tag/v<version>`、`SCHNEEFORGE_REPO_URL` fork 対応) で URL を組み立て `tauri-plugin-opener` で既定 browser で開く。鍵・asset・pipeline 変更なし。回帰 test は DOM id × JS 参照 × backend command の 3 層静的検証
-- **self-update の UpToDate 誤表示 fix (PR #84 / 2f1e9be, 2026-08-23)**: state 未初期化で channel が stable default のとき、rc 版実行中でも「利用中の版 (0.1.0) が最新です」のように **channel の最新 tag を実行版と誤表示**していた (rc.7 binary での smoke test で発見。挙動は downgrade しないので安全)。`UpToDate { version }` が channel の最新 tag であり実行版とは限らないため、`version == current` 比較で分岐して「channel の最新は X ですが更新しません」と正しく表示。回帰 test `self_update_reports_newer_than_channel_latest` 追加 (network 不要)。**rc.7 binary には本 fix が無い**ため、Final Acceptance で `self-update` を実行すると旧の誤表示が出る可能性がある (実害なし・次回 release で解消)
+- Homebrew tap を rc.7 へ更新 (`homebrew-tap#1`)
+- RELEASE.md の tap 節を実態へ修正 (PR #80)
+- GUI 自己更新 Step 1 Releases link button (PR #81)
+- self-update UpToDate 誤表示 fix (PR #84)
+- release attestation bundles 実装 PR #86 → archive/spec sync PR #87
 
 ### GUI 自己更新 Step 2 の設計判断確定 (2026-08-23)
 
-`add-gui-app-self-update` の Open Questions 4 件が user 承認で確定し、decision material は archive 済み (`2026-08-23-add-gui-app-self-update`、決定記録は同 design.md §7):
+- **鍵管理**: GitHub Actions secret + offline backup
+- **Linux GUI**: updater 対象外
+- **latest.json**: release workflow 自前生成
+- **タイミング**: v0.3 で別 change
 
-- **鍵管理**: 2 重保管・長期鍵 — GitHub Actions secret (`TAURI_SIGNING_PRIVATE_KEY` + password) と user 私有の offline backup。rotation は破洩時のみ (交代は 2 release にまたがる)
-- **Linux GUI**: updater 対象外 (notify-only / link 案内継続。nix 配布は `schneeforge update` で更新)
-- **latest.json**: release workflow 自前生成 (core に tag → json 純関数 + unit test)
-- **タイミング**: v0.3 で導入 (Final Acceptance (rc.7) PASS 後に別 change で実装)
+### 開発ワークフロー hardening（2026-09-16 archive 済み）
+
+- topic → `develop` は squash merge、`release/*` → `main` と `main` → `develop` back-merge は merge commit に統一
+- OpenSpec archive は実装 PR merge 後の separate `chore/archive-*` PR に統一
+- `main` / `develop` の既存 diverged history は rewrite/force push せず、今後の ancestry を merge commit で維持
+- `AGENTS.md` / `CONTRIBUTING.md` / `RELEASE.md` / OpenSpec workflow を同期
+
+### CI critical-path optimization（2026-09-16 archive 済み）
+
+- Rust required gate を `rust-quality` / `rust-build-smoke` の2 workerへ分割し、既存 required context `rust-check` は fail-closed aggregator として維持
+- Linux desktop smoke は CLI sidecar と同じ release profile の `cargo check --release` に変更し、full DMG/Tauri build は required `release-artifact-check` に集約
+- shadow `ci-required` を追加し、現行 required 7 contexts を fail-closed で集約（server-side branch protection は本 change では変更しない）
+- Linux required `flake-check` は default `developer` profile を derivation evaluation、supported `minimal` profile を actual realization。product default は `developer` のまま
+- baseline run #378: required critical path 479s / old `rust-check` 448s
+- final measured run #397: current required critical path **327s（31.7%短縮）**、Rust runner total **443s**。目標 `<=359s` / `<=537.6s` をともに達成
+- `flake-check` は 387s級のボトルネックから61sまで短縮。Terraform source build を毎PRのrequired Linux realizationから外しつつ、default developer evaluationは維持
+- 実装 PR #90 と archive/spec-sync PR #92 はともに squash merge 済み
+
+### macOS compatibility matrix（2026-09-16 archive 済み）
+
+- stable compatibility lane: `macos-15` + Xcode 26.3、stable current/shipping lane: `macos-26` + Xcode 26.6
+- `macos-check` は stable 2 laneをfail-closedで集約し、既存required contextsは変更していない
+- `release-artifact-check` とtag releaseも `macos-26` + Xcode 26.6へpin
+- Xcode 27はPR外のpreview canaryとして分離し、required/release dependencyには入れていない
+- hosted runner が `macos-15-arm64` / `macos-26-arm64` であることも実runで確認済み
+- latest-head run #428でrequired 7 contexts、`ci-required`、release artifact、stable 2 lane、`macos-check`が全てgreen
+- old single-lane baseline 544sに対しstable 2 lane totalは約1227s（約2.26x）で、2.5x guard 1360s以内
+- 実装 PR #93 と archive/spec-sync PR #94 はともに squash merge 済み
+
+### Windows / WSL2 experimental backend（2026-09-18 merge / archive 済み）
+
+- PR #96 で native Windows launcher + WSL2 delegation を実装し develop へ merge
+- PR #98 で `add-windows-wsl2-platform` を archive + canonical spec sync
+- PR #99 で Windows checkout 時の CRLF を `.gitattributes` で修正
+- PR #100 で WSL delegation を `wsl.exe --exec` へ修正し shell-free argv contract を実境界で成立
+- PR #101/#102 で real WSL2 canary harness と静的 contract を hardening
+- real WSL2 canary は explicit selector / env selector / literal argv / delegated exit code を実 Windows→WSL2 で green 確認済み
+- Windows release asset / coordinated self-update は initial scope 外で、experimental source-build 段階を維持
+
+
+### macOS Managed Nix release lifecycle helper（2026-09-19 merge / real run 済み）
+
+- PR #105 で manual-only / non-required の `macos-managed-nix-lifecycle.yml` と release-artifact lifecycle verifier を追加
+- PR #109 で hosted macOS の synthetic `/nix` cleanup 判定を runtime/state remnants 基準へ修正
+- PR #111 で flakes smoke を self-contained local flake に変更し、unauthenticated GitHub API rate limit 依存を除去
+- production `develop@6bae1c21` から `v0.2.0-rc.7` を指定した workflow run #5 (`35435044077`) が success
+- `macos-15-arm64` fresh host で release CLI checksum → Managed Nix install → receipt/ownership → store/local flake → doctor → `ExistingNixDetected` → uninstall → reinstall → final cleanup を実境界で確認
+- これは CLI lifecycle の自動 evidence であり、Finder GUI / `install.sh` D8 / nix-darwin full bootstrap の manual Final Acceptance を置き換えない
+
+### GUI self-update Step 2（2026-09-21 実装 merge 済み / production activation 未実施）
+
+- PR #113 で macOS aarch64 向け Tauri 2 signed updater の実装準備を `develop` へ merge
+- backend が pending update を保持し、`fetch_app_update` / `install_app_update` / progress event / restart を提供
+- Dashboard は updater capability が有効な build のみ自動更新 button を表示し、GitHub Releases link を fallback として維持
+- release pipeline は `SCHNEEFORGE_UPDATER_ACTIVATED=true` の場合だけ signed `.app.tar.gz` / `.sig` / `latest.json` を生成する staged activation
+- PR #115 で updater signature を app version と暗号学的にbindし、runtime は signed version と endpoint announced version の一致を必須化（Tauri CLI 2.11.5+ / `requireSignedVersion=true`）
+- production signing private key は Tauri build step のみに scope し、通常 PR/develop build は secret-free / updater-disabled
+- **未完了**: macOS manual Final Acceptance、production key pair/secret/public-key provision、signed N→N+1 E2E、tampered artifact signature mismatch E2E
+- 上記 activation gate 完了までは production updater を有効化せず、placeholder/test trust root は shipping しない
 
 ## 進行中
 
 | 項目 | 進捗 | 場所 |
 |------|------|------|
-| **v2 §7 Managed Release Source** (working tree-less) | **develop merge 済み** (PR #54 / 00d9b98)。Release source の表現に flake ref `github:<owner>/<repo>/<tag>` を追加 (state の `managed` flag。旧 state.json 互換)。repo file は `raw.githubusercontent.com` tag-pinned 取得 + state dir 無期限 cache。`schneeforge source init [--channel/--tag]` で移行、update は state 更新のみ、sync は案内 no-op。install.sh / bootstrap-flow は不改変 (2 表現佷存) | `openspec/changes/archive/2026-08-19-add-managed-release-source/` |
-| Managed Nix Bootstrap Phase 1 + install 修正 (PR #13/#18) | **develop merge 済み** (a7d4777)。review 4 巡。CI 18/18 green | `openspec/changes/archive/2026-08-14-add-managed-nix-bootstrap/` |
-| Spike `nix-bootstrap-provider-evaluation` | 完了 (Linux x86_64 実測済み、macOS aarch64 は ADR final acceptance 条件) | `openspec/changes/spike-nix-bootstrap-provider-evaluation/` |
-| NixStatus 状態分類 (issue #15) | **develop merge 済み** (PR #33 / 6c48837)。`NixStatus` 4 状態 model + doctor `[status]` 欄 + GUI `nix_status` 表示・wizard の Managed Nix 案内。`nix repair` は別 change で設計予定 | `openspec/changes/archive/2026-08-16-add-nix-status-classification/` / `2026-08-16-add-gui-managed-nix-status/` |
-| `schneeforge nix repair` (issue #15 残件) | **develop merge 済み** (PR #35 / 6470700)。`RepairAction` state-driven 修復 (Broken → stale ownership record 削除のみ自動、Degraded → uninstall/手動 cleanup 案内) + upstream `repair {hooks,sequoia}` wrap。E2E 11/11 pass | `openspec/changes/archive/2026-08-16-add-nix-repair/` |
-| GUI Managed Nix install (issue #16) | **develop merge 済み** (PR #36 / f17604a)。privilege escalation helper (osascript / pkexec、昇格先は bundle 同梱の CLI sidecar) + wizard からの 2 段階 install UI (plan preview → 確認 → install) + install progress の event streaming。`NIX_SETTING_DIR` 昇格先渡し・repo 未 clone 時の gate 付き。CLI fallback 案内維持 | `openspec/changes/archive/2026-08-16-add-gui-managed-nix-install/` |
-| GUI apply 系の昇格統合 (デグレ #5) | **develop merge 済み** (PR #37 / 1134a31)。`run_apply` / `run_rollback` / `run_upgrade` を core 直接呼び出しから CLI sidecar の昇格実行 (osascript / pkexec) へ集約。`EscalatedOp` に Apply/Rollback/Upgrade を追加。lock / state 保存は昇格先 CLI 内。実機 (osascript 昇格での apply) は macOS Final Acceptance で確認 | `openspec/changes/archive/2026-08-16-add-gui-privileged-apply/` |
-| GUI nix repair / uninstall (issue #16 残作業) | **develop merge 済み** (PR #40 / 72fbd20。旧 PR #39 は base branch 削除で close → 再提出)。`EscalatedOp` に NixRepair/NixUninstall を追加し、wizard の Degraded/Broken 表示に「修復を試みる」ボタン・Ready 画面に確認付き「Nix を削除」ボタン。`--force` は GUI から渡さない (fail-closed 維持) | `openspec/changes/archive/2026-08-16-add-gui-nix-repair-uninstall/` |
-| DMG offline bundle 法務 ADR (issue #17) | ADR-0002 起票・openspec change 作成 (branch `feat/gui-managed-nix-install` に同梱)。無改変再配布 + LICENSE 同梱 + written offer の方針を固定。**実装 (bundle 同梱・offline 経路) は弁護士確認後の別 change** | `docs/adr/0002-dmg-bundle-lgpl-redistribution.md` / `openspec/changes/add-dmg-offline-bundle-licensing/` |
+| macOS Apple Silicon Final Acceptance | rc.7 の CLI lifecycle 自動化後も Finder GUI / install.sh 対話 / full bootstrap manual gate は未完了 | `docs/testing/macOS-final-acceptance-checklist.md` |
+| GUI self-update Step 2 activation | 実装は merge 済み。production key provision / Final Acceptance / N→N+1・tamper E2E 完了まで disabled | `RELEASE.md`, `openspec/specs/gui-dashboard/spec.md`, `openspec/specs/release-supply-chain/spec.md` |
+| DMG offline bundle 法務 ADR (issue #17) | ADR-0002 / OpenSpec は archive 済み。binary bundle / offline install 実装は弁護士確認後 | `docs/adr/0002-dmg-bundle-lgpl-redistribution.md`, `openspec/changes/archive/2026-09-17-add-dmg-offline-bundle-licensing/` |
 
 ## 既知のデグレ・機能漏れ（要対応）
 
 ### 高（Release Blocker）
 
-| # | 問題 | 対応 |
-|---|------|------|
-| 5 | GUI apply の sudo/TTY 問題（privileged helper 未実装） | **解消** (feat/gui-privileged-apply): `run_apply` / `run_rollback` / `run_upgrade` を CLI sidecar の昇格実行 (osascript / pkexec) へ集約。nix install と同じ `escalate_command()` 経路。実機確認は macOS Final Acceptance に統合 |
+現時点でコード上の既知 release blocker は無し。macOS Final Acceptance は release readiness gate として未完了。
 
 ### 中
 
 | # | 問題 | 対応 |
 |---|------|------|
-| 12 | install.sh が main 固定（Stable/Edge 分離無し） | **解消・merge 済み** (PR #38 / e95d899): README の Stable ワンライナーを tag 固定 URL に分離 + tag と `SCHNEEFORGE_BOOTSTRAP_VERSION` pin の一致を `tests/install-sh.bats` で回帰保証。RELEASE.md の bump checklist に README URL 差し替えを追加 |
-| — | Dependabot alert #2: glib 0.18.5 (GHSA-wrw7-89jp-8q8g / RUSTSEC-2024-0429, medium) | Known upstream dependency risk. 現 dependency tree では Tauri v2 Linux → GTK3 0.18 → glib 0.18.5 経由。macOS / Windows distribution には当該 GTK3 dependency は含まれない。app code からの VariantStrIter 直接利用は確認されていないが、transitive dependency 内の到達可能性まで否定する根拠にはしない。**2026-08-21 調査**: gtk-rs/gtk3-rs#857 は 2026-08-16 に close し master は活発に開発中だが、glib は **0.23.0-alpha (git 依存、crates.io 未 release)** で stable line は 0.18.x のまま → bump 可能な stable release がまだ存在しない。**2026-08-22 再確認**: gtk (GTK3 line) の stable は 0.18.2 のまま (2024-12-09 が最終) で状況不変。Tauri v2 / tao / wry 側の追従状況を monitor し、gtk3-rs の stable release 後に再評価。**現時点では dismiss (no_plan_to_fix) せず tracking 継続** |
+| — | Dependabot alert #2: glib 0.18.5 (GHSA-wrw7-89jp-8q8g / RUSTSEC-2024-0429, medium) | Tauri v2 Linux → GTK3 0.18 → glib 0.18.5 経由。upstream stable release を monitor し、gtk3-rs stable 更新後に再評価。dismiss せず tracking 継続 |
+| — | `main` と `develop` の Git history が diverge | **history rewrite しない**。次回 release から `release/*`→`main` と `main`→`develop` を merge commit 固定し、以後の ancestry を維持 |
 
 ### 低
 
 | # | 問題 | 対応 |
 |---|------|------|
-| — | バージョン文字列の同期（現在 `0.2.0-rc.7`。Cargo.toml / tauri.conf.json / packages.nix / install.sh） | **rc.7 で 10 箇所 bump 済み**。次回 release で同様に (RELEASE.md checklist) |
-| — | Homebrew tap (Lamy210/homebrew-tap) の formula が v0.2.0-rc.1 で停止 | **解消** (2026-08-22): homebrew-tap#1 で rc.7 へ更新し merge 済み。RELEASE.md の tap 節記述も実態へ修正 (PR #80)。`brew audit --strict` は macOS 実機で未実施 |
+| — | Windows release asset / coordinated self-update 未提供 | PR #96 initial scope外。launcher/helperを同一versionで手動用意するexperimental source-build段階。distribution/update設計をfollow-up changeで行う |
+| — | バージョン文字列の同期（現在 `0.2.0-rc.7`） | 次回 release で RELEASE.md checklist に従い同期 |
+| — | Intel macOS release asset 未提供 | `add-x86_64-darwin-support` を Windows/macOS compatibility 基盤後に検討 |
 
 ## 次の作業（推奨順）
 
-1. **macOS Apple Silicon Final Acceptance** (ADR-0001 Accepted 昇格 + PR #11 Finder 実機 smoke を統合した 1 本フロー。**実施 tag は v0.2.0-rc.7 に確定** — 2026-08-22 決定。手順書 `docs/testing/macOS-final-acceptance-checklist.md` gate A-J、rc.7 は managed source gate I を含む):
-   - fresh / disposable environment・Nix 無し状態から開始
-   - install.sh → Managed Nix install
-   - receipt (`/nix/receipt.json`) / ownership record (`/nix/schneeforge-managed.json`) 確認
-   - self-test / flakes / store ping
-   - SchneeForge.app を Finder から起動 (PR #11 の実機 smoke)
-   - minimal GUI PATH でも Nix を検出すること (`fix-path-env-rs` 検証)
-   - doctor / status 正常終了
-   - **PR #37/#40 の実機 smoke**: osascript 昇格での apply、wizard の「修復を試みる」ボタン・Ready 画面の「Nix を削除」ボタン (confirm dialog)
-   - **rc.7 の新機能実機確認**: managed source 経路の fresh install (gate I)・`schneeforge self-update` (rc.7 → 次回 release で初の実 update)
-   - uninstall → cleanup
-   - 通れば ADR-0001 を `Accepted` へ昇格 + issue #16 close
-2. Phase 2/E 残作業:
-   - GUI 内自己更新 (Phase E 残件): **Step 1 (Releases link button) 実装済み (PR #81)**。**Step 2 (tauri-plugin-updater) の設計判断は確定済み (2026-08-23、上記)** — Final Acceptance PASS 後の v0.3 で別 change として実装
-   - #17 DMG bundle + LGPL-2.1 法務 ADR: **ADR-0002 起票済み** (Accepted provisionally)。実装 (bundle 同梱・offline 経路、`add-dmg-offline-bundle-licensing` tasks 4.x) は弁護士確認後の別 change
-3. 残デグレ対応:
-   - glib advisory (Dependabot #2): gtk3-rs#857 と Tauri v2 側の追従を monitor、upstream release 後に再評価
+1. **macOS Apple Silicon Final Acceptance の残り manual gate**
+   - Finder pre-bootstrap / post-bootstrap GUI smoke
+   - `install.sh` D8 `/dev/tty` 経路
+   - nix-darwin apply 済み full uninstall ordering
+   - 全 gate 完了後にのみ ADR-0001 を `Accepted` へ昇格
+2. **GUI self-update Step 2 production activation**
+   - Final Acceptance PASS 後に production updater key pair を生成し、private key/password を Actions secret + offline backupへ保管
+   - public key を review して production config に固定
+   - signed N→N+1 updater E2E と tampered artifact signature mismatch E2E を通してから `SCHNEEFORGE_UPDATER_ACTIVATED=true`
+3. Phase 2/E follow-up
+   - Windows release asset / coordinated launcher-helper update設計
+   - Intel macOS release asset の検討
+4. **issue #17**
+   - LGPL-2.1 再配布条件の弁護士確認後に DMG offline bundle 実装を開始
 
-※ issue #14/#15 は close 済み。#16 は Final Acceptance 済み次第 close、#17 は弁護士確認後に close。
+※ issue #14/#15/#16/#91 は close 済み。#17 は法務確認待ち。
 
 ## 開発フロー
 
-- ブランチ: `git checkout develop` → `feat/*` → PR → develop (squash merge)
-- OpenSpec 必須: `openspec new change` → proposal → specs → tasks → 実装 → archive → PR (CONTRIBUTING.md の基本フロー。PR #8 で「develop へ直接 push しない」ために確立)。実装 PR を先に出す場合は merge 後に **archive の separate PR** でもよい (v2 系 #54-#61 はこちらで運用。change dir → `openspec/changes/archive/<date>-<name>/`)
-- 品質ゲート: `cargo test` / `clippy` / `fmt` / `nix flake check` / `openspec validate --all` (local は `npx -y @fission-ai/openspec@1.8.0`)
-- desktop (`apps/desktop`) は GTK 依存のため dev machine で compile 不可。lib.rs 変更時は `rustfmt --edition 2021 --check apps/desktop/src-tauri/src/lib.rs` を最低限実行 (parse error を push 前に検出できる)
-- CI watch は `gh api repos/.../commits/$SHA/check-runs` で `status != "completed"` を数える (この gh version は `gh pr checks --json` 非対応、`statusCheckRollup` は pending を conclusion:null で返さないことがある)
-- **手動 CLI 実行時は `XDG_STATE_HOME` を temp に向ける**: 向けないで `source init` 等を動かすと実 state (`~/.local/state/schneeforge/state.json`) を汚染し、原因の特定が難しい test 落ちを引き起こす (2026-08-20 に発生)。汚染したら state.json を削除すれば戻る。test 側の隔離は PR #63 で対応済み
-- 詳細: [CONTRIBUTING.md](../CONTRIBUTING.md) / [RELEASE.md](../RELEASE.md)
+- Topic branch: `develop` → `feat|fix|refactor|docs|test|chore/*` → PR → `develop` (**squash merge**)
+- Release: `develop` → `release/vX.Y.Z` → PR → `main` (**merge commit**) → tag → release workflow
+- Back-merge: `main` → PR → `develop` (**merge commit**)。squash/rebase/force rewrite は使わない
+- OpenSpec: change 作成 → proposal/design/spec/tasks → `openspec validate <id> --strict` → proposal approval → 実装 → `openspec validate --all --strict` → 実装 PR merge → `chore/archive-<id>` で archive + spec sync PR
+- 品質ゲート: `cargo test` / `clippy` / `fmt` / `nix flake check` / OpenSpec strict validation
+- Windows backend: `windows-2025` non-required laneでnative launcher compile/contract/smokeを確認し、Nix operational behaviorはWSL/Linux execution-sideで保持する
+- branch protection required checks の変更は段階移行。新 aggregator を既存 required contexts と並行稼働させてから切り替える
+- 手動 CLI 実行時は `XDG_STATE_HOME` を temp に向け、実 state を汚染しない
+- 詳細: [CONTRIBUTING.md](../CONTRIBUTING.md) / [RELEASE.md](../RELEASE.md) / [Windows / WSL2 guide](./windows-wsl2.md)

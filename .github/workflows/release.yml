@@ -16,9 +16,10 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             artifact: schneeforge-x86_64-linux
-          - os: macos-latest
+          - os: macos-26
             target: aarch64-darwin
             artifact: schneeforge-aarch64-darwin
+            xcode: /Applications/Xcode_26.6.app/Contents/Developer
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -53,6 +54,18 @@ jobs:
       # `nix build` 産 binary は /nix/store の libiconv に link し、
       # Nix 未導入 Mac (install.sh の想定環境) で起動できないため、
       # host toolchain で build する (Linux musl と同じ理由)。
+      - name: macOS / Xcode diagnostics
+        if: runner.os == 'macOS'
+        env:
+          DEVELOPER_DIR: ${{ matrix.xcode }}
+        run: |
+          sw_vers
+          uname -m
+          printf 'DEVELOPER_DIR=%s\n' "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          xcrun --find clang
+
       - uses: dtolnay/rust-toolchain@stable
         if: runner.os == 'macOS'
 
@@ -63,10 +76,14 @@ jobs:
       # (PR CI の release-artifact-check と同一 script。drift が rc.1/rc.2 事故の原因)
       - name: build binary (macOS, same script as PR CI)
         if: runner.os == 'macOS'
+        env:
+          DEVELOPER_DIR: ${{ matrix.xcode }}
         run: ./scripts/ci/build-release-macos-cli.sh
 
       - name: package binary (macOS)
         if: runner.os == 'macOS'
+        env:
+          DEVELOPER_DIR: ${{ matrix.xcode }}
         run: |
           mkdir -p dist
           cp target/release/schneeforge "dist/${{ matrix.artifact }}"
@@ -82,7 +99,11 @@ jobs:
   # .app 内 binary に portability gate をかける (RC.4 の /nix/store libiconv 事故の
   # 再発防止。script は check.yml release-artifact-check と同一)
   build-dmg:
-    runs-on: macos-latest
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      SCHNEEFORGE_UPDATER_ACTIVATED: ${{ vars.SCHNEEFORGE_UPDATER_ACTIVATED || 'false' }}
+      SCHNEEFORGE_UPDATER_PUBKEY: ${{ vars.SCHNEEFORGE_UPDATER_PUBKEY }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
@@ -92,9 +113,23 @@ jobs:
         with:
           key: macos-release-dmg
 
+      - name: macOS / Xcode diagnostics
+        run: |
+          sw_vers
+          uname -m
+          printf 'DEVELOPER_DIR=%s\n' "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          xcrun --find clang
+
       # build + gate は scripts/ci/build-release-macos-dmg.sh に共通化
       # (PR CI の release-artifact-check と同一 script。drift が事故原因)
       - name: build DMG (host toolchain, same script as PR CI)
+        env:
+          # Keep the production signing secret scoped to the only step that
+          # consumes it. checkout/cache/diagnostic actions never receive it.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: ./scripts/ci/build-release-macos-dmg.sh
 
       - name: upload DMG
@@ -103,9 +138,21 @@ jobs:
           name: schneeforge-dmg
           path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
 
+      - name: upload signed updater artifacts
+        if: ${{ env.SCHNEEFORGE_UPDATER_ACTIVATED == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: schneeforge-updater
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
+            apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
+          if-no-files-found: error
+
   release:
     needs: [build-binaries, build-dmg]
     runs-on: ubuntu-latest
+    env:
+      SCHNEEFORGE_UPDATER_ACTIVATED: ${{ vars.SCHNEEFORGE_UPDATER_ACTIVATED || 'false' }}
     # job level で上書き: attestation に必要な OIDC (id-token) と
     # attestation 永続化 API の権限 (attestations) は release job のみに
     # 付与する (build job へは渡さない)。attestations: write が無いと
@@ -126,6 +173,28 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: dist
+
+      - name: generate signed updater manifest
+        if: ${{ env.SCHNEEFORGE_UPDATER_ACTIVATED == 'true' }}
+        run: |
+          updater_dir="dist/schneeforge-updater"
+          artifact="$(find "$updater_dir" -maxdepth 1 -type f -name '*.app.tar.gz' | head -1)"
+          if [ -z "$artifact" ]; then
+            echo "ERROR: activated updater release is missing .app.tar.gz" >&2
+            exit 1
+          fi
+          signature="${artifact}.sig"
+          if [ ! -s "$signature" ]; then
+            echo "ERROR: activated updater release is missing signature: $signature" >&2
+            exit 1
+          fi
+          python3 scripts/ci/generate-updater-manifest.py \
+            --tag "${{ github.ref_name }}" \
+            --artifact "$(basename "$artifact")" \
+            --signature-file "$signature" \
+            --output "$updater_dir/latest.json"
+          test -s "$updater_dir/latest.json"
+          cat "$updater_dir/latest.json"
 
       - name: generate SBOM
         run: |

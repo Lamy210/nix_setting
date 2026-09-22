@@ -11,6 +11,7 @@ use crate::error::{Error, Result};
 use crate::manifest::Manifest;
 use crate::process::run_capture;
 use crate::release_metadata::ReleaseMetadata;
+use crate::semver;
 use crate::source::latest_tag_for_channel;
 use crate::state::State;
 use crate::tool::ResolvedTool;
@@ -40,13 +41,16 @@ pub struct DashboardSnapshot {
     pub update_available: bool,
 }
 
-/// state から表示する channel を決定する。
-/// source が release kind で channel を持つならそれ、無ければ stable。
+/// state から表示・release 解決に使う channel を決定する。
+/// release kind 自体を source of truth とし、persisted channel の欠落・drift
+/// や non-release source の stale channel に semantic fallback しない。
+/// release source が無い場合だけ従来どおり stable を既定値にする。
 pub fn channel_of(state: Option<&State>) -> String {
     state
         .and_then(|s| s.source.as_ref())
-        .and_then(|s| s.channel.clone())
-        .unwrap_or_else(|| "stable".to_string())
+        .and_then(|s| s.kind.release_channel())
+        .unwrap_or("stable")
+        .to_string()
 }
 
 /// installed 側情報を組み立てる。profile は state 選択 > manifest default。
@@ -142,56 +146,16 @@ pub fn fetch_available(
     ReleaseMetadata::fetch(&tag)
 }
 
-/// `available` version が `current` より新しいか (semver 風比較)。
-/// 同一 core version では正式版 > prerelease (semver 準拠)。
-/// prerelease suffix の比較は数値 segment を数値として扱う (`rc.10` > `rc.9`)。
+/// `available` version が `current` より新しいか。
+/// strict SemVer として双方を解釈できない場合は fail-closed に false。
 pub fn version_is_newer(available: &str, current: &str) -> bool {
-    compare_versions(available, current) == Ordering::Greater
+    semver::compare(available, current).is_some_and(|ordering| ordering == Ordering::Greater)
 }
 
-/// 2 つの version 文字列を比較する。core 3 segment (X.Y.Z) を数値比較し、
-/// 同一なら prerelease 有無 (無し > 有り)、双方 prerelease なら suffix の
-/// dot segment を数値/文字列比較する。
+/// 2 つの version 文字列を SemVer precedence で比較する。
+/// public API の戻り値型を維持するため、不正 SemVer は Equal として fail-closed に扱う。
 pub fn compare_versions(a: &str, b: &str) -> Ordering {
-    let (a_core, a_pre) = split_version(a);
-    let (b_core, b_pre) = split_version(b);
-    a_core.cmp(&b_core).then_with(|| match (a_pre, b_pre) {
-        (None, None) => Ordering::Equal,
-        // 正式版 (suffix 無し) の方が新しい (semver: prerelease < release)
-        (None, Some(_)) => Ordering::Greater,
-        (Some(_), None) => Ordering::Less,
-        (Some(x), Some(y)) => compare_prerelease(&x, &y),
-    })
-}
-
-/// version を core 3 segment と prerelease suffix に分割する
-fn split_version(v: &str) -> (Vec<u64>, Option<String>) {
-    let (core, pre) = match v.split_once('-') {
-        Some((c, p)) => (c, Some(p.to_string())),
-        None => (v, None),
-    };
-    let nums = core
-        .split('.')
-        .map(|p| p.parse::<u64>().unwrap_or(0))
-        .collect();
-    (nums, pre)
-}
-
-/// prerelease suffix を semver 風に比較する。segment 每に、双方数値なら
-/// 数値比較、それ以外は文字列比較。短い方が前 (semver 準拠)。
-fn compare_prerelease(a: &str, b: &str) -> Ordering {
-    let a_parts: Vec<&str> = a.split('.').collect();
-    let b_parts: Vec<&str> = b.split('.').collect();
-    for (x, y) in a_parts.iter().zip(b_parts.iter()) {
-        let ord = match (x.parse::<u64>(), y.parse::<u64>()) {
-            (Ok(nx), Ok(ny)) => nx.cmp(&ny),
-            _ => x.cmp(y),
-        };
-        if ord != Ordering::Equal {
-            return ord;
-        }
-    }
-    a_parts.len().cmp(&b_parts.len())
+    semver::compare(a, b).unwrap_or(Ordering::Equal)
 }
 
 #[cfg(test)]
@@ -243,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn channel_of_defaults_to_stable() {
+    fn channel_of_defaults_to_stable_and_uses_release_kind() {
         assert_eq!(channel_of(None), "stable");
         assert_eq!(channel_of(Some(&State::default())), "stable");
         assert_eq!(
@@ -253,6 +217,25 @@ mod tests {
         assert_eq!(
             channel_of(Some(&state_with(Some("stable"), None))),
             "stable"
+        );
+
+        let mut mismatched = state_with(Some("preview"), None);
+        let source = mismatched.source.as_mut().unwrap();
+        source.channel = Some("stable".to_string());
+        assert_eq!(
+            channel_of(Some(&mismatched)),
+            "preview",
+            "release kind must win over stale persisted channel"
+        );
+
+        let mut non_release = state_with(Some("preview"), None);
+        let source = non_release.source.as_mut().unwrap();
+        source.kind = SourceKind::GitTracking;
+        source.channel = Some("preview".to_string());
+        assert_eq!(
+            channel_of(Some(&non_release)),
+            "stable",
+            "non-release source must not select a release channel from stale state"
         );
     }
 
@@ -348,6 +331,9 @@ abc500\trefs/tags/not-a-release
         // tag が 1 つも無い場合も error
         let err = latest_tag_from_ls_remote("", "stable").unwrap_err();
         assert!(err.to_string().contains("no release tag"), "{err}");
+        // 不正 channel は stable へフォールバックしない
+        let err = latest_tag_from_ls_remote("abc\trefs/tags/v0.1.0\n", "unsupported").unwrap_err();
+        assert!(err.to_string().contains("unsupported"), "{err}");
     }
 
     #[test]
@@ -359,11 +345,25 @@ abc500\trefs/tags/not-a-release
         // 同一 core では正式版 > prerelease
         assert!(version_is_newer("0.2.0", "0.2.0-rc.5"));
         assert!(!version_is_newer("0.2.0-rc.5", "0.2.0"));
-        // prerelease 同士は数値比較 (rc.10 > rc.9)
+        // prerelease 同士は SemVer identifier rules に従う
         assert!(version_is_newer("0.2.0-rc.10", "0.2.0-rc.9"));
         assert!(version_is_newer("0.2.0-rc.5", "0.2.0-rc.4"));
+        assert!(version_is_newer("1.0.0--foo", "1.0.0-1"));
         assert!(!version_is_newer("0.2.0-rc.5", "0.2.0-rc.5"));
         // core が新しければ prerelease も newer
         assert!(version_is_newer("0.3.0-rc.1", "0.2.0"));
+        // SemVer numeric identifiers は machine integer 幅に制限されない
+        assert!(version_is_newer(
+            "184467440737095516160.0.0",
+            "184467440737095516159.999.999"
+        ));
+        // build metadata は precedence に影響しない
+        assert_eq!(
+            compare_versions("1.0.0-rc.1+build.2", "1.0.0-rc.1+build.1"),
+            Ordering::Equal
+        );
+        // malformed input は update_available を立てない
+        assert!(!version_is_newer("not-semver", "0.2.0"));
+        assert_eq!(compare_versions("not-semver", "0.2.0"), Ordering::Equal);
     }
 }

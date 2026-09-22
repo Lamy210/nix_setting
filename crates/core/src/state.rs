@@ -55,9 +55,17 @@ impl StateStore {
         &self.path
     }
 
-    pub fn load(&self) -> Option<State> {
-        let content = std::fs::read_to_string(&self.path).ok()?;
-        serde_json::from_str(&content).ok()
+    pub fn load(&self) -> Result<Option<State>> {
+        let content = match std::fs::read_to_string(&self.path) {
+            Ok(content) => content,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => {
+                return Err(Error::State(format!("read {}: {e}", self.path.display())));
+            }
+        };
+        serde_json::from_str(&content)
+            .map(Some)
+            .map_err(|e| Error::State(format!("parse {}: {e}", self.path.display())))
     }
 
     /// 原子的に保存する (temp 書き込み → fsync → rename)。失敗時はエラーを返す
@@ -108,6 +116,7 @@ mod tests {
     fn temp_store(name: &str) -> (StateStore, PathBuf) {
         let dir = std::env::temp_dir().join(format!("schneeforge-test-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
         let store = StateStore::new(dir.join("state.json"));
         (store, dir)
     }
@@ -176,7 +185,7 @@ mod tests {
             profile: None,
         };
         store.save(&s).unwrap();
-        let loaded = store.load().unwrap();
+        let loaded = store.load().unwrap().unwrap();
         assert_eq!(loaded.host.as_deref(), Some("linux"));
         assert_eq!(loaded.applied_revision.as_deref(), Some("def456"));
         assert_eq!(loaded.applied_at, None);
@@ -187,7 +196,56 @@ mod tests {
     fn load_missing_file_returns_none() {
         let store =
             StateStore::new(std::env::temp_dir().join("schneeforge-nonexistent-state.json"));
-        assert!(store.load().is_none());
+        assert!(store.load().unwrap().is_none());
+    }
+
+    #[test]
+    fn load_valid_legacy_file_succeeds() {
+        let (store, dir) = temp_store("legacy-load");
+        std::fs::write(
+            store.path(),
+            r#"{
+                "host": "linux",
+                "applied_revision": "abc123",
+                "applied_at": null,
+                "product_version": "0.1.0"
+            }"#,
+        )
+        .unwrap();
+        let loaded = store.load().unwrap().unwrap();
+        assert_eq!(loaded.host.as_deref(), Some("linux"));
+        assert_eq!(loaded.source, None);
+        assert_eq!(loaded.profile, None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_malformed_file_returns_state_error_without_contents() {
+        let (store, dir) = temp_store("malformed-load");
+        let secret = "{ definitely-not-json SECRET_SHOULD_NOT_LEAK";
+        std::fs::write(store.path(), secret).unwrap();
+        let err = store.load().unwrap_err();
+        assert!(matches!(err, Error::State(_)));
+        let message = err.to_string();
+        assert!(message.contains("parse"));
+        assert!(message.contains("state.json"));
+        assert!(!message.contains("SECRET_SHOULD_NOT_LEAK"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_existing_directory_returns_state_error() {
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-state-read-error-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = StateStore::new(dir.clone());
+        let err = store.load().unwrap_err();
+        assert!(matches!(err, Error::State(_)));
+        assert!(err.to_string().contains("read"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

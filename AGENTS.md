@@ -28,7 +28,7 @@ SchneeForge（Declarative Developer Workstation Manager）の開発ルール。�
 ### 開始時
 
 1. [docs/STATUS.md](./docs/STATUS.md) を読む（現在の状態・既知のデグレ・次の作業）
-2. [openspec/changes/](./openspec/changes/) の進行中 change を `openspec status` で確認
+2. [openspec/changes/](./openspec/changes/) の進行中 change を `openspec list` / `openspec status --change <name>` で確認
 3. MCP の memory サーバ（`search_nodes`）で前セッションのメモリを検索
 
 ### 終了時
@@ -38,52 +38,73 @@ SchneeForge（Declarative Developer Workstation Manager）の開発ルール。�
 
 ## 開発フロー: OpenSpec + ブランチ + PR を必ず使う
 
-main へ直接コミットしない。必ず feature branch → PR → レビュー → merge とする。
+`main` / `develop` へ直接コミットしない。topic branch → PR → review → merge とする。
 
 ```bash
 # 1. 現状確認
 openspec list                    # 進行中の change 一覧
 openspec status --change <name>  # アーティファクト進捗
 
-# 2. ブランチを作成
+# 2. develop から topic branch を作成
+git checkout develop
 git checkout -b feat/<kebab-case-name>
 
 # 3. OpenSpec change を作成
 openspec new change <kebab-case-name>
-# → proposal.md → design.md → specs/ → tasks.md の順に書く
-# → openspec validate <name> が通るまで実装しない
+# → proposal.md → design.md → specs/ → tasks.md
+# → openspec validate <name> --strict が通るまで実装しない
+# → proposal 承認後に実装へ進む
 
 # 4. tasks.md の順に実装（チェックを付ける）
 
-# 5. コミット（conventional commits）
+# 5. 品質ゲート
+openspec validate --all --strict
+cargo test
+cargo clippy -- -D warnings
+cargo fmt -- --check
+nix flake check
+
+# 6. コミット（conventional commits）
 git commit -m "feat: ..."
 
-# 6. 完了時にアーカイブ（feature ブランチ上で。develop へ直接 push しない）
-openspec archive <name>
-git add -A && git commit -m "chore: archive <name> + sync specs"
+# 7. 実装 PR を develop へ作成
+# topic PR は squash merge
+gh pr create --base develop --title "feat: ..."
 
-# 7. PR を作成してレビュー後に merge
-gh pr create --title "feat: ..."
-# → レビュー → merge
+# 8. 実装 PR merge 後、develop から archive branch を作成
+git checkout develop && git pull
+git checkout -b chore/archive-<name>
+openspec archive <name> --yes
+git add -A && git commit -m "chore: archive <name> + sync specs"
+gh pr create --base develop --title "chore: archive <name>"
 ```
 
 ## ブランチ・コミット規約
 
 | 種別 | プレフィックス | 例 |
 |------|---------------|-----|
-| ブランチ | feat/ fix/ refactor/ docs/ test/ chore/ | `feat/gui-diagnostics` |
+| Topic branch | feat/ fix/ refactor/ docs/ test/ chore/ | `feat/gui-diagnostics` |
+| Archive branch | chore/archive- | `chore/archive-gui-diagnostics` |
+| Release branch | release/ | `release/v0.3.0` |
 | コミット | feat: fix: refactor: docs: test: chore: | `fix: resolve button dispatch bug` |
 
-- **main へ直接 push しない**。必ず PR を挟む
+- **main / develop へ直接 push しない**。必ず PR を挟む
 - 1 PR = 1 関心事（feature / fix / refactor を混ぜない）
 - PR タイトルは conventional commits 形式
+- topic branch → `develop` は **squash merge**
+- `release/vX.Y.Z` → `main` は **merge commit**（squash / rebase 禁止）
+- release 後の `main` → `develop` back-merge は **merge commit**（squash / rebase 禁止）
+- 過去の diverged history を直すための force push / history rewrite はしない
 
 ## OpenSpec の必須条件
 
-- 機能追加・変更には必ず OpenSpec change を伴う（spec の無い実装はしない）
-- requirement には SHALL/MUST、Scenario には WHEN/THEN を必ず含める
-- `openspec validate --all` が通るまで実装を始めない
-- 手書きの `docs/*.md` spec は作らない（OpenSpec の changes/ を使う）
+- 機能追加・breaking change・architecture change・behavior-changing optimization・security pattern change には OpenSpec change を伴う
+- requirement には SHALL/MUST、Scenario には WHEN/THEN を必ず含む
+- `openspec validate <change-id> --strict` と `openspec validate --all --strict` が通ること
+- proposal 承認前に実装を開始しない
+- change の archive は実装 PR merge 後に別 `chore/archive-*` PR で行う
+- tooling-only で main spec を変更しない archive のみ `openspec archive <change-id> --skip-specs --yes` を許可する
+- 手書きの `docs/*.md` spec は作らない（OpenSpec の changes/ を使う）。利用・運用ガイドは `docs/` に置いてよい
 
 ## アーキテクチャ
 
@@ -91,46 +112,59 @@ gh pr create --title "feat: ..."
 schneeforge-core (crates/core)   ← 実ロジック唯一の置き場
   ├── actions     (apply/rollback/scan/upgrade)
   ├── discovery   (detect_target/Platform/Architecture/tool検出)
-  ├── manifest    (config.toml)
+  ├── execution   (HostPlatform / WSL2 backend model・protocol contract)
+  ├── manifest    (schneeforge.toml)
   ├── repo        (repository解決)
   ├── state       (state.json)
   └── time        (時刻)
-CLI (crates/cli)                 ← core を呼ぶだけ
+CLI (crates/cli)                 ← core を呼ぶ adapter + Windows native launcher
 Desktop (apps/desktop)           ← Tauri 2。core を呼ぶだけ
 ```
 
 原則:
-- CLI / Desktop に実ロジックを置かない（core へ集約）
+- CLI / Desktop に operation の実ロジックを置かない（core へ集約）
+- Windows native CLI は control-plane/launcher とし、execution-requiring command は repo/tool/state discovery 前にWSL2 Linux helperへ委譲する
+- Windows を Nix `Platform` / `system` に追加しない。Nix execution side はmacOS/Linuxのまま
 - 新規操作は core に置き、CLI/GUI は adapter にする
 
 ## 技術スタック
 
 - Nix (flakes, flake-parts) / Home Manager / nix-darwin
 - Rust: schneeforge-core / cli
+- Windows experimental backend: native Rust launcher + WSL2 Linux helper
 - Tauri 2: desktop GUI
 - 配布: flake / install.sh / GitHub Release (binaries + DMG) / Homebrew / cargo install
 
 ## 品質ゲート（コミット前にローカル実行）
 
 ```bash
+openspec validate --all --strict
 cargo test
 cargo clippy -- -D warnings
 cargo fmt -- --check
 nix flake check
-openspec validate --all
 ```
+
+Windows関連changeでは加えてPRのnon-required `windows-check`（`windows-2025`）を確認する。Windows release assetを提供するまではrequired/release gateへ昇格させない。
 
 ## コードレビューチェックリスト
 
-- [ ] OpenSpec change が存在し `openspec validate --all` が通る
+- [ ] OpenSpec change が存在し `openspec validate --all --strict` が通る
+- [ ] proposal が承認済み
 - [ ] 実ロジックが core にあり、CLI/GUI に重複していない
 - [ ] テストが追加・更新されている
 - [ ] conventional commits 形式
 - [ ] 1 PR = 1 関心事
 - [ ] 既存テスト・CI が green
+- [ ] merge method が branch 種別に合っている
 
 ## 現在進行中
 
-- `openspec/changes/gui-normalization/` — GUI を動く installer へ（tasks.md 63件、Phase 1 の Core Foundation から着手）
+- `openspec/changes/add-dmg-offline-bundle-licensing/` — 法務確認待ち
+- `add-windows-wsl2-platform` — PR #96 で実装中。Windows native launcher → WSL2 Linux helper delegation、helper handshake、Windows doctor、repo path policy、`windows-2025` non-required CIを実装済み。利用条件・non-goalsは [docs/windows-wsl2.md](./docs/windows-wsl2.md) を参照
+- `add-macos-compatibility-matrix` は実装 PR #93 + archive/spec-sync PR #94 で 2026-09-16 に完了・archive 済み
+- `refactor-development-workflow` は 2026-09-16 に archive 済み
+- `refactor-ci-critical-path` は PR #90 + archive PR #92 で 2026-09-16 に archive/spec sync 済み
+- Windows change merge後は `chore/archive-add-windows-wsl2-platform` を別PRとして作成し、canonical specを同期する
 - 状態・既知のデグレ・次の作業は [docs/STATUS.md](./docs/STATUS.md) を参照（セッション開始時に必ず読む）
 - リリース運用は [RELEASE.md](./RELEASE.md) を参照

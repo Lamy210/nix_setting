@@ -34,6 +34,223 @@ impl CachedToolInventory {
     }
 }
 
+const APP_UPDATER_ENDPOINT: &str =
+    "https://github.com/Lamy210/nix_setting/releases/latest/download/latest.json";
+
+#[derive(Clone)]
+struct UpdaterBuildConfig {
+    enabled: bool,
+    pubkey: Option<String>,
+    endpoint: Option<String>,
+    reason: String,
+}
+
+fn resolve_updater_build_config(
+    target_supported: bool,
+    activated: bool,
+    pubkey: Option<String>,
+) -> UpdaterBuildConfig {
+    let pubkey = pubkey
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let (enabled, reason) = if !target_supported {
+        (false, "app updater is supported only on macOS aarch64".to_string())
+    } else if !activated {
+        (
+            false,
+            "app updater is disabled in this build until production activation".to_string(),
+        )
+    } else if pubkey.is_none() {
+        (
+            false,
+            "app updater activation is missing the production public key".to_string(),
+        )
+    } else {
+        (true, "signed app updater is enabled".to_string())
+    };
+
+    UpdaterBuildConfig {
+        enabled,
+        pubkey,
+        endpoint: enabled.then(|| APP_UPDATER_ENDPOINT.to_string()),
+        reason,
+    }
+}
+
+fn updater_build_config() -> UpdaterBuildConfig {
+    resolve_updater_build_config(
+        cfg!(all(target_os = "macos", target_arch = "aarch64")),
+        option_env!("SCHNEEFORGE_UPDATER_ENABLED") == Some("1"),
+        option_env!("SCHNEEFORGE_UPDATER_PUBKEY").map(ToOwned::to_owned),
+    )
+}
+
+struct AppUpdaterState {
+    config: UpdaterBuildConfig,
+    pending: Mutex<Option<tauri_plugin_updater::Update>>,
+}
+
+impl AppUpdaterState {
+    fn new(config: UpdaterBuildConfig) -> Self {
+        Self {
+            config,
+            pending: Mutex::new(None),
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppUpdaterCapability {
+    enabled: bool,
+    reason: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppUpdateMetadata {
+    version: String,
+    current_version: String,
+    notes: Option<String>,
+    pub_date: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppUpdateProgress {
+    phase: &'static str,
+    downloaded: u64,
+    content_length: Option<u64>,
+}
+
+#[tauri::command]
+async fn get_app_updater_capability(
+    state: tauri::State<'_, AppUpdaterState>,
+) -> Result<AppUpdaterCapability, String> {
+    Ok(AppUpdaterCapability {
+        enabled: state.config.enabled,
+        reason: state.config.reason.clone(),
+    })
+}
+
+#[tauri::command]
+async fn fetch_app_update(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppUpdaterState>,
+) -> Result<Option<AppUpdateMetadata>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    if !state.config.enabled {
+        return Err(format!("app updater disabled: {}", state.config.reason));
+    }
+
+    let pubkey = state
+        .config
+        .pubkey
+        .clone()
+        .ok_or_else(|| "app updater public key is unavailable".to_string())?;
+    let endpoint = state
+        .config
+        .endpoint
+        .as_deref()
+        .ok_or_else(|| "app updater endpoint is unavailable".to_string())?
+        .parse()
+        .map_err(|e| format!("invalid app updater endpoint: {e}"))?;
+
+    let updater = app
+        .updater_builder()
+        .pubkey(pubkey)
+        .endpoints(vec![endpoint])
+        .map_err(|e| format!("configure app updater: {e}"))?
+        .build()
+        .map_err(|e| format!("build app updater: {e}"))?;
+
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| format!("check app update: {e}"))?;
+
+    let metadata = update.as_ref().map(|update| AppUpdateMetadata {
+        version: update.version.clone(),
+        current_version: update.current_version.clone(),
+        notes: update.body.clone(),
+        pub_date: update.date.as_ref().map(ToString::to_string),
+    });
+
+    let mut pending = state
+        .pending
+        .lock()
+        .map_err(|e| format!("app updater state lock: {e}"))?;
+    *pending = update;
+
+    Ok(metadata)
+}
+
+#[tauri::command]
+async fn install_app_update(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppUpdaterState>,
+) -> Result<CommandOutput, String> {
+    if !state.config.enabled {
+        return Err(format!("app updater disabled: {}", state.config.reason));
+    }
+
+    let update = {
+        let mut pending = state
+            .pending
+            .lock()
+            .map_err(|e| format!("app updater state lock: {e}"))?;
+        pending
+            .take()
+            .ok_or_else(|| "no pending app update; check for an update first".to_string())?
+    };
+
+    let progress_app = app.clone();
+    let finish_app = app.clone();
+    let mut downloaded = 0_u64;
+    update
+        .download_and_install(
+            move |chunk_length, content_length| {
+                downloaded = downloaded.saturating_add(chunk_length as u64);
+                let progress = AppUpdateProgress {
+                    phase: "downloading",
+                    downloaded,
+                    content_length,
+                };
+                let _ = tauri::Emitter::emit(&progress_app, "app-update-progress", &progress);
+            },
+            move || {
+                let progress = AppUpdateProgress {
+                    phase: "downloaded",
+                    downloaded: 0,
+                    content_length: None,
+                };
+                let _ = tauri::Emitter::emit(&finish_app, "app-update-progress", &progress);
+            },
+        )
+        .await
+        .map_err(|e| format!("download/install app update: {e}"))?;
+
+    let installed = AppUpdateProgress {
+        phase: "installed",
+        downloaded: 0,
+        content_length: None,
+    };
+    let _ = tauri::Emitter::emit(&app, "app-update-progress", &installed);
+
+    Ok(CommandOutput {
+        success: true,
+        output: "signed app update installed; restart SchneeForge to use the new version"
+            .to_string(),
+    })
+}
+
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
 #[tauri::command]
 async fn get_status(state: tauri::State<'_, CachedToolInventory>) -> Result<Diagnostics, String> {
     let tc = state.get_or_discover()?;
@@ -265,7 +482,7 @@ async fn run_source_init(
                 let mut out = format!(
                     "managed source set: {} ({})\n",
                     src.flake_ref().as_deref().unwrap_or(&src.ref_),
-                    src.channel.as_deref().unwrap_or("-")
+                    src.kind.release_channel().unwrap_or("-")
                 );
                 match &src.revision {
                     Some(rev) => out.push_str(&format!("revision verified: {rev}\n")),
@@ -325,6 +542,20 @@ fn load_manifest() -> Option<schneeforge_core::Manifest> {
     schneeforge_core::load_manifest_for(&repo, &schneeforge_core::StateStore::default()).ok()
 }
 
+fn validate_dashboard_state(
+    state: Option<&schneeforge_core::State>,
+) -> Result<(), String> {
+    let Some(source) = state.and_then(|state| state.source.as_ref()) else {
+        return Ok(());
+    };
+    if source.managed {
+        source
+            .validate_managed_release()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// `get_dashboard` (v2 §28): Installed / Available の snapshot を返す。
 /// available 解決 (git ls-remote + release metadata fetch) は network を
 /// 伴うため blocking 実行し、失敗しても command error にせず
@@ -335,7 +566,10 @@ async fn get_dashboard(
 ) -> Result<schneeforge_core::DashboardSnapshot, String> {
     let tc = state.get_or_discover()?;
     tauri::async_runtime::spawn_blocking(move || {
-        let repo_state = schneeforge_core::StateStore::default().load();
+        let repo_state = schneeforge_core::StateStore::default()
+            .load()
+            .map_err(|e| e.to_string())?;
+        validate_dashboard_state(repo_state.as_ref())?;
         let channel = schneeforge_core::channel_of(repo_state.as_ref());
         let repo_url =
             std::env::var("SCHNEEFORGE_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string());
@@ -344,15 +578,15 @@ async fn get_dashboard(
                 .map_err(|e| e.to_string()),
             None => Err("git not found; cannot resolve available release".to_string()),
         };
-        schneeforge_core::snapshot(
+        Ok(schneeforge_core::snapshot(
             env!("CARGO_PKG_VERSION"),
             repo_state.as_ref(),
             load_manifest().as_ref(),
             available,
-        )
+        ))
     })
     .await
-    .map_err(|e| format!("task error: {e}"))
+    .map_err(|e| format!("task error: {e}"))?
 }
 
 /// `open_release` (GUI 自己更新 Step 1 / Option B(1)): Dashboard の
@@ -808,13 +1042,29 @@ impl schneeforge_core::ProgressSink for GuiCollectProgress {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let updater_config = updater_build_config();
+    let updater_pubkey = updater_config.pubkey.clone();
+
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    if updater_config.enabled {
+        builder = builder.plugin(
+            tauri_plugin_updater::Builder::new()
+                .pubkey(updater_pubkey.expect("enabled updater must have a public key"))
+                .build(),
+        );
+    }
+
+    builder
         .manage(CachedToolInventory::default())
+        .manage(AppUpdaterState::new(updater_config))
         .invoke_handler(tauri::generate_handler![
             get_status,
             get_dashboard,
             open_release,
+            get_app_updater_capability,
+            fetch_app_update,
+            install_app_update,
+            restart_app,
             get_profiles,
             set_profile,
             clear_profile,
@@ -1026,6 +1276,24 @@ mod tests {
             js.contains("s.profile"),
             "frontend should display the effective profile"
         );
+    }
+
+    #[test]
+    fn dashboard_rejects_semantically_invalid_managed_state_before_available_lookup() {
+        let state = schneeforge_core::State {
+            source: Some(schneeforge_core::SourceState {
+                kind: schneeforge_core::SourceKind::ReleaseStable,
+                ref_: "main".to_string(),
+                channel: Some("stable".to_string()),
+                managed: true,
+                remote: Some("https://github.com/Lamy210/nix_setting.git".to_string()),
+                revision: None,
+            }),
+            ..Default::default()
+        };
+
+        let err = validate_dashboard_state(Some(&state)).unwrap_err();
+        assert!(err.contains("valid release tag"), "{err}");
     }
 
     /// v2 §28: get_dashboard の応答は frontend が参照する key を serialize
@@ -1304,8 +1572,16 @@ mod tests {
             body.contains("!s.repo_exists") && body.contains("!s.managed_source"),
             "boot gate must require both !repo_exists and !managed_source to show setup"
         );
-        // Diagnostics は managed_source を serialize する (JS の undefined は
-        // falsy 化するため、backend 側 key 欠落は静かに常に setup 化する)
+        assert!(
+            body.contains("s.state_error"),
+            "corrupt state must block the setup/uninitialized fallback"
+        );
+        assert!(
+            js.contains("state error: ${s.state_error}"),
+            "ready view must surface the state read failure"
+        );
+        // Diagnostics は managed_source / state_error を serialize する。
+        // key 欠落は frontend で missing state と誤認するため静的に検証する。
         let tc = ToolInventory {
             nix: None,
             git: None,
@@ -1317,6 +1593,10 @@ mod tests {
         assert!(
             json.get("managed_source").is_some(),
             "Diagnostics must serialize managed_source"
+        );
+        assert!(
+            json.get("state_error").is_some(),
+            "Diagnostics must serialize state_error"
         );
     }
 
@@ -1551,6 +1831,102 @@ mod tests {
         assert!(
             js.contains("confirm("),
             "uninstall must be behind a confirmation"
+        );
+    }
+
+    #[test]
+    fn app_updater_activation_is_fail_closed() {
+        let unsupported =
+            resolve_updater_build_config(false, true, Some("trusted-key".to_string()));
+        assert!(!unsupported.enabled);
+        assert!(unsupported.endpoint.is_none());
+
+        let inactive =
+            resolve_updater_build_config(true, false, Some("trusted-key".to_string()));
+        assert!(!inactive.enabled);
+        assert!(inactive.endpoint.is_none());
+
+        let missing_key = resolve_updater_build_config(true, true, None);
+        assert!(!missing_key.enabled);
+        assert!(missing_key.endpoint.is_none());
+
+        let blank_key =
+            resolve_updater_build_config(true, true, Some("   ".to_string()));
+        assert!(!blank_key.enabled);
+        assert!(blank_key.endpoint.is_none());
+
+        let active =
+            resolve_updater_build_config(true, true, Some("  trusted-key  ".to_string()));
+        assert!(active.enabled);
+        assert_eq!(active.pubkey.as_deref(), Some("trusted-key"));
+        assert_eq!(active.endpoint.as_deref(), Some(APP_UPDATER_ENDPOINT));
+    }
+
+    /// GUI self-update Step 2 は production trust root が無い build では
+    /// capability=false とし、URL/signature を frontend へ委譲しない。
+    #[test]
+    fn app_updater_backend_is_staged_and_backend_owned() {
+        let rs = include_str!("lib.rs");
+        let cargo = include_str!("../Cargo.toml");
+
+        assert!(
+            cargo.contains("tauri-plugin-updater"),
+            "desktop must depend on tauri-plugin-updater"
+        );
+        for marker in [
+            "struct AppUpdaterState",
+            "fn updater_build_config",
+            "async fn get_app_updater_capability",
+            "async fn fetch_app_update",
+            "async fn install_app_update",
+            "fn restart_app",
+            "tauri_plugin_updater::UpdaterExt",
+            "download_and_install",
+            "\"app-update-progress\"",
+            "SCHNEEFORGE_UPDATER_ENABLED",
+            "SCHNEEFORGE_UPDATER_PUBKEY",
+        ] {
+            assert!(
+                rs.contains(marker),
+                "GUI updater backend contract missing marker: {marker}"
+            );
+        }
+        assert!(
+            rs.contains("pending: Mutex<Option<"),
+            "pending signed update must remain in backend managed state"
+        );
+    }
+
+    /// frontend は capability を確認してからだけ auto-update control を表示し、
+    /// update URL/signature を引数として backend へ送らない。
+    #[test]
+    fn app_updater_frontend_is_capability_gated() {
+        let html = include_str!("../../dist/index.html");
+        let js = include_str!("../../dist/main.js");
+
+        assert!(
+            html.contains("id=\"app-update-check\""),
+            "Dashboard must include a hidden app-update action"
+        );
+        for marker in [
+            "invoke(\"get_app_updater_capability\")",
+            "invoke(\"fetch_app_update\")",
+            "invoke(\"install_app_update\")",
+            "invoke(\"restart_app\")",
+            "listen(\"app-update-progress\"",
+        ] {
+            assert!(
+                js.contains(marker),
+                "frontend updater contract missing marker: {marker}"
+            );
+        }
+        assert!(
+            js.contains("confirm("),
+            "install/restart path must require explicit user confirmation"
+        );
+        assert!(
+            js.contains("dash-release-link"),
+            "GitHub Releases fallback must remain available"
         );
     }
 }
