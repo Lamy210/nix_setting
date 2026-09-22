@@ -29,24 +29,15 @@ pub struct ReleaseMetadata {
     pub systems: Vec<String>,
 }
 
-/// prerelease suffix (`-rc.N` / `-beta.N` 等) の有無から channel を導出する。
-/// 生成 script (release_metadata.py) の `re.search(r"-\w+")` と同じ規則。
+/// prerelease suffix の有無から channel を導出する。
+/// build metadata 内の \`-\` は prerelease separator として扱わない。
 pub fn channel_for_version(version: &str) -> &'static str {
-    if has_prerelease_suffix(version) {
+    let precedence_version = version.split_once('+').map_or(version, |(base, _)| base);
+    if precedence_version.contains('-') {
         "preview"
     } else {
         "stable"
     }
-}
-
-/// `-` の後に word character が続くか (生成 script の `-\w+` 相当)
-fn has_prerelease_suffix(version: &str) -> bool {
-    version.split_once('-').is_some_and(|(_, suffix)| {
-        suffix
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
-    })
 }
 
 impl ReleaseMetadata {
@@ -189,8 +180,10 @@ mod tests {
     fn channel_for_version_preview_and_stable() {
         assert_eq!(channel_for_version("0.2.0-rc.5"), "preview");
         assert_eq!(channel_for_version("0.2.0-beta.1"), "preview");
+        assert_eq!(channel_for_version("1.0.0--foo"), "preview");
         assert_eq!(channel_for_version("0.2.0"), "stable");
         assert_eq!(channel_for_version("1.0.0"), "stable");
+        assert_eq!(channel_for_version("1.0.0+build-5"), "stable");
     }
 
     #[test]
