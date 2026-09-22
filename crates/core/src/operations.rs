@@ -224,7 +224,12 @@ impl VerifyReport {
 
 /// verify: 環境・repo/manifest・state を検証する (各検査は infallible)
 pub fn verify(repo: &str, tc: &ToolInventory) -> VerifyReport {
-    let state_store = StateStore::default();
+    verify_with_store(repo, tc, &StateStore::default())
+}
+
+/// [`verify`] の state store 注入版。diagnostics と同様に state failure を
+/// process-global env を変更せず hermetic に検証できるようにする。
+fn verify_with_store(repo: &str, tc: &ToolInventory, state_store: &StateStore) -> VerifyReport {
     let state_result = state_store.load();
     let managed = state_result
         .as_ref()
@@ -1468,46 +1473,43 @@ mod tests {
 
     #[test]
     fn verify_distinguishes_corrupt_state_from_missing_state() {
-        // verify() uses the default store, so exercise the state-check construction
-        // through the same Result semantics without mutating process-global env.
-        let missing: crate::error::Result<Option<State>> = Ok(None);
-        let missing_check = match &missing {
-            Ok(Some(_)) => VerifyCheck {
-                name: "state".to_string(),
-                ok: true,
-            },
-            Ok(None) => VerifyCheck {
-                name: "state (not initialized)".to_string(),
-                ok: false,
-            },
-            Err(e) => VerifyCheck {
-                name: format!("state ({e})"),
-                ok: false,
-            },
-        };
-        assert_eq!(missing_check.name, "state (not initialized)");
+        let tc = dummy_tc();
 
-        let corrupt: crate::error::Result<Option<State>> = Err(Error::State(
-            "parse /tmp/state.json: invalid json".to_string(),
-        ));
-        let corrupt_check = match &corrupt {
-            Ok(Some(_)) => VerifyCheck {
-                name: "state".to_string(),
-                ok: true,
-            },
-            Ok(None) => VerifyCheck {
-                name: "state (not initialized)".to_string(),
-                ok: false,
-            },
-            Err(e) => VerifyCheck {
-                name: format!("state ({e})"),
-                ok: false,
-            },
-        };
-        assert!(corrupt_check
-            .name
-            .contains("state error: parse /tmp/state.json"));
+        let (missing_store, missing_dir) = temp_state_store("verify-missing");
+        let missing_report = verify_with_store("/tmp", &tc, &missing_store);
+        let missing_check = missing_report
+            .checks
+            .iter()
+            .find(|check| check.name.starts_with("state"))
+            .expect("state check must be present");
+        assert_eq!(missing_check.name, "state (not initialized)");
+        assert!(!missing_check.ok);
+        let _ = std::fs::remove_dir_all(&missing_dir);
+
+        let (corrupt_store, corrupt_dir) = temp_state_store("verify-corrupt");
+        std::fs::write(corrupt_store.path(), "{not-json").unwrap();
+        let corrupt_report = verify_with_store("/tmp", &tc, &corrupt_store);
+        let corrupt_check = corrupt_report
+            .checks
+            .iter()
+            .find(|check| check.name.starts_with("state"))
+            .expect("state check must be present");
+        assert!(
+            corrupt_check
+                .name
+                .contains("state error: parse"),
+            "{}",
+            corrupt_check.name
+        );
         assert!(!corrupt_check.ok);
+        assert!(
+            corrupt_report
+                .checks
+                .iter()
+                .any(|check| check.name.contains("source (state unavailable: state error: parse")),
+            "source semantics must also fail closed when state is corrupt"
+        );
+        let _ = std::fs::remove_dir_all(&corrupt_dir);
     }
 
     #[test]
