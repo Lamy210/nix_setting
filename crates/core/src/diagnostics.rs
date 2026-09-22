@@ -396,7 +396,10 @@ mod tests {
         std::fs::write(store.path(), "{not-json").unwrap();
 
         let d = diagnose_with_store(&tc, Some("/definitely/not/a/real/repo"), &store);
-        assert!(d.state_error.as_deref().is_some_and(|e| e.contains("state error")));
+        assert!(d
+            .state_error
+            .as_deref()
+            .is_some_and(|e| e.contains("state error")));
         assert_eq!(d.selected_profile, None);
         assert_eq!(d.profile, None);
         assert!(d.managed_source.is_none());
