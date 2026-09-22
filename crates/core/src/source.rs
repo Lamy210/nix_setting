@@ -120,6 +120,12 @@ impl SourceState {
                 self.kind, self.ref_
             )));
         }
+        let remote = self.remote_url();
+        if github_slug(&remote).is_none() {
+            return Err(Error::State(format!(
+                "managed source repository URL is not a supported GitHub repository: {remote}"
+            )));
+        }
         Ok(())
     }
 
@@ -796,6 +802,24 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, Error::State(_)), "{err}");
         assert!(err.to_string().contains("does not match"), "{err}");
+
+        let invalid_remote = SourceState {
+            kind: SourceKind::ReleaseStable,
+            ref_: "v0.2.0".to_string(),
+            channel: Some("stable".to_string()),
+            managed: true,
+            remote: Some("/tmp/local-origin".to_string()),
+            revision: None,
+        };
+        let err = SourceResolver::new()
+            .resolve(
+                dir.to_str().unwrap(),
+                &resolved_git(),
+                Some(&invalid_remote),
+            )
+            .unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("GitHub repository"), "{err}");
 
         // managed でない state (旧 state.json 相当) は checkout 検出に fallthrough
         let checkout_state = SourceState {
