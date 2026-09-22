@@ -309,6 +309,10 @@ abc500\trefs/tags/not-a-release
         // tag が 1 つも無い場合も error
         let err = latest_tag_from_ls_remote("", "stable").unwrap_err();
         assert!(err.to_string().contains("no release tag"), "{err}");
+        // 不正 channel は stable へフォールバックしない
+        let err =
+            latest_tag_from_ls_remote("abc\trefs/tags/v0.1.0\n", "unsupported").unwrap_err();
+        assert!(err.to_string().contains("unsupported"), "{err}");
     }
 
     #[test]
