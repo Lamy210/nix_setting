@@ -19,8 +19,6 @@ jobs:
   managed-nix-macos-bump:
     runs-on: macos-15
     timeout-minutes: 45
-    env:
-      ACCEPTANCE_LOG_DIR: ${{ runner.temp }}/schneeforge-macos-bump-acceptance-logs
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
@@ -43,6 +41,8 @@ jobs:
         run: ./scripts/ci/build-release-macos-cli.sh
 
       - name: Validate current branch Managed Nix lifecycle
+        env:
+          ACCEPTANCE_LOG_DIR: ${{ runner.temp }}/schneeforge-macos-bump-acceptance-logs
         run: |
           bash scripts/ci/macos-managed-nix-lifecycle.sh \
             --local-binary "$PWD/target/release/schneeforge"
