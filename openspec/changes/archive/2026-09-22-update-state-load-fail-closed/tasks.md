@@ -31,6 +31,6 @@
 
 - [x] 5.1 Run `openspec validate update-state-load-fail-closed --strict`.
 - [x] 5.2 Run `openspec validate --all --strict --no-interactive`.
-- [ ] 5.3 Run cargo tests / fmt / clippy and repository required checks.
-- [ ] 5.4 Merge implementation PR to `develop` with squash merge after proposal approval.
-- [ ] 5.5 Archive + canonical spec sync in a separate `chore/archive-update-state-load-fail-closed` PR.
+- [x] 5.3 Run cargo tests / fmt / clippy and repository required checks.
+- [x] 5.4 Merge implementation PR to `develop` with squash merge after proposal approval.
+- [x] 5.5 Archive + canonical spec sync in a separate `chore/archive-update-state-load-fail-closed` PR.
