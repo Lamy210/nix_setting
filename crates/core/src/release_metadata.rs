@@ -69,9 +69,8 @@ impl ReleaseMetadata {
         let expected_version = tag
             .strip_prefix('v')
             .ok_or_else(|| Error::ReleaseMetadata(format!("tag must start with 'v': {tag}")))?;
-        let (_, expected_channel) = classify_release_tag(tag).ok_or_else(|| {
-            Error::ReleaseMetadata(format!("invalid SemVer release tag: {tag}"))
-        })?;
+        let (_, expected_channel) = classify_release_tag(tag)
+            .ok_or_else(|| Error::ReleaseMetadata(format!("invalid SemVer release tag: {tag}")))?;
         if self.version != expected_version {
             return Err(Error::ReleaseMetadata(format!(
                 "version {} does not match tag {tag}",
