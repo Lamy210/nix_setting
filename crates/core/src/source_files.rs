@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{Error, Result};
 use crate::manifest::Manifest;
-use crate::source::{github_slug, SourceState};
+use crate::source::{classify_release_tag, github_slug, SourceState};
 use crate::state::StateStore;
 
 const CACHE_PROVENANCE_SCHEMA: u32 = 1;
@@ -33,6 +33,11 @@ struct CacheProvenance {
 /// tag pinned の raw file URL
 /// (`raw.githubusercontent.com/<owner>/<repo>/<tag>/<file>`)
 pub fn raw_url(remote: &str, tag: &str, file: &str) -> Result<String> {
+    if classify_release_tag(tag).is_none() {
+        return Err(Error::Precondition(format!(
+            "invalid managed release tag: {tag}"
+        )));
+    }
     if !is_safe_cache_component(tag) || !is_safe_cache_component(file) {
         return Err(Error::Precondition(format!(
             "invalid tag or file name: {tag}/{file}"
@@ -112,7 +117,7 @@ fn read_verified_cache(
 /// managed source の file cache があるか (offline で読み取れるかの目安)。
 /// repository identity + digest を検証できる entry だけを cache とみなす。
 pub fn has_cached_files(source: &SourceState, cache_base: &Path) -> bool {
-    if !is_safe_cache_component(&source.ref_) {
+    if classify_release_tag(&source.ref_).is_none() || !is_safe_cache_component(&source.ref_) {
         return false;
     }
     let remote = source.remote_url();
@@ -146,18 +151,13 @@ pub fn read_managed_file_with(
     fetch: &dyn Fn(&str) -> std::result::Result<String, String>,
 ) -> Result<String> {
     let tag = &source.ref_;
-    if !is_safe_cache_component(tag) || !is_safe_cache_component(file) {
-        return Err(Error::Precondition(format!(
-            "invalid tag or file name: {tag}/{file}"
-        )));
-    }
     let remote = source.remote_url();
+    // Validate the immutable release-tag boundary before consulting cache.
+    let url = raw_url(&remote, tag, file)?;
     let repository = repository_identity(&remote)?;
     if let Some(content) = read_verified_cache(&repository, tag, file, cache_base) {
         return Ok(content);
     }
-
-    let url = raw_url(&remote, tag, file)?;
     let content = fetch(&url)
         .map_err(|e| Error::Precondition(format!("failed to fetch repo file {url}: {e}")))?;
     let path = cache_path(cache_base, tag, file);
@@ -303,6 +303,15 @@ mod tests {
         assert!(
             raw_url(
                 "https://github.com/Lamy210/nix_setting.git",
+                "main",
+                "schneeforge.toml"
+            )
+            .is_err(),
+            "managed repo-file reads require an immutable release tag"
+        );
+        assert!(
+            raw_url(
+                "https://github.com/Lamy210/nix_setting.git",
                 "v0.2.0",
                 "nested\\schneeforge.toml"
             )
@@ -392,6 +401,10 @@ mod tests {
         assert!(!has_cached_files(&source, &dir));
 
         source = managed_source("v0.2.0\\..\\etc");
+        assert!(read_managed_file_with(&source, "schneeforge.toml", &dir, &fetch).is_err());
+        assert!(!has_cached_files(&source, &dir));
+
+        source = managed_source("main");
         assert!(read_managed_file_with(&source, "schneeforge.toml", &dir, &fetch).is_err());
         assert!(!has_cached_files(&source, &dir));
 
