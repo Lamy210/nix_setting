@@ -15,6 +15,7 @@ pub mod profile;
 pub mod release_metadata;
 pub mod repo;
 pub mod self_update;
+pub(crate) mod semver;
 pub mod source;
 pub mod source_files;
 pub mod state;
