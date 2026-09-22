@@ -182,7 +182,7 @@ staged_actual="$(sudo shasum -a 256 "$ROOT_SF" | awk '{print $1}')"
 [ "$staged_actual" = "$expected" ] ||
   fail "staged CLI SHA256 mismatch: expected=$expected actual=$staged_actual"
 
-note "installing Managed Nix from release binary embedded manifest"
+note "installing Managed Nix from selected CLI embedded manifest"
 run_logged install-first sudo "$ROOT_SF" nix install --yes
 
 [ -x /nix/var/nix/profiles/default/bin/nix ] ||
