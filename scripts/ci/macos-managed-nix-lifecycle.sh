@@ -1,11 +1,21 @@
 #!/usr/bin/env bash
 #
-# Manual macOS Apple Silicon acceptance helper for the release-artifact
-# Managed Nix CLI lifecycle. This is intentionally narrower than the full
-# Finder/install.sh Final Acceptance checklist.
+# macOS Apple Silicon acceptance helper for the Managed Nix CLI lifecycle.
+# Supports a released CLI asset or a locally built branch binary. This is
+# intentionally narrower than the full Finder/install.sh Final Acceptance checklist.
 set -euo pipefail
 
-TAG="${1:-}"
+ARG1="${1:-}"
+ARG2="${2:-}"
+MODE="release"
+TAG="$ARG1"
+LOCAL_BINARY=""
+if [ "$ARG1" = "--local-binary" ]; then
+  MODE="local"
+  TAG=""
+  LOCAL_BINARY="$ARG2"
+fi
+
 ASSET="schneeforge-aarch64-darwin"
 RELEASE_BASE="https://github.com/Lamy210/nix_setting/releases/download"
 LOG_DIR="${ACCEPTANCE_LOG_DIR:-${RUNNER_TEMP:-/tmp}/schneeforge-macos-lifecycle-logs}"
@@ -102,9 +112,17 @@ trap cleanup EXIT
 [ "${GITHUB_ACTIONS:-}" = "true" ] ||
   fail "this destructive lifecycle helper may run only inside GitHub Actions"
 
-[ -n "$TAG" ] || fail "usage: $0 <release-tag>"
-if ! [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-  fail "invalid release tag: $TAG"
+if [ "$MODE" = "local" ]; then
+  [ -n "$LOCAL_BINARY" ] || fail "usage: $0 --local-binary <path>"
+  [ -f "$LOCAL_BINARY" ] || fail "local branch CLI not found: $LOCAL_BINARY"
+  local_dir="$(cd "$(dirname "$LOCAL_BINARY")" && pwd)"
+  LOCAL_BINARY="$local_dir/$(basename "$LOCAL_BINARY")"
+  [ -x "$LOCAL_BINARY" ] || fail "local branch CLI is not executable: $LOCAL_BINARY"
+else
+  [ -n "$TAG" ] || fail "usage: $0 <release-tag>"
+  if ! [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+    fail "invalid release tag: $TAG"
+  fi
 fi
 
 [ "$(uname -s)" = "Darwin" ] || fail "macOS is required"
@@ -119,30 +137,43 @@ cd "$WORK_DIR"
 unset NIX_SETTING_DIR || true
 
 {
-  echo "tag=$TAG"
+  echo "mode=$MODE"
+  if [ "$MODE" = "release" ]; then
+    echo "tag=$TAG"
+  else
+    echo "local-binary=$(basename "$LOCAL_BINARY")"
+  fi
   sw_vers
   uname -m
 } | tee "$LOG_DIR/environment.log"
 
-note "downloading release CLI and CHECKSUMS.txt"
-curl -fsSL "${RELEASE_BASE}/${TAG}/${ASSET}" -o "$SF"
-curl -fsSL "${RELEASE_BASE}/${TAG}/CHECKSUMS.txt" -o "$CHECKSUMS"
+if [ "$MODE" = "release" ]; then
+  note "downloading release CLI and CHECKSUMS.txt"
+  curl -fsSL "${RELEASE_BASE}/${TAG}/${ASSET}" -o "$SF"
+  curl -fsSL "${RELEASE_BASE}/${TAG}/CHECKSUMS.txt" -o "$CHECKSUMS"
 
-expected="$(
-  awk -v asset="$ASSET" '
-    $2 == asset || $2 ~ ("/" asset "$") { print $1; exit }
-  ' "$CHECKSUMS"
-)"
-[ -n "$expected" ] || fail "CHECKSUMS.txt has no entry for $ASSET"
-printf '%s\n' "$expected" | grep -Eq '^[0-9a-f]{64}$' ||
-  fail "invalid expected SHA256 for $ASSET"
+  expected="$(
+    awk -v asset="$ASSET" '
+      $2 == asset || $2 ~ ("/" asset "$") { print $1; exit }
+    ' "$CHECKSUMS"
+  )"
+  [ -n "$expected" ] || fail "CHECKSUMS.txt has no entry for $ASSET"
+  printf '%s\n' "$expected" | grep -Eq '^[0-9a-f]{64}$' ||
+    fail "invalid expected SHA256 for $ASSET"
 
-actual="$(shasum -a 256 "$SF" | awk '{print $1}')"
-[ "$actual" = "$expected" ] ||
-  fail "release CLI SHA256 mismatch: expected=$expected actual=$actual"
+  actual="$(shasum -a 256 "$SF" | awk '{print $1}')"
+  [ "$actual" = "$expected" ] ||
+    fail "release CLI SHA256 mismatch: expected=$expected actual=$actual"
+else
+  note "using locally built branch CLI"
+  cp "$LOCAL_BINARY" "$SF"
+  actual="$(shasum -a 256 "$SF" | awk '{print $1}')"
+  expected="$actual"
+fi
+
 chmod +x "$SF"
 "$SF" --version | tee "$LOG_DIR/version.log"
-printf 'asset=%s\nsha256=%s\n' "$ASSET" "$actual" >"$LOG_DIR/checksum.log"
+printf 'mode=%s\nasset=%s\nsha256=%s\n' "$MODE" "$ASSET" "$actual" >"$LOG_DIR/checksum.log"
 
 note "staging verified CLI for privileged lifecycle operations"
 sudo install -d -m 0700 "$ROOT_STAGE_DIR"
@@ -203,4 +234,8 @@ note "performing final cleanup uninstall"
 run_logged uninstall-final sudo "$ROOT_SF" nix uninstall
 verify_uninstall_state "final" || fail "Nix runtime remnants remain after final uninstall"
 
-note "Managed Nix release lifecycle acceptance helper passed for $TAG"
+if [ "$MODE" = "release" ]; then
+  note "Managed Nix release lifecycle acceptance helper passed for $TAG"
+else
+  note "Managed Nix branch lifecycle acceptance helper passed for local binary"
+fi
