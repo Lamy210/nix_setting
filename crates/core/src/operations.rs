@@ -77,7 +77,11 @@ pub fn apply(
 
     // managed source は revision 記録を、それ以外は checkout の git revision
     // を applied revision に記録する
-    let revision = match managed_source(store)? {
+    let revision = match prev
+        .as_ref()
+        .and_then(|s| s.source.as_ref())
+        .filter(|src| src.is_managed_release())
+    {
         Some(src) => src.revision.clone(),
         None => tc
             .git
@@ -649,6 +653,8 @@ pub fn source_init(
     channel: Option<String>,
     tag: Option<String>,
 ) -> Result<SourceInitResult> {
+    // Fail before the remote lookup when an existing state file is unreadable/corrupt.
+    store.load()?;
     let url = crate::source::repo_url();
     let tags = crate::dashboard::remote_tags(&url, git)?;
     source_init_with(
@@ -862,7 +868,7 @@ fn source_sync_with(
     capture: bool,
     store: &StateStore,
 ) -> Result<Option<String>> {
-    if let Some(note) = managed_source_note(store) {
+    if let Some(note) = managed_source_note(store)? {
         return Ok(note_output(&note, capture));
     }
     let git = tc.require_git()?;
@@ -895,7 +901,7 @@ fn deps_update_with(
     capture: bool,
     store: &StateStore,
 ) -> Result<Option<String>> {
-    if managed_source(store).is_some() {
+    if managed_source(store)?.is_some() {
         return Err(Error::Precondition(DEPS_MANAGED_ERROR.to_string()));
     }
     let warning = release_lock_warning(repo, tc);
@@ -1382,7 +1388,7 @@ mod tests {
         assert!(managed_source_note(&store).unwrap().is_none());
         state.source = Some(managed_release_state("v0.2.0", "stable"));
         store.save(&state).unwrap();
-        assert!(managed_source_note(&store).is_some());
+        assert!(managed_source_note(&store).unwrap().is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
