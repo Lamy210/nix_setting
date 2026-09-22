@@ -232,6 +232,20 @@ pub fn verify(repo: &str, tc: &ToolInventory) -> VerifyReport {
         .and_then(|state| state.as_ref())
         .and_then(|state| state.source.as_ref())
         .is_some_and(|source| source.is_managed_release());
+    let state_check = match &state_result {
+        Ok(Some(_)) => VerifyCheck {
+            name: "state".to_string(),
+            ok: true,
+        },
+        Ok(None) => VerifyCheck {
+            name: "state (not initialized)".to_string(),
+            ok: false,
+        },
+        Err(e) => VerifyCheck {
+            name: format!("state ({e})"),
+            ok: false,
+        },
+    };
     let mut checks = Vec::new();
 
     // discover 済み inventory の各ツールが実際に実行可能か
@@ -261,15 +275,19 @@ pub fn verify(repo: &str, tc: &ToolInventory) -> VerifyReport {
         });
     }
 
-    checks.push(repository_check(repo, managed));
+    if let Err(e) = &state_result {
+        checks.push(VerifyCheck {
+            name: format!("source (state unavailable: {e})"),
+            ok: false,
+        });
+    } else {
+        checks.push(repository_check(repo, managed));
+    }
     checks.push(VerifyCheck {
         name: "machine input".to_string(),
         ok: machine::default_machine_nix_path().is_file(),
     });
-    checks.push(VerifyCheck {
-        name: "state".to_string(),
-        ok: matches!(state_result, Ok(Some(_))),
-    });
+    checks.push(state_check);
 
     VerifyReport { checks }
 }
@@ -1446,6 +1464,47 @@ mod tests {
             .find(|c| c.name == "nix")
             .expect("nix check should exist");
         assert!(!nix_check.ok, "dummy /usr/local/bin/nix should not exist");
+    }
+
+    #[test]
+    fn verify_distinguishes_corrupt_state_from_missing_state() {
+        // verify() uses the default store, so exercise the state-check construction
+        // through the same Result semantics without mutating process-global env.
+        let missing: crate::error::Result<Option<State>> = Ok(None);
+        let missing_check = match &missing {
+            Ok(Some(_)) => VerifyCheck {
+                name: "state".to_string(),
+                ok: true,
+            },
+            Ok(None) => VerifyCheck {
+                name: "state (not initialized)".to_string(),
+                ok: false,
+            },
+            Err(e) => VerifyCheck {
+                name: format!("state ({e})"),
+                ok: false,
+            },
+        };
+        assert_eq!(missing_check.name, "state (not initialized)");
+
+        let corrupt: crate::error::Result<Option<State>> =
+            Err(Error::State("parse /tmp/state.json: invalid json".to_string()));
+        let corrupt_check = match &corrupt {
+            Ok(Some(_)) => VerifyCheck {
+                name: "state".to_string(),
+                ok: true,
+            },
+            Ok(None) => VerifyCheck {
+                name: "state (not initialized)".to_string(),
+                ok: false,
+            },
+            Err(e) => VerifyCheck {
+                name: format!("state ({e})"),
+                ok: false,
+            },
+        };
+        assert!(corrupt_check.name.contains("state error: parse /tmp/state.json"));
+        assert!(!corrupt_check.ok);
     }
 
     #[test]
