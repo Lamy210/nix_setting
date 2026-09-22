@@ -680,6 +680,11 @@ pub fn source_init(
     // Fail before the remote lookup when an existing state file is unreadable/corrupt.
     store.load()?;
     let url = crate::source::repo_url();
+    if crate::source::github_slug(&url).is_none() {
+        return Err(Error::Precondition(format!(
+            "managed source repository URL is not a supported GitHub repository: {url}"
+        )));
+    }
     let tags = crate::dashboard::remote_tags(&url, git)?;
     source_init_with(
         repo,
@@ -752,6 +757,7 @@ fn source_init_with(
         remote: Some(remote.url.to_string()),
         revision: None,
     };
+    source.validate_managed_release()?;
     source.revision = record_revision(&resolved_tag, fetch_meta);
 
     // 既存 checkout が同 tag を pin していれば移行として表示する
@@ -1297,6 +1303,44 @@ mod tests {
         )
         .unwrap();
         assert!(!result.migrated_from_checkout);
+        let _ = std::fs::remove_dir_all(&repo);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn source_init_rejects_non_github_remote_before_metadata_fetch() {
+        let (repo, _git_bin) = (
+            std::env::temp_dir().join(format!("sf-init-invalid-remote-{}", std::process::id())),
+            (),
+        );
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = resolved_git(std::path::Path::new("git"));
+        let (store, dir) = temp_state_store("init-invalid-remote");
+        let tags = vec!["v0.2.0".to_string()];
+        let fetch_meta = |_tag: &str| -> std::result::Result<
+            crate::release_metadata::ReleaseMetadata,
+            String,
+        > {
+            panic!("invalid managed remote must fail before metadata fetch")
+        };
+
+        let err = source_init_with(
+            repo.to_str().unwrap(),
+            &store,
+            &git,
+            &RemoteTags {
+                url: "/tmp/local-origin",
+                tags: &tags,
+            },
+            None,
+            Some("v0.2.0".to_string()),
+            &fetch_meta,
+        )
+        .unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("GitHub repository"), "{err}");
+        assert!(store.load().unwrap().and_then(|s| s.source).is_none());
         let _ = std::fs::remove_dir_all(&repo);
         let _ = std::fs::remove_dir_all(&dir);
     }
