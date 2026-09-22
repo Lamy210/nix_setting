@@ -52,7 +52,7 @@ pub fn load(&self) -> Option<State> {
 - other read error: `Err(Error::Io(...))`
 - JSON parse error: structured state/read error
 
-parse error を `Error::Io` と混在させるか専用 variant を追加するかは実装時に既存 Error enum を確認し、caller が原因を表示できる粒度を保つ。
+`Error::State(String)` を追加し、既存 state file の read / parse failure を state-specific error として返す。missing file だけは error にしない。state path/context は message に含めるが、state JSON 本文は error へ含めない。
 
 ### D2: valid legacy JSON はそのまま受理
 
