@@ -60,15 +60,12 @@ impl StateStore {
             Ok(content) => content,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(e) => {
-                return Err(Error::State(format!(
-                    "read {}: {e}",
-                    self.path.display()
-                )));
+                return Err(Error::State(format!("read {}: {e}", self.path.display())));
             }
         };
-        serde_json::from_str(&content).map(Some).map_err(|e| {
-            Error::State(format!("parse {}: {e}", self.path.display()))
-        })
+        serde_json::from_str(&content)
+            .map(Some)
+            .map_err(|e| Error::State(format!("parse {}: {e}", self.path.display())))
     }
 
     /// 原子的に保存する (temp 書き込み → fsync → rename)。失敗時はエラーを返す
