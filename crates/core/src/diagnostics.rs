@@ -40,6 +40,9 @@ pub struct Diagnostics {
     pub profile: Option<String>,
     /// state に保存された明示選択 (manifest default と同じか未選択なら None)
     pub selected_profile: Option<String>,
+    /// existing state file の read/parse failure。missing state は None。
+    /// Diagnostics は他の独立 check を維持しつつ、この field で corruption を明示する。
+    pub state_error: Option<String>,
     /// 実行 OS ユーザー (manifest の username とは独立)
     pub system_user: Option<String>,
     /// 実行ユーザーの HOME
@@ -128,6 +131,14 @@ impl From<&ResolvedTool> for ResolvedToolSummary {
 /// 呼び出すことで、起動直後の PATH 補正 (`fix_path_env::fix`) が反映された
 /// 同一の解決結果を Diagnostics と apply 系操作で共有できる。
 pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
+    diagnose_with_store(tc, cli_repo, &StateStore::default())
+}
+
+fn diagnose_with_store(
+    tc: &ToolInventory,
+    cli_repo: Option<&str>,
+    store: &StateStore,
+) -> Diagnostics {
     let resolver = ToolResolver::new();
     let homebrew = tc
         .homebrew
@@ -156,17 +167,23 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
     let repo_exists = std::path::Path::new(&repo_path).is_dir();
 
     let (manifest_found, manifest_error, manifest_default, validation) =
-        manifest_diagnostics(&repo_path, target.name());
+        manifest_diagnostics(&repo_path, target.name(), store);
 
-    let state = StateStore::default().load();
+    let (state, state_error) = match store.load() {
+        Ok(state) => (state, None),
+        Err(e) => (None, Some(e.to_string())),
+    };
     let selected_profile = state.as_ref().and_then(|s| s.profile.clone());
     let managed_source = managed_source_from(state.as_ref());
-    // 実効 profile: 明示選択 (manifest available 検証済み) > manifest default
-    let profile = if manifest_found {
-        match crate::profile::resolve(&repo_path) {
+    // corrupt state は manifest default へ semantic fallback しない。
+    // valid/missing state の場合だけ従来どおり profile 解決を行う。
+    let profile = if state_error.is_some() {
+        None
+    } else if manifest_found {
+        match crate::profile::resolve_with(&repo_path, store) {
             Ok((name, _)) => Some(name),
-            // 選択が manifest と不整合なら表示は default に fallback
-            // (apply 時は fail-closed で error になる)
+            // state 自体は valid だが profile/manifest が不整合な場合は、
+            // diagnostics を継続するため manifest default を表示する。
             Err(_) => manifest_default.clone(),
         }
     } else {
@@ -183,6 +200,7 @@ pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
         manifest_error,
         profile,
         selected_profile,
+        state_error,
         system_user: current_user(),
         home: std::env::var("HOME").ok(),
         validation,
@@ -320,8 +338,9 @@ fn xdg_state_profile_dir() -> Option<std::path::PathBuf> {
 fn manifest_diagnostics(
     repo_path: &str,
     system: &str,
+    store: &StateStore,
 ) -> (bool, Option<String>, Option<String>, Option<Validation>) {
-    match crate::source_files::load_manifest_for(repo_path, &StateStore::default()) {
+    match crate::source_files::load_manifest_for(repo_path, store) {
         Ok(m) => {
             let validation = m.validate(system);
             let profile = m.profiles.default.clone();
@@ -362,6 +381,32 @@ mod tests {
         assert!(d.manifest_error.is_some());
         assert_eq!(d.profile, None);
         assert_eq!(d.validation, None);
+    }
+
+    #[test]
+    fn diagnose_reports_corrupt_state_without_semantic_fallback() {
+        let tc = dummy_tc();
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-diagnostics-corrupt-state-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = StateStore::new(dir.join("state.json"));
+        std::fs::write(store.path(), "{not-json").unwrap();
+
+        let d = diagnose_with_store(&tc, Some("/definitely/not/a/real/repo"), &store);
+        assert!(d
+            .state_error
+            .as_deref()
+            .is_some_and(|e| e.contains("state error")));
+        assert_eq!(d.selected_profile, None);
+        assert_eq!(d.profile, None);
+        assert!(d.managed_source.is_none());
+
+        let whole = serde_json::to_string(&d).expect("Diagnostics must be serializable");
+        assert!(whole.contains("state_error"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

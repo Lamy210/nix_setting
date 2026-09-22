@@ -133,12 +133,12 @@ fn is_slug_component(s: &str) -> bool {
 
 /// nix 引数に渡す repository 参照。state が managed Release を示す場合は
 /// flake ref (`github:<owner>/<repo>/<tag>`)、それ以外は path をそのまま返す
-pub fn effective_ref(repo: &str, store: &crate::state::StateStore) -> String {
-    store
-        .load()
+pub fn effective_ref(repo: &str, store: &crate::state::StateStore) -> Result<String> {
+    Ok(store
+        .load()?
         .and_then(|s| s.source)
         .and_then(|src| src.flake_ref())
-        .unwrap_or_else(|| repo.to_string())
+        .unwrap_or_else(|| repo.to_string()))
 }
 
 /// checkout の実態から SourceKind を解決する
@@ -656,7 +656,7 @@ mod tests {
         let store = crate::state::StateStore::new(dir.join("state.json"));
 
         // managed でない場合は path をそのまま返す
-        assert_eq!(effective_ref("/tmp/repo", &store), "/tmp/repo");
+        assert_eq!(effective_ref("/tmp/repo", &store).unwrap(), "/tmp/repo");
 
         let mut state = crate::state::State {
             source: Some(managed_state(SourceKind::ReleaseStable, "v0.2.0", "stable")),
@@ -664,7 +664,7 @@ mod tests {
         };
         store.save(&state).unwrap();
         assert_eq!(
-            effective_ref("/tmp/repo", &store),
+            effective_ref("/tmp/repo", &store).unwrap(),
             "github:Lamy210/nix_setting/v0.2.0"
         );
 
@@ -678,7 +678,7 @@ mod tests {
             revision: None,
         });
         store.save(&state).unwrap();
-        assert_eq!(effective_ref("/tmp/repo", &store), "/tmp/repo");
+        assert_eq!(effective_ref("/tmp/repo", &store).unwrap(), "/tmp/repo");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -29,7 +29,10 @@ async function refresh() {
     $("profile").textContent = s.profile ?? "-";
     $("nix").textContent = s.tools.nix.available ? "yes" : "no";
     $("homebrew").textContent = s.tools.homebrew.available ? "yes" : "no";
-    $("applied").textContent = s.applied_revision ?? "(never)";
+    $("applied").textContent = s.state_error ? "(state unavailable)" : (s.applied_revision ?? "(never)");
+    if (s.state_error) {
+      $("output").textContent = `state error: ${s.state_error}`;
+    }
     // managed source では flake.lock 更新 (アップグレード) は core が
     // fail-closed で拒否するためボタンを隠す (checkout 表現では表示のまま)
     const upgradeBtn = $("upgrade");
@@ -681,7 +684,11 @@ async function boot() {
   // setup は「source が未初期化」(checkout 無し かつ managed source 無し) の
   // 場合のみ表示する。managed source だけで初期化済みの machine (repo 無し) は
   // main UI へ直接進む
-  if (s && !s.repo_exists && !s.managed_source) {
+  if (s && s.state_error) {
+    // Corrupt/unreadable state is not an uninitialized machine. Keep setup from
+    // overwriting semantic state and surface the backend error in the ready view.
+    showReady();
+  } else if (s && !s.repo_exists && !s.managed_source) {
     showSetup();
   } else {
     showReady();

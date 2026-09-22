@@ -229,7 +229,7 @@ pub fn load_manifest_for_with(
     fetch: &dyn Fn(&str) -> std::result::Result<String, String>,
 ) -> Result<Manifest> {
     let managed = store
-        .load()
+        .load()?
         .and_then(|s| s.source)
         .filter(|s| s.is_managed_release());
     match managed {
@@ -437,6 +437,19 @@ mod tests {
         // 2 回目は cache から (fetch 呼び出し回数は 1 のまま)
         load_manifest_for_with("/nonexistent/repo", &store, &dir, &fetch).unwrap();
         assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_manifest_rejects_corrupt_existing_state() {
+        let dir = temp_dir("manifest-corrupt-state");
+        let store = StateStore::new(dir.join("state.json"));
+        std::fs::write(store.path(), "{not-json").unwrap();
+        let fetch = |_url: &str| -> std::result::Result<String, String> {
+            panic!("corrupt state must fail before source fallback/fetch");
+        };
+        let err = load_manifest_for_with("/tmp/fallback-repo", &store, &dir, &fetch).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

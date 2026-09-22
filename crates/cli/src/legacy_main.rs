@@ -190,8 +190,10 @@ fn doctor(repo: &str, tc: &ToolInventory) -> Result {
     println!();
     println!("[host detection]");
     println!("  host: {}", r.host);
-    if let Some(source) = source_kind_line(repo, tc) {
-        println!("  source: {source}");
+    match source_kind_line(repo, tc) {
+        Ok(Some(source)) => println!("  source: {source}"),
+        Ok(None) => {}
+        Err(e) => println!("  source: (state error: {e})"),
     }
     // v2: machine 情報は repo でなく MachineFacts 検出で管理する
     match schneeforge_core::MachineFacts::detect() {
@@ -239,7 +241,9 @@ fn scan(repo: &str, tc: &ToolInventory) -> Result {
 
 fn status(repo: &str) -> Result {
     let target = detect_target();
-    let state = StateStore::default().load();
+    let state = StateStore::default()
+        .load()
+        .map_err(|e| e.to_string())?;
     println!("=== status ===");
     println!();
     println!("  host: {target}");
@@ -339,13 +343,15 @@ fn update(repo: &str, tc: &ToolInventory) -> Result {
 }
 
 fn self_update(tc: &ToolInventory) -> Result {
+    let state = StateStore::default()
+        .load()
+        .map_err(|e| e.to_string())?;
     let Some(git) = tc.git.as_ref() else {
         return Err(
             "git not found; cannot resolve latest release (install git or update via install.sh)"
                 .to_string(),
         );
     };
-    let state = StateStore::default().load();
     let channel = channel_of(state.as_ref());
     println!("最新 release を確認中 (channel: {channel})...");
     match run_self_update(git, env!("CARGO_PKG_VERSION"), &channel).map_err(|e| e.to_string())? {
@@ -486,7 +492,9 @@ fn source_metadata(tag: &str) -> Result {
 fn source_status(repo: &str, tc: &ToolInventory) -> Result {
     println!("=== source status ===");
     println!();
-    let state = StateStore::default().load();
+    let state = StateStore::default()
+        .load()
+        .map_err(|e| e.to_string())?;
     // managed source は checkout 実態を持たないため state から表示する
     if let Some(src) = state
         .as_ref()
@@ -561,17 +569,28 @@ fn print_state_source(state: Option<&schneeforge_core::State>) {
 
 /// doctor 用: source kind を 1 行で返す (検出失敗は None)。
 /// state が managed source を示す場合は checkout を見ずにそれを表示する
-fn source_kind_line(repo: &str, tc: &ToolInventory) -> Option<String> {
-    let stored = StateStore::default().load().and_then(|s| s.source);
+fn source_kind_line(
+    repo: &str,
+    tc: &ToolInventory,
+) -> std::result::Result<Option<String>, String> {
+    let stored = StateStore::default()
+        .load()
+        .map_err(|e| e.to_string())?
+        .and_then(|s| s.source);
     let state = if let Some(src) = stored.as_ref().filter(|s| s.is_managed_release()) {
         src.clone()
     } else {
-        let git = tc.git.as_ref()?;
-        SourceResolver::new().detect(repo, git).ok()?
+        let Some(git) = tc.git.as_ref() else {
+            return Ok(None);
+        };
+        let Some(state) = SourceResolver::new().detect(repo, git).ok() else {
+            return Ok(None);
+        };
+        state
     };
     let _ = SourceKind::Local; // import 確認用 (kind は Display 経由で使用)
     let display_ref = state.flake_ref().unwrap_or_else(|| state.ref_.clone());
-    Some(format!("{} ({})", state.kind, display_ref))
+    Ok(Some(format!("{} ({})", state.kind, display_ref)))
 }
 
 fn verify(repo: &str, tc: &ToolInventory) -> Result {

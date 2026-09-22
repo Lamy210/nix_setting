@@ -14,6 +14,8 @@ pub enum Error {
     ReleaseMetadata(String),
     /// コマンド実行エラー
     Command { command: String, detail: String },
+    /// State file の読み込み・parse エラー
+    State(String),
     /// ファイル入出力エラー (state 保存等)
     Io(String),
     /// 別の操作が進行中のため開始できない
@@ -34,6 +36,7 @@ impl fmt::Display for Error {
             }
             Error::Manifest(msg) => write!(f, "manifest error: {msg}"),
             Error::ReleaseMetadata(msg) => write!(f, "release metadata error: {msg}"),
+            Error::State(msg) => write!(f, "state error: {msg}"),
             Error::Command { command, detail } => write!(f, "{command}: {detail}"),
             Error::Io(msg) => write!(f, "io error: {msg}"),
             Error::Busy(msg) => write!(f, "busy: {msg}"),

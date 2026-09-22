@@ -32,7 +32,7 @@ pub fn resolve_with(repo: &str, store: &StateStore) -> Result<(String, bool)> {
         .default
         .clone()
         .ok_or_else(|| Error::Manifest("profiles.default is not set".to_string()))?;
-    let selected = store.load().and_then(|s| s.profile);
+    let selected = store.load()?.and_then(|s| s.profile);
     match selected {
         Some(name) => {
             if manifest.profiles.available.contains(&name) {
@@ -67,7 +67,7 @@ pub fn list_with(repo: &str, store: &StateStore) -> Result<ProfileList> {
     Ok(ProfileList {
         available: manifest.profiles.available,
         default: manifest.profiles.default,
-        selected: store.load().and_then(|s| s.profile),
+        selected: store.load()?.and_then(|s| s.profile),
     })
 }
 
@@ -97,7 +97,7 @@ pub fn save_selection(name: &str) -> Result<()> {
 
 /// [`save_selection`] の state store 注入版 (test 用)
 pub fn save_selection_with(store: &StateStore, name: &str) -> Result<()> {
-    let mut state: State = store.load().unwrap_or_default();
+    let mut state: State = store.load()?.unwrap_or_default();
     state.profile = Some(name.to_string());
     store.save(&state)
 }
@@ -105,7 +105,7 @@ pub fn save_selection_with(store: &StateStore, name: &str) -> Result<()> {
 /// state の profile 選択を解除する (manifest default へ戻す)
 pub fn clear_selection() -> Result<()> {
     let store = StateStore::default();
-    let mut state: State = store.load().unwrap_or_default();
+    let mut state: State = store.load()?.unwrap_or_default();
     state.profile = None;
     store.save(&state)
 }
@@ -217,11 +217,32 @@ x86_64-linux = true
     fn save_and_clear_selection_roundtrip() {
         let store = setup_store("roundtrip", None);
         save_selection_with(&store, "minimal").unwrap();
-        assert_eq!(store.load().unwrap().profile.as_deref(), Some("minimal"));
-        let mut state = store.load().unwrap();
+        assert_eq!(
+            store.load().unwrap().unwrap().profile.as_deref(),
+            Some("minimal")
+        );
+        let mut state = store.load().unwrap().unwrap();
         state.profile = None;
         store.save(&state).unwrap();
-        assert_eq!(store.load().unwrap().profile, None);
+        assert_eq!(store.load().unwrap().unwrap().profile, None);
+    }
+
+    #[test]
+    fn corrupt_state_does_not_fall_back_to_manifest_default_or_overwrite_state() {
+        let store = setup_store("corrupt", None);
+        let repo = setup_repo("corrupt", MANIFEST);
+        std::fs::write(store.path(), "{not-json").unwrap();
+
+        let err = resolve_with(&repo, &store).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+
+        let err = save_selection_with(&store, "minimal").unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert_eq!(
+            std::fs::read_to_string(store.path()).unwrap(),
+            "{not-json",
+            "corrupt state must not be overwritten with a default state"
+        );
     }
 
     #[test]
@@ -263,7 +284,10 @@ x86_64-linux = true
         let store = setup_store("set-valid", None);
         let repo = setup_repo("set-valid", MANIFEST);
         set_selection_with(&repo, &store, "minimal").unwrap();
-        assert_eq!(store.load().unwrap().profile.as_deref(), Some("minimal"));
+        assert_eq!(
+            store.load().unwrap().unwrap().profile.as_deref(),
+            Some("minimal")
+        );
     }
 
     #[test]
@@ -272,7 +296,7 @@ x86_64-linux = true
         let repo = setup_repo("set-invalid", MANIFEST);
         let err = set_selection_with(&repo, &store, "unknown-profile").unwrap_err();
         assert!(err.to_string().contains("not in manifest"));
-        assert_eq!(store.load().and_then(|s| s.profile), None);
+        assert_eq!(store.load().unwrap().and_then(|s| s.profile), None);
     }
 
     #[test]
@@ -282,6 +306,6 @@ x86_64-linux = true
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         assert!(set_selection_with(dir.to_string_lossy().as_ref(), &store, "minimal").is_err());
-        assert_eq!(store.load().and_then(|s| s.profile), None);
+        assert_eq!(store.load().unwrap().and_then(|s| s.profile), None);
     }
 }

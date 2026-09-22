@@ -552,7 +552,9 @@ async fn get_dashboard(
 ) -> Result<schneeforge_core::DashboardSnapshot, String> {
     let tc = state.get_or_discover()?;
     tauri::async_runtime::spawn_blocking(move || {
-        let repo_state = schneeforge_core::StateStore::default().load();
+        let repo_state = schneeforge_core::StateStore::default()
+            .load()
+            .map_err(|e| e.to_string())?;
         let channel = schneeforge_core::channel_of(repo_state.as_ref());
         let repo_url =
             std::env::var("SCHNEEFORGE_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string());
@@ -561,15 +563,15 @@ async fn get_dashboard(
                 .map_err(|e| e.to_string()),
             None => Err("git not found; cannot resolve available release".to_string()),
         };
-        schneeforge_core::snapshot(
+        Ok(schneeforge_core::snapshot(
             env!("CARGO_PKG_VERSION"),
             repo_state.as_ref(),
             load_manifest().as_ref(),
             available,
-        )
+        ))
     })
     .await
-    .map_err(|e| format!("task error: {e}"))
+    .map_err(|e| format!("task error: {e}"))?
 }
 
 /// `open_release` (GUI 自己更新 Step 1 / Option B(1)): Dashboard の
@@ -1537,8 +1539,16 @@ mod tests {
             body.contains("!s.repo_exists") && body.contains("!s.managed_source"),
             "boot gate must require both !repo_exists and !managed_source to show setup"
         );
-        // Diagnostics は managed_source を serialize する (JS の undefined は
-        // falsy 化するため、backend 側 key 欠落は静かに常に setup 化する)
+        assert!(
+            body.contains("s.state_error"),
+            "corrupt state must block the setup/uninitialized fallback"
+        );
+        assert!(
+            js.contains("state error: ${s.state_error}"),
+            "ready view must surface the state read failure"
+        );
+        // Diagnostics は managed_source / state_error を serialize する。
+        // key 欠落は frontend で missing state と誤認するため静的に検証する。
         let tc = ToolInventory {
             nix: None,
             git: None,
@@ -1550,6 +1560,10 @@ mod tests {
         assert!(
             json.get("managed_source").is_some(),
             "Diagnostics must serialize managed_source"
+        );
+        assert!(
+            json.get("state_error").is_some(),
+            "Diagnostics must serialize state_error"
         );
     }
 
