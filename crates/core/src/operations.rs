@@ -1487,8 +1487,9 @@ mod tests {
         };
         assert_eq!(missing_check.name, "state (not initialized)");
 
-        let corrupt: crate::error::Result<Option<State>> =
-            Err(Error::State("parse /tmp/state.json: invalid json".to_string()));
+        let corrupt: crate::error::Result<Option<State>> = Err(Error::State(
+            "parse /tmp/state.json: invalid json".to_string(),
+        ));
         let corrupt_check = match &corrupt {
             Ok(Some(_)) => VerifyCheck {
                 name: "state".to_string(),
@@ -1503,7 +1504,9 @@ mod tests {
                 ok: false,
             },
         };
-        assert!(corrupt_check.name.contains("state error: parse /tmp/state.json"));
+        assert!(corrupt_check
+            .name
+            .contains("state error: parse /tmp/state.json"));
         assert!(!corrupt_check.ok);
     }
 
