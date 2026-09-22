@@ -375,8 +375,7 @@ pub fn latest_tag_for_channel<'a>(tags: &'a [String], channel: &str) -> Option<&
             let Some(version) = tag.strip_prefix('v') else {
                 return false;
             };
-            parse_semver(version)
-                .is_some_and(|(_, prerelease)| prerelease.is_some() == is_preview)
+            parse_semver(version).is_some_and(|(_, prerelease)| prerelease.is_some() == is_preview)
         })
         .max_by(|a, b| {
             let a = a.strip_prefix('v').expect("filtered release tag");
@@ -389,12 +388,14 @@ fn compare_semver(a: &str, b: &str) -> Option<Ordering> {
     let (a_core, a_pre) = parse_semver(a)?;
     let (b_core, b_pre) = parse_semver(b)?;
 
-    Some(compare_core(a_core, b_core).then_with(|| match (a_pre, b_pre) {
-        (None, None) => Ordering::Equal,
-        (None, Some(_)) => Ordering::Greater,
-        (Some(_), None) => Ordering::Less,
-        (Some(a_pre), Some(b_pre)) => compare_prerelease(a_pre, b_pre),
-    }))
+    Some(
+        compare_core(a_core, b_core).then_with(|| match (a_pre, b_pre) {
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Greater,
+            (Some(_), None) => Ordering::Less,
+            (Some(a_pre), Some(b_pre)) => compare_prerelease(a_pre, b_pre),
+        }),
+    )
 }
 
 fn compare_prerelease(a: &str, b: &str) -> Ordering {
@@ -636,10 +637,7 @@ mod tests {
             "build metadata must not affect precedence"
         );
         assert_eq!(
-            compare_semver(
-                "184467440737095516160.0.0",
-                "184467440737095516159.999.999"
-            ),
+            compare_semver("184467440737095516160.0.0", "184467440737095516159.999.999",),
             Some(Ordering::Greater),
             "SemVer numeric identifiers are not bounded to machine integers"
         );
