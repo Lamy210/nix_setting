@@ -38,7 +38,7 @@ pub fn raw_url(remote: &str, tag: &str, file: &str) -> Result<String> {
             "invalid managed release tag: {tag}"
         )));
     }
-    if !is_safe_cache_component(tag) || !is_safe_cache_component(file) {
+    if !is_safe_cache_component(tag) || !is_safe_cache_file(file) {
         return Err(Error::Precondition(format!(
             "invalid tag or file name: {tag}/{file}"
         )));
@@ -54,7 +54,7 @@ pub fn raw_url(remote: &str, tag: &str, file: &str) -> Result<String> {
 }
 
 /// repo file cache の保存先 (`<base>/sources/<tag>/<file>`)
-pub fn cache_path(cache_base: &Path, tag: &str, file: &str) -> PathBuf {
+fn cache_path(cache_base: &Path, tag: &str, file: &str) -> PathBuf {
     cache_base.join("sources").join(tag).join(file)
 }
 
@@ -93,13 +93,17 @@ fn is_safe_cache_component(value: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'))
 }
 
+fn is_safe_cache_file(file: &str) -> bool {
+    is_safe_cache_component(file) && !file.ends_with(CACHE_PROVENANCE_SUFFIX)
+}
+
 fn read_verified_cache(
     repository: &str,
     tag: &str,
     file: &str,
     cache_base: &Path,
 ) -> Option<String> {
-    if !is_safe_cache_component(tag) || !is_safe_cache_component(file) {
+    if !is_safe_cache_component(tag) || !is_safe_cache_file(file) {
         return None;
     }
     let path = cache_path(cache_base, tag, file);
@@ -138,7 +142,7 @@ pub fn has_cached_files(source: &SourceState, cache_base: &Path) -> bool {
         let Some(file) = name.strip_suffix(CACHE_PROVENANCE_SUFFIX) else {
             return false;
         };
-        is_safe_cache_component(file)
+        is_safe_cache_file(file)
             && read_verified_cache(&repository, &source.ref_, file, cache_base).is_some()
     })
 }
@@ -328,6 +332,15 @@ mod tests {
             "%2e%2e%2fstate.json"
         )
         .is_err());
+        assert!(
+            raw_url(
+                "https://github.com/Lamy210/nix_setting.git",
+                "v0.2.0",
+                "schneeforge.toml.schneeforge-cache.json"
+            )
+            .is_err(),
+            "provenance sidecar namespace is reserved"
+        );
     }
 
     #[test]
