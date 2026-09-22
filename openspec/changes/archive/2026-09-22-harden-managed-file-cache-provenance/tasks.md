@@ -21,7 +21,7 @@
 
 ## 4. Verification and lifecycle
 
-- [ ] 4.1 Pass `openspec validate harden-managed-file-cache-provenance --strict`.
-- [ ] 4.2 Pass repository-wide OpenSpec strict validation and required CI.
-- [ ] 4.3 Squash merge implementation PR to `develop`.
-- [ ] 4.4 Archive + canonical spec sync in a separate `chore/archive-harden-managed-file-cache-provenance` PR.
+- [x] 4.1 Pass `openspec validate harden-managed-file-cache-provenance --strict`.
+- [x] 4.2 Pass repository-wide OpenSpec strict validation and required CI.
+- [x] 4.3 Squash merge implementation PR to `develop`.
+- [x] 4.4 Archive + canonical spec sync in a separate `chore/archive-harden-managed-file-cache-provenance` PR.
