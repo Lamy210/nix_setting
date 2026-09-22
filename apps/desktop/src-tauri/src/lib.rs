@@ -1539,8 +1539,16 @@ mod tests {
             body.contains("!s.repo_exists") && body.contains("!s.managed_source"),
             "boot gate must require both !repo_exists and !managed_source to show setup"
         );
-        // Diagnostics は managed_source を serialize する (JS の undefined は
-        // falsy 化するため、backend 側 key 欠落は静かに常に setup 化する)
+        assert!(
+            body.contains("s.state_error"),
+            "corrupt state must block the setup/uninitialized fallback"
+        );
+        assert!(
+            js.contains("state error: ${s.state_error}"),
+            "ready view must surface the state read failure"
+        );
+        // Diagnostics は managed_source / state_error を serialize する。
+        // key 欠落は frontend で missing state と誤認するため静的に検証する。
         let tc = ToolInventory {
             nix: None,
             git: None,
@@ -1552,6 +1560,10 @@ mod tests {
         assert!(
             json.get("managed_source").is_some(),
             "Diagnostics must serialize managed_source"
+        );
+        assert!(
+            json.get("state_error").is_some(),
+            "Diagnostics must serialize state_error"
         );
     }
 
