@@ -124,7 +124,10 @@ fn read_verified_cache(
 /// managed source の file cache があるか (offline で読み取れるかの目安)。
 /// repository identity + digest を検証できる entry だけを cache とみなす。
 pub fn has_cached_files(source: &SourceState, cache_base: &Path) -> bool {
-    if classify_release_tag(&source.ref_).is_none() || !is_safe_cache_component(&source.ref_) {
+    if source.validate_managed_release().is_err()
+        || classify_release_tag(&source.ref_).is_none()
+        || !is_safe_cache_component(&source.ref_)
+    {
         return false;
     }
     let remote = source.remote_url();
@@ -157,6 +160,7 @@ pub fn read_managed_file_with(
     cache_base: &Path,
     fetch: &dyn Fn(&str) -> std::result::Result<String, String>,
 ) -> Result<String> {
+    source.validate_managed_release()?;
     let tag = &source.ref_;
     let remote = source.remote_url();
     // Validate the immutable release-tag boundary before consulting cache.
@@ -347,6 +351,23 @@ mod tests {
     fn cache_path_is_under_sources_tag() {
         let p = cache_path(Path::new("/base"), "v0.2.0", "schneeforge.toml");
         assert_eq!(p, Path::new("/base/sources/v0.2.0/schneeforge.toml"));
+    }
+
+    #[test]
+    fn managed_file_read_rejects_kind_tag_mismatch_before_cache_or_network() {
+        let dir = temp_dir("kind-tag-mismatch");
+        let mut source = managed_source("v0.2.0-rc.1");
+        source.kind = crate::source::SourceKind::ReleaseStable;
+        source.channel = Some("stable".to_string());
+
+        let fetch = |_url: &str| -> std::result::Result<String, String> {
+            panic!("invalid managed source must fail before network")
+        };
+        let err = read_managed_file_with(&source, "schneeforge.toml", &dir, &fetch).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("does not match"), "{err}");
+        assert!(!has_cached_files(&source, &dir));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

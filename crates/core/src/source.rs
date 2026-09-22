@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::process::run_capture;
 use crate::semver;
 use crate::tool::ResolvedTool;
@@ -93,11 +93,47 @@ impl SourceState {
         self.remote.clone().unwrap_or_else(repo_url)
     }
 
+    /// persisted managed source が immutable release source として整合するか検証する。
+    ///
+    /// managed=true は release source 専用で、ref は valid v<SemVer> tag、
+    /// tag の stable/preview 分類は SourceKind と一致しなければならない。
+    /// remote の transport / GitHub flake 可否は利用境界ごとに別途検証する。
+    pub fn validate_managed_release(&self) -> Result<()> {
+        if !self.managed {
+            return Ok(());
+        }
+        if !self.kind.is_release() {
+            return Err(Error::State(format!(
+                "managed source kind {} is not a release kind",
+                self.kind
+            )));
+        }
+        let (tag_kind, _) = classify_release_tag(&self.ref_).ok_or_else(|| {
+            Error::State(format!(
+                "managed source ref {} is not a valid release tag",
+                self.ref_
+            ))
+        })?;
+        if tag_kind != self.kind {
+            return Err(Error::State(format!(
+                "managed source kind {} does not match release tag {} ({tag_kind})",
+                self.kind, self.ref_
+            )));
+        }
+        let remote = self.remote_url();
+        if github_slug(&remote).is_none() {
+            return Err(Error::State(format!(
+                "managed source repository URL is not a supported GitHub repository: {remote}"
+            )));
+        }
+        Ok(())
+    }
+
     /// managed source の flake ref (`github:<owner>/<repo>/<tag>`)。
-    /// managed でない Release や URL から owner/repo が解決できない
-    /// 場合は None
+    /// invariant を満たさない managed state は None とし、effectful caller は
+    /// validate_managed_release / effective_ref で structured error にする。
     pub fn flake_ref(&self) -> Option<String> {
-        if !self.is_managed_release() {
+        if !self.is_managed_release() || self.validate_managed_release().is_err() {
             return None;
         }
         let (owner, repo) = github_slug(&self.remote_url())?;
@@ -145,11 +181,21 @@ fn is_slug_component(s: &str) -> bool {
 /// nix 引数に渡す repository 参照。state が managed Release を示す場合は
 /// flake ref (`github:<owner>/<repo>/<tag>`)、それ以外は path をそのまま返す
 pub fn effective_ref(repo: &str, store: &crate::state::StateStore) -> Result<String> {
-    Ok(store
-        .load()?
-        .and_then(|s| s.source)
-        .and_then(|src| src.flake_ref())
-        .unwrap_or_else(|| repo.to_string()))
+    let source = store.load()?.and_then(|s| s.source);
+    let Some(source) = source else {
+        return Ok(repo.to_string());
+    };
+    if !source.managed {
+        return Ok(repo.to_string());
+    }
+
+    source.validate_managed_release()?;
+    let remote = source.remote_url();
+    source.flake_ref().ok_or_else(|| {
+        Error::State(format!(
+            "managed source repository URL is not a supported GitHub repository: {remote}"
+        ))
+    })
 }
 
 /// checkout の実態から SourceKind を解決する
@@ -235,7 +281,8 @@ impl SourceResolver {
         stored: Option<&SourceState>,
     ) -> Result<SourceState> {
         if let Some(state) = stored {
-            if state.is_managed_release() {
+            if state.managed {
+                state.validate_managed_release()?;
                 return Ok(state.clone());
             }
         }
@@ -691,6 +738,36 @@ mod tests {
             "github:Lamy210/nix_setting/v0.2.0"
         );
 
+        // managed state は mutable ref / kind-tag mismatch を local path へ fallback しない
+        state.source = Some(managed_state(SourceKind::ReleaseStable, "main", "stable"));
+        store.save(&state).unwrap();
+        let err = effective_ref("/tmp/repo", &store).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("valid release tag"), "{err}");
+
+        state.source = Some(managed_state(
+            SourceKind::ReleaseStable,
+            "v0.3.0-rc.1",
+            "stable",
+        ));
+        store.save(&state).unwrap();
+        let err = effective_ref("/tmp/repo", &store).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("does not match"), "{err}");
+
+        state.source = Some(SourceState {
+            kind: SourceKind::ReleaseStable,
+            ref_: "v0.3.0".to_string(),
+            channel: Some("stable".to_string()),
+            managed: true,
+            remote: Some("/tmp/local-origin".to_string()),
+            revision: None,
+        });
+        store.save(&state).unwrap();
+        let err = effective_ref("/tmp/repo", &store).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("GitHub repository"), "{err}");
+
         // checkout 表現の source が記録されていても path のまま
         state.source = Some(SourceState {
             kind: SourceKind::ReleaseStable,
@@ -714,6 +791,35 @@ mod tests {
             .resolve(dir.to_str().unwrap(), &resolved_git(), Some(&stored))
             .unwrap();
         assert_eq!(resolved, stored);
+
+        let invalid_managed = managed_state(SourceKind::ReleasePreview, "v0.2.0", "preview");
+        let err = SourceResolver::new()
+            .resolve(
+                dir.to_str().unwrap(),
+                &resolved_git(),
+                Some(&invalid_managed),
+            )
+            .unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("does not match"), "{err}");
+
+        let invalid_remote = SourceState {
+            kind: SourceKind::ReleaseStable,
+            ref_: "v0.2.0".to_string(),
+            channel: Some("stable".to_string()),
+            managed: true,
+            remote: Some("/tmp/local-origin".to_string()),
+            revision: None,
+        };
+        let err = SourceResolver::new()
+            .resolve(
+                dir.to_str().unwrap(),
+                &resolved_git(),
+                Some(&invalid_remote),
+            )
+            .unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("GitHub repository"), "{err}");
 
         // managed でない state (旧 state.json 相当) は checkout 検出に fallthrough
         let checkout_state = SourceState {

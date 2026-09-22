@@ -542,6 +542,20 @@ fn load_manifest() -> Option<schneeforge_core::Manifest> {
     schneeforge_core::load_manifest_for(&repo, &schneeforge_core::StateStore::default()).ok()
 }
 
+fn validate_dashboard_state(
+    state: Option<&schneeforge_core::State>,
+) -> Result<(), String> {
+    let Some(source) = state.and_then(|state| state.source.as_ref()) else {
+        return Ok(());
+    };
+    if source.managed {
+        source
+            .validate_managed_release()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// `get_dashboard` (v2 §28): Installed / Available の snapshot を返す。
 /// available 解決 (git ls-remote + release metadata fetch) は network を
 /// 伴うため blocking 実行し、失敗しても command error にせず
@@ -555,6 +569,7 @@ async fn get_dashboard(
         let repo_state = schneeforge_core::StateStore::default()
             .load()
             .map_err(|e| e.to_string())?;
+        validate_dashboard_state(repo_state.as_ref())?;
         let channel = schneeforge_core::channel_of(repo_state.as_ref());
         let repo_url =
             std::env::var("SCHNEEFORGE_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string());
@@ -1261,6 +1276,24 @@ mod tests {
             js.contains("s.profile"),
             "frontend should display the effective profile"
         );
+    }
+
+    #[test]
+    fn dashboard_rejects_semantically_invalid_managed_state_before_available_lookup() {
+        let state = schneeforge_core::State {
+            source: Some(schneeforge_core::SourceState {
+                kind: schneeforge_core::SourceKind::ReleaseStable,
+                ref_: "main".to_string(),
+                channel: Some("stable".to_string()),
+                managed: true,
+                remote: Some("https://github.com/Lamy210/nix_setting.git".to_string()),
+                revision: None,
+            }),
+            ..Default::default()
+        };
+
+        let err = validate_dashboard_state(Some(&state)).unwrap_err();
+        assert!(err.contains("valid release tag"), "{err}");
     }
 
     /// v2 §28: get_dashboard の応答は frontend が参照する key を serialize

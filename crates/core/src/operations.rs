@@ -348,12 +348,17 @@ fn current_branch(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Option<
     }
 }
 
-/// state に記録された managed source (v2 §7)
+/// state に記録された managed source (v2 §7)。
+/// managed=true の semantic inconsistency は「managed ではない」へ fallback せず error。
 fn managed_source(store: &StateStore) -> Result<Option<crate::source::SourceState>> {
-    Ok(store
-        .load()?
-        .and_then(|s| s.source)
-        .filter(|s| s.is_managed_release()))
+    let Some(source) = store.load()?.and_then(|state| state.source) else {
+        return Ok(None);
+    };
+    if !source.managed {
+        return Ok(None);
+    }
+    source.validate_managed_release()?;
+    Ok(Some(source))
 }
 
 /// managed source の sync / git 実態前提処理への案内文
@@ -677,10 +682,23 @@ pub fn source_init(
     channel: Option<String>,
     tag: Option<String>,
 ) -> Result<SourceInitResult> {
-    // Fail before the remote lookup when an existing state file is unreadable/corrupt.
+    // Fail before remote effects when persisted state / requested channel / repository
+    // identity is invalid. An explicit tag does not require remote tag discovery.
     store.load()?;
+    if let Some(channel) = channel.as_deref() {
+        validate_release_channel(channel)?;
+    }
     let url = crate::source::repo_url();
-    let tags = crate::dashboard::remote_tags(&url, git)?;
+    if crate::source::github_slug(&url).is_none() {
+        return Err(Error::Precondition(format!(
+            "managed source repository URL is not a supported GitHub repository: {url}"
+        )));
+    }
+    let tags = if tag.is_some() {
+        Vec::new()
+    } else {
+        crate::dashboard::remote_tags(&url, git)?
+    };
     source_init_with(
         repo,
         store,
@@ -752,6 +770,7 @@ fn source_init_with(
         remote: Some(remote.url.to_string()),
         revision: None,
     };
+    source.validate_managed_release()?;
     source.revision = record_revision(&resolved_tag, fetch_meta);
 
     // 既存 checkout が同 tag を pin していれば移行として表示する
@@ -1302,6 +1321,42 @@ mod tests {
     }
 
     #[test]
+    fn source_init_rejects_non_github_remote_before_metadata_fetch() {
+        let (repo, _git_bin) = (
+            std::env::temp_dir().join(format!("sf-init-invalid-remote-{}", std::process::id())),
+            (),
+        );
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = resolved_git(std::path::Path::new("git"));
+        let (store, dir) = temp_state_store("init-invalid-remote");
+        let tags = vec!["v0.2.0".to_string()];
+        let fetch_meta =
+            |_tag: &str| -> std::result::Result<crate::release_metadata::ReleaseMetadata, String> {
+                panic!("invalid managed remote must fail before metadata fetch")
+            };
+
+        let err = source_init_with(
+            repo.to_str().unwrap(),
+            &store,
+            &git,
+            &RemoteTags {
+                url: "/tmp/local-origin",
+                tags: &tags,
+            },
+            None,
+            Some("v0.2.0".to_string()),
+            &fetch_meta,
+        )
+        .unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("GitHub repository"), "{err}");
+        assert!(store.load().unwrap().and_then(|s| s.source).is_none());
+        let _ = std::fs::remove_dir_all(&repo);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn source_init_resolves_channel_latest_and_validates_inputs() {
         let (repo, _git_bin) = (
             std::env::temp_dir().join(format!("sf-init-empty-{}", std::process::id())),
@@ -1414,6 +1469,33 @@ mod tests {
             err.to_string().contains("cannot be updated locally"),
             "{err}"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn managed_helpers_reject_semantically_invalid_managed_state() {
+        let (store, dir) = temp_state_store("invalid-managed-helper");
+        store
+            .save(&crate::state::State {
+                source: Some(crate::source::SourceState {
+                    kind: crate::source::SourceKind::ReleaseStable,
+                    ref_: "main".to_string(),
+                    channel: Some("stable".to_string()),
+                    managed: true,
+                    remote: Some("https://github.com/Lamy210/nix_setting.git".to_string()),
+                    revision: None,
+                }),
+                ..crate::state::State::default()
+            })
+            .unwrap();
+
+        let err = managed_source_note(&store).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("valid release tag"), "{err}");
+
+        let err = deps_update_with("/tmp/repo", &dummy_tc(), true, &store).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("valid release tag"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -346,6 +346,15 @@ fn self_update(tc: &ToolInventory) -> Result {
     let state = StateStore::default()
         .load()
         .map_err(|e| e.to_string())?;
+    if let Some(source) = state
+        .as_ref()
+        .and_then(|state| state.source.as_ref())
+        .filter(|source| source.managed)
+    {
+        source
+            .validate_managed_release()
+            .map_err(|e| e.to_string())?;
+    }
     let Some(git) = tc.git.as_ref() else {
         return Err(
             "git not found; cannot resolve latest release (install git or update via install.sh)"
@@ -495,17 +504,19 @@ fn source_status(repo: &str, tc: &ToolInventory) -> Result {
     let state = StateStore::default()
         .load()
         .map_err(|e| e.to_string())?;
-    // managed source は checkout 実態を持たないため state から表示する
+    // managed source は checkout 実態を持たないため state から表示する。
+    // semantic inconsistency は checkout / 未初期化表示へ fallback しない。
     if let Some(src) = state
         .as_ref()
         .and_then(|s| s.source.as_ref())
-        .filter(|s| s.is_managed_release())
+        .filter(|s| s.managed)
     {
+        src.validate_managed_release().map_err(|e| e.to_string())?;
+        let flake_ref = src
+            .flake_ref()
+            .ok_or_else(|| "validated managed source did not produce a flake ref".to_string())?;
         println!("  kind:      {} (managed)", src.kind);
-        println!(
-            "  ref:       {}",
-            src.flake_ref().as_deref().unwrap_or(&src.ref_)
-        );
+        println!("  ref:       {flake_ref}");
         if let Some(channel) = src.kind.release_channel() {
             println!("  channel:   {channel}");
         }
