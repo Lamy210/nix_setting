@@ -456,7 +456,7 @@ fn source_init(
     println!(
         "managed source set: {} ({})",
         src.flake_ref().as_deref().unwrap_or(&src.ref_),
-        src.channel.as_deref().unwrap_or("-")
+        src.kind.release_channel().unwrap_or("-")
     );
     match &src.revision {
         Some(rev) => println!("  revision verified: {rev}"),
@@ -506,7 +506,7 @@ fn source_status(repo: &str, tc: &ToolInventory) -> Result {
             "  ref:       {}",
             src.flake_ref().as_deref().unwrap_or(&src.ref_)
         );
-        if let Some(channel) = &src.channel {
+        if let Some(channel) = src.kind.release_channel() {
             println!("  channel:   {channel}");
         }
         match &src.revision {
@@ -561,7 +561,7 @@ fn print_state_source(state: Option<&schneeforge_core::State>) {
         Some(src) => println!(
             "  state:   {} ({})",
             src.kind,
-            src.channel.as_deref().unwrap_or(&src.ref_)
+            src.kind.release_channel().unwrap_or(&src.ref_)
         ),
         None => println!("  state:   (source not recorded)"),
     }
