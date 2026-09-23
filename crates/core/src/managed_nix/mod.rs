@@ -344,12 +344,29 @@ impl ManagedNix {
     }
 
     /// manifest の解決: repo file 優先、repo に file が無ければ embedded へ
-    /// fallback する。`nix install` の実行主体 (CLI / desktop) はこの経路を
-    /// 使うことで repo checkout 無しでも install できる
+    /// fallback する。repo manifest が存在する場合の read/parse error は
+    /// embedded へ隠さず fail-closed に返す。
+    /// `nix install` の実行主体 (CLI / desktop) はこの経路を使うことで
+    /// repo checkout 無しでも install できる。
     pub fn load_prefer_repo(repo_root: Option<&Path>) -> Result<Self, ManagedNixError> {
-        match repo_root {
-            Some(root) => Self::load_from_repo(root).or_else(|_| Self::embedded()),
-            None => Self::embedded(),
+        let Some(root) = repo_root else {
+            return Self::embedded();
+        };
+        let path = root.join("bootstrap-manifest.toml");
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => Err(ManagedNixError::Io {
+                context: format!(
+                    "bootstrap manifest {} is a symlink; refusing",
+                    path.display()
+                ),
+                source: String::new(),
+            }),
+            Ok(_) => Self::load_from_repo(root),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::embedded(),
+            Err(e) => Err(ManagedNixError::Io {
+                context: format!("stat {}", path.display()),
+                source: e.to_string(),
+            }),
         }
     }
 
@@ -621,6 +638,73 @@ x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111
         let mn = ManagedNix::load_prefer_repo(Some(&dir)).unwrap();
         assert_eq!(mn.version(), "9.9.9");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_prefer_repo_rejects_malformed_repo_manifest() {
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-embedded-manifest-malformed-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("bootstrap-manifest.toml"), "not toml {{{").unwrap();
+
+        let err = match ManagedNix::load_prefer_repo(Some(&dir)) {
+            Ok(_) => panic!("malformed repo manifest must not fall back to embedded"),
+            Err(err) => err,
+        };
+        assert!(
+            matches!(err, ManagedNixError::ManifestParse { .. }),
+            "{err}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_prefer_repo_rejects_unreadable_manifest_path_shape() {
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-embedded-manifest-directory-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("bootstrap-manifest.toml")).unwrap();
+
+        let err = match ManagedNix::load_prefer_repo(Some(&dir)) {
+            Ok(_) => panic!("invalid manifest path shape must not fall back to embedded"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, ManagedNixError::Io { .. }), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_prefer_repo_rejects_manifest_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        for (suffix, target_exists) in [("valid", true), ("dangling", false)] {
+            let dir = std::env::temp_dir().join(format!(
+                "schneeforge-embedded-manifest-symlink-{suffix}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let target = dir.join("target.toml");
+            if target_exists {
+                std::fs::write(&target, include_str!("../../../../bootstrap-manifest.toml"))
+                    .unwrap();
+            }
+            symlink(&target, dir.join("bootstrap-manifest.toml")).unwrap();
+
+            let err = match ManagedNix::load_prefer_repo(Some(&dir)) {
+                Ok(_) => panic!("repo manifest symlink must not be followed"),
+                Err(err) => err,
+            };
+            assert!(matches!(err, ManagedNixError::Io { .. }), "{err}");
+            assert!(err.to_string().contains("symlink"), "{err}");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 
     #[test]
