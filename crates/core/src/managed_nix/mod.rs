@@ -344,13 +344,23 @@ impl ManagedNix {
     }
 
     /// manifest の解決: repo file 優先、repo に file が無ければ embedded へ
-    /// fallback する。`nix install` の実行主体 (CLI / desktop) はこの経路を
-    /// 使うことで repo checkout 無しでも install できる
+    /// fallback する。repo manifest が存在する場合の read/parse error は
+    /// embedded へ隠さず fail-closed に返す。
+    /// `nix install` の実行主体 (CLI / desktop) はこの経路を使うことで
+    /// repo checkout 無しでも install できる。
     pub fn load_prefer_repo(repo_root: Option<&Path>) -> Result<Self, ManagedNixError> {
-        match repo_root {
-            Some(root) => Self::load_from_repo(root).or_else(|_| Self::embedded()),
-            None => Self::embedded(),
+        let Some(root) = repo_root else {
+            return Self::embedded();
+        };
+        let path = root.join("bootstrap-manifest.toml");
+        let exists = path.try_exists().map_err(|e| ManagedNixError::Io {
+            context: format!("check {}", path.display()),
+            source: e.to_string(),
+        })?;
+        if !exists {
+            return Self::embedded();
         }
+        Self::load_from_repo(root)
     }
 
     pub fn version(&self) -> &str {
@@ -620,6 +630,38 @@ x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111
         .unwrap();
         let mn = ManagedNix::load_prefer_repo(Some(&dir)).unwrap();
         assert_eq!(mn.version(), "9.9.9");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_prefer_repo_rejects_malformed_repo_manifest() {
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-embedded-manifest-malformed-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("bootstrap-manifest.toml"), "not toml {{{").unwrap();
+
+        let err = ManagedNix::load_prefer_repo(Some(&dir)).unwrap_err();
+        assert!(
+            matches!(err, ManagedNixError::ManifestParse { .. }),
+            "{err}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_prefer_repo_rejects_unreadable_manifest_path_shape() {
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-embedded-manifest-directory-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("bootstrap-manifest.toml")).unwrap();
+
+        let err = ManagedNix::load_prefer_repo(Some(&dir)).unwrap_err();
+        assert!(matches!(err, ManagedNixError::Io { .. }), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
