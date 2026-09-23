@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::managed_nix::error::ManagedNixError;
+use crate::semver;
 
 /// bootstrap-manifest.toml の SchneeForge 側 schema (design.md D3, tasks 2.2)
 ///
@@ -67,16 +68,10 @@ impl BootstrapManifest {
     ///   - sha256: ちょうど 64 文字の hex
     pub fn validate(&self) -> Result<(), ManagedNixError> {
         let version = &self.managed_nix.version;
-        let parts: Vec<&str> = version.split('.').collect();
-        let valid_version = parts.len() == 3
-            && parts
-                .iter()
-                .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
-            && parts.iter().all(|p| p.parse::<u32>().is_ok());
-        if !valid_version {
+        if !semver::is_core_version(version) {
             return Err(ManagedNixError::ManifestParse {
                 source: format!(
-                    "version {:?} is not X.Y.Z numeric form (got {parts:?})",
+                    "version {:?} is not canonical stable X.Y.Z SemVer",
                     self.managed_nix.version
                 ),
             });
@@ -210,6 +205,24 @@ aarch64-darwin = "33333333333333333333333333333333333333333333333333333333333333
 "#;
         let res = BootstrapManifest::parse(bad);
         assert!(matches!(res, Err(ManagedNixError::ManifestParse { .. })));
+    }
+
+    #[test]
+    fn validate_rejects_non_canonical_core_versions() {
+        for version in ["02.35.2", "2.35.2-rc.1", "2.35.2+build.1", "2.٣٥.2"] {
+            let bad = SAMPLE.replace("2.35.1", version);
+            let res = BootstrapManifest::parse(&bad);
+            assert!(
+                matches!(res, Err(ManagedNixError::ManifestParse { .. })),
+                "{version} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_accepts_arbitrary_size_core_identifiers() {
+        let valid = SAMPLE.replace("2.35.1", "184467440737095516160.0.0");
+        assert!(BootstrapManifest::parse(&valid).is_ok());
     }
 
     #[test]
