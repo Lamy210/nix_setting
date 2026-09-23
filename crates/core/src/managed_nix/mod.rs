@@ -643,7 +643,10 @@ x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("bootstrap-manifest.toml"), "not toml {{{").unwrap();
 
-        let err = ManagedNix::load_prefer_repo(Some(&dir)).unwrap_err();
+        let err = match ManagedNix::load_prefer_repo(Some(&dir)) {
+            Ok(_) => panic!("malformed repo manifest must not fall back to embedded"),
+            Err(err) => err,
+        };
         assert!(
             matches!(err, ManagedNixError::ManifestParse { .. }),
             "{err}"
@@ -660,7 +663,10 @@ x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("bootstrap-manifest.toml")).unwrap();
 
-        let err = ManagedNix::load_prefer_repo(Some(&dir)).unwrap_err();
+        let err = match ManagedNix::load_prefer_repo(Some(&dir)) {
+            Ok(_) => panic!("invalid manifest path shape must not fall back to embedded"),
+            Err(err) => err,
+        };
         assert!(matches!(err, ManagedNixError::Io { .. }), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
