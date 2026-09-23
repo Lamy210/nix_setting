@@ -354,6 +354,10 @@ impl ManagedNix {
         };
         let path = root.join("bootstrap-manifest.toml");
         match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => Err(ManagedNixError::Io {
+                context: format!("bootstrap manifest {} is a symlink; refusing", path.display()),
+                source: String::new(),
+            }),
             Ok(_) => Self::load_from_repo(root),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::embedded(),
             Err(e) => Err(ManagedNixError::Io {
@@ -673,27 +677,31 @@ x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111
 
     #[cfg(unix)]
     #[test]
-    fn load_prefer_repo_rejects_dangling_manifest_symlink() {
+    fn load_prefer_repo_rejects_manifest_symlinks() {
         use std::os::unix::fs::symlink;
 
-        let dir = std::env::temp_dir().join(format!(
-            "schneeforge-embedded-manifest-dangling-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        symlink(
-            dir.join("missing-target.toml"),
-            dir.join("bootstrap-manifest.toml"),
-        )
-        .unwrap();
+        for (suffix, target_exists) in [("valid", true), ("dangling", false)] {
+            let dir = std::env::temp_dir().join(format!(
+                "schneeforge-embedded-manifest-symlink-{suffix}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let target = dir.join("target.toml");
+            if target_exists {
+                std::fs::write(&target, include_str!("../../../../bootstrap-manifest.toml"))
+                    .unwrap();
+            }
+            symlink(&target, dir.join("bootstrap-manifest.toml")).unwrap();
 
-        let err = match ManagedNix::load_prefer_repo(Some(&dir)) {
-            Ok(_) => panic!("dangling manifest symlink must not fall back to embedded"),
-            Err(err) => err,
-        };
-        assert!(matches!(err, ManagedNixError::Io { .. }), "{err}");
-        let _ = std::fs::remove_dir_all(&dir);
+            let err = match ManagedNix::load_prefer_repo(Some(&dir)) {
+                Ok(_) => panic!("repo manifest symlink must not be followed"),
+                Err(err) => err,
+            };
+            assert!(matches!(err, ManagedNixError::Io { .. }), "{err}");
+            assert!(err.to_string().contains("symlink"), "{err}");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 
     #[test]
