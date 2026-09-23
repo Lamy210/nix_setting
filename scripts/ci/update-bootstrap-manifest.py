@@ -7,16 +7,14 @@ import argparse
 import re
 from pathlib import Path
 
-from release_semver import channel_for_version, validate_version
+from release_semver import validate_core_version
 
 
 SHA256_RE = re.compile(r"^[0-9A-Fa-f]{64}$")
 
 
 def validate_pin_inputs(version: str, hashes: tuple[str, str, str]) -> tuple[str, tuple[str, str, str]]:
-    validate_version(version)
-    if channel_for_version(version) != "stable":
-        raise ValueError(f"managed nix pin requires a stable SemVer version: {version!r}")
+    validate_core_version(version)
 
     normalized: list[str] = []
     for value in hashes:
