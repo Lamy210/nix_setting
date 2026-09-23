@@ -5,14 +5,12 @@ from __future__ import annotations
 
 import argparse
 
-from release_semver import channel_for_version, normalize_release_tag
+from release_semver import normalize_release_tag, validate_core_version
 
 
 def normalize_stable_tag(tag: str) -> str:
     _, version = normalize_release_tag(tag, require_v=False)
-    if channel_for_version(version) != "stable":
-        raise ValueError(f"nix-installer bump requires a stable release tag: {tag}")
-    return version
+    return validate_core_version(version)
 
 
 def main() -> int:
