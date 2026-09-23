@@ -47,20 +47,22 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "$INPUT_VERSION" ]; then
-            echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+            target="$INPUT_VERSION"
           else
             # pre-release は除外して latest stable を取得
-            latest=$(gh release list \
+            target=$(gh release list \
               --repo NixOS/nix-installer \
               --exclude-drafts \
               --exclude-pre-releases \
               --limit 1 \
               --json tagName \
               --jq '.[0].tagName')
-            # tagName は "v2.35.1" 形式と "2.35.1" 形式が混在するので "v" を取り除く
-            latest="${latest#v}"
-            echo "version=$latest" >> "$GITHUB_OUTPUT"
           fi
+
+          # upstream/manual input is untrusted until normalized. Reject malformed or
+          # prerelease tags before constructing download URLs or touching the manifest.
+          version=$(python3 scripts/ci/normalize-nix-installer-version.py "$target")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Check if version is already pinned
         id: check

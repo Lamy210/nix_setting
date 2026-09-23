@@ -446,6 +446,71 @@ EOF
 }
 
 
+@test "nix-installer bump inputs are normalized and fail closed before manifest mutation" {
+  normalize=scripts/ci/normalize-nix-installer-version.py
+  update=scripts/ci/update-bootstrap-manifest.py
+  [ -f "$normalize" ]
+  [ -f "$update" ]
+
+  run python3 "$normalize" v2.35.2
+  [ "$status" -eq 0 ]
+  [ "$output" = "2.35.2" ]
+
+  run python3 "$normalize" 2.35.2
+  [ "$status" -eq 0 ]
+  [ "$output" = "2.35.2" ]
+
+  for invalid in \
+    v02.35.2 \
+    2.35.2-rc.1 \
+    '2.٣٥.2' \
+    '2.35.2;echo-pwned' \
+    ''; do
+    run python3 "$normalize" "$invalid"
+    [ "$status" -ne 0 ]
+  done
+
+  tmp="$(mktemp -d)"
+  manifest="$tmp/bootstrap-manifest.toml"
+  cat >"$manifest" <<'EOF'
+# retained header
+
+[managed_nix]
+version = "2.35.1"
+
+[managed_nix.sha256_by_arch]
+x86_64-linux = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+aarch64-linux = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+aarch64-darwin = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+EOF
+
+  run python3 "$update" "$manifest" \
+    --version 2.35.2 \
+    --x86-64-linux AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \
+    --aarch64-linux BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB \
+    --aarch64-darwin CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+  [ "$status" -eq 0 ]
+  grep -q '^x86_64-linux = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"$' "$manifest"
+
+  before="$(sha256sum "$manifest" | awk '{print $1}')"
+  run python3 "$update" "$manifest" \
+    --version 2.35.2-rc.1 \
+    --x86-64-linux aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --aarch64-linux bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+    --aarch64-darwin cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  [ "$status" -ne 0 ]
+  [ "$(sha256sum "$manifest" | awk '{print $1}')" = "$before" ]
+
+  run python3 "$update" "$manifest" \
+    --version 2.35.2 \
+    --x86-64-linux not-a-sha256 \
+    --aarch64-linux bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+    --aarch64-darwin cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  [ "$status" -ne 0 ]
+  [ "$(sha256sum "$manifest" | awk '{print $1}')" = "$before" ]
+}
+
+
 # --- GUI self-update Step 2 manifest generator contract ---
 
 @test "updater manifest generator emits darwin-aarch64 static JSON" {

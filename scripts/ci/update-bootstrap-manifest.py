@@ -7,6 +7,24 @@ import argparse
 import re
 from pathlib import Path
 
+from release_semver import channel_for_version, validate_version
+
+
+SHA256_RE = re.compile(r"^[0-9A-Fa-f]{64}$")
+
+
+def validate_pin_inputs(version: str, hashes: tuple[str, str, str]) -> tuple[str, tuple[str, str, str]]:
+    validate_version(version)
+    if channel_for_version(version) != "stable":
+        raise ValueError(f"managed nix pin requires a stable SemVer version: {version!r}")
+
+    normalized: list[str] = []
+    for value in hashes:
+        if not SHA256_RE.fullmatch(value):
+            raise ValueError(f"invalid SHA256 digest: {value!r}")
+        normalized.append(value.lower())
+    return version, (normalized[0], normalized[1], normalized[2])
+
 
 def replace_exactly_once(text: str, pattern: str, replacement: str) -> str:
     updated, count = re.subn(pattern, replacement, text)
@@ -23,6 +41,10 @@ def update_manifest(
     aarch64_linux: str,
     aarch64_darwin: str,
 ) -> None:
+    version, hashes = validate_pin_inputs(
+        version, (x86_64_linux, aarch64_linux, aarch64_darwin)
+    )
+    x86_64_linux, aarch64_linux, aarch64_darwin = hashes
     text = path.read_text(encoding="utf-8")
     replacements = (
         (r'(?m)^version = "[^"]+"$', f'version = "{version}"'),
