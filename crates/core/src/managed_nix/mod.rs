@@ -322,9 +322,24 @@ impl ManagedNix {
         }
     }
 
-    /// repo root に配置された `bootstrap-manifest.toml` を読む
+    /// repo root に配置された `bootstrap-manifest.toml` を読む。
+    /// manifest path 自体が symlink の場合は trust boundary を越えて
+    /// repository 外の content を参照しないよう fail-closed に拒否する。
     pub fn load_from_repo(repo_root: &Path) -> Result<Self, ManagedNixError> {
         let path = repo_root.join("bootstrap-manifest.toml");
+        let metadata = std::fs::symlink_metadata(&path).map_err(|e| ManagedNixError::Io {
+            context: format!("stat {}", path.display()),
+            source: e.to_string(),
+        })?;
+        if metadata.file_type().is_symlink() {
+            return Err(ManagedNixError::Io {
+                context: format!(
+                    "bootstrap manifest {} is a symlink; refusing",
+                    path.display()
+                ),
+                source: String::new(),
+            });
+        }
         let body = std::fs::read_to_string(&path).map_err(|e| ManagedNixError::Io {
             context: format!("read {}", path.display()),
             source: e.to_string(),
@@ -354,13 +369,6 @@ impl ManagedNix {
         };
         let path = root.join("bootstrap-manifest.toml");
         match std::fs::symlink_metadata(&path) {
-            Ok(metadata) if metadata.file_type().is_symlink() => Err(ManagedNixError::Io {
-                context: format!(
-                    "bootstrap manifest {} is a symlink; refusing",
-                    path.display()
-                ),
-                source: String::new(),
-            }),
             Ok(_) => Self::load_from_repo(root),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::embedded(),
             Err(e) => Err(ManagedNixError::Io {
@@ -699,6 +707,13 @@ x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111
 
             let err = match ManagedNix::load_prefer_repo(Some(&dir)) {
                 Ok(_) => panic!("repo manifest symlink must not be followed"),
+                Err(err) => err,
+            };
+            assert!(matches!(err, ManagedNixError::Io { .. }), "{err}");
+            assert!(err.to_string().contains("symlink"), "{err}");
+
+            let err = match ManagedNix::load_from_repo(&dir) {
+                Ok(_) => panic!("direct repo manifest load must reject symlinks"),
                 Err(err) => err,
             };
             assert!(matches!(err, ManagedNixError::Io { .. }), "{err}");
