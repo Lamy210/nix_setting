@@ -355,7 +355,10 @@ impl ManagedNix {
         let path = root.join("bootstrap-manifest.toml");
         match std::fs::symlink_metadata(&path) {
             Ok(metadata) if metadata.file_type().is_symlink() => Err(ManagedNixError::Io {
-                context: format!("bootstrap manifest {} is a symlink; refusing", path.display()),
+                context: format!(
+                    "bootstrap manifest {} is a symlink; refusing",
+                    path.display()
+                ),
                 source: String::new(),
             }),
             Ok(_) => Self::load_from_repo(root),
