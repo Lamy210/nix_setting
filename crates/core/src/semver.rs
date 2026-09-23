@@ -11,6 +11,12 @@ pub(crate) fn is_prerelease(version: &str) -> Option<bool> {
     Some(prerelease.is_some())
 }
 
+/// Canonical stable core SemVer used by pinned provider versions:
+/// exactly X.Y.Z with SemVer numeric-identifier rules and no pre-release/build metadata.
+pub(crate) fn is_core_version(version: &str) -> bool {
+    !version.contains('-') && !version.contains('+') && parse(version).is_some()
+}
+
 pub(crate) fn compare(a: &str, b: &str) -> Option<Ordering> {
     let (a_core, a_pre) = parse(a)?;
     let (b_core, b_pre) = parse(b)?;
@@ -131,6 +137,17 @@ mod tests {
         assert_eq!(is_prerelease("1.2.3+build-5"), Some(false));
         assert_eq!(is_prerelease("1.2.3-rc.1"), Some(true));
         assert_eq!(is_prerelease("1.2.3--foo"), Some(true));
+    }
+
+    #[test]
+    fn validates_canonical_core_versions() {
+        assert!(is_core_version("0.0.0"));
+        assert!(is_core_version("2.35.2"));
+        assert!(is_core_version("184467440737095516160.0.0"));
+        assert!(!is_core_version("02.35.2"));
+        assert!(!is_core_version("2.35.2-rc.1"));
+        assert!(!is_core_version("2.35.2+build.1"));
+        assert!(!is_core_version("2.35"));
     }
 
     #[test]
