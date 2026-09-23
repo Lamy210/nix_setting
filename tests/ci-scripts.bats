@@ -460,9 +460,14 @@ EOF
   [ "$status" -eq 0 ]
   [ "$output" = "2.35.2" ]
 
+  run python3 "$normalize" 184467440737095516160.0.0
+  [ "$status" -eq 0 ]
+  [ "$output" = "184467440737095516160.0.0" ]
+
   for invalid in \
     v02.35.2 \
     2.35.2-rc.1 \
+    2.35.2+build.1 \
     '2.٣٥.2' \
     '2.35.2;echo-pwned' \
     ''; do
@@ -493,6 +498,14 @@ EOF
   grep -q '^x86_64-linux = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"$' "$manifest"
 
   before="$(sha256sum "$manifest" | awk '{print $1}')"
+  run python3 "$update" "$manifest" \
+    --version 2.35.2+build.1 \
+    --x86-64-linux aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --aarch64-linux bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+    --aarch64-darwin cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  [ "$status" -ne 0 ]
+  [ "$(sha256sum "$manifest" | awk '{print $1}')" = "$before" ]
+
   run python3 "$update" "$manifest" \
     --version 2.35.2-rc.1 \
     --x86-64-linux aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \

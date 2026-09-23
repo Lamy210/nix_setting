@@ -18,6 +18,14 @@ def validate_version(version: str) -> str:
     return version
 
 
+
+def validate_core_version(version: str) -> str:
+    """Validate canonical stable core SemVer: exactly X.Y.Z, no pre-release/build metadata."""
+    validate_version(version)
+    if "-" in version or "+" in version:
+        raise ValueError(f"version must be canonical stable X.Y.Z: {version!r}")
+    return version
+
 def normalize_release_tag(tag: str, *, require_v: bool) -> tuple[str, str]:
     if not isinstance(tag, str):
         raise ValueError(f"invalid release tag: {tag!r}")
