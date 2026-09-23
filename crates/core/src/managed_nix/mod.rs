@@ -353,14 +353,14 @@ impl ManagedNix {
             return Self::embedded();
         };
         let path = root.join("bootstrap-manifest.toml");
-        let exists = path.try_exists().map_err(|e| ManagedNixError::Io {
-            context: format!("check {}", path.display()),
-            source: e.to_string(),
-        })?;
-        if !exists {
-            return Self::embedded();
+        match std::fs::symlink_metadata(&path) {
+            Ok(_) => Self::load_from_repo(root),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::embedded(),
+            Err(e) => Err(ManagedNixError::Io {
+                context: format!("stat {}", path.display()),
+                source: e.to_string(),
+            }),
         }
-        Self::load_from_repo(root)
     }
 
     pub fn version(&self) -> &str {
@@ -665,6 +665,31 @@ x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111
 
         let err = match ManagedNix::load_prefer_repo(Some(&dir)) {
             Ok(_) => panic!("invalid manifest path shape must not fall back to embedded"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, ManagedNixError::Io { .. }), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_prefer_repo_rejects_dangling_manifest_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-embedded-manifest-dangling-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        symlink(
+            dir.join("missing-target.toml"),
+            dir.join("bootstrap-manifest.toml"),
+        )
+        .unwrap();
+
+        let err = match ManagedNix::load_prefer_repo(Some(&dir)) {
+            Ok(_) => panic!("dangling manifest symlink must not fall back to embedded"),
             Err(err) => err,
         };
         assert!(matches!(err, ManagedNixError::Io { .. }), "{err}");
