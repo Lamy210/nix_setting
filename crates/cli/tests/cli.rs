@@ -68,6 +68,69 @@ fn scan_runs() {
 }
 
 #[test]
+fn scan_without_manifest_still_reports_not_found() {
+    let dir = state_dir("scan-missing-manifest");
+    let repo = dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(&repo)
+        .arg("scan")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("schneeforge.toml not found"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn scan_reports_corrupt_state_instead_of_missing_manifest() {
+    let dir = state_dir("scan-corrupt-state");
+    let repo = dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let state = dir.join("schneeforge");
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("state.json"), "{not-json").unwrap();
+
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(&repo)
+        .arg("scan")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("state error:")
+                .and(predicate::str::contains("parse"))
+        )
+        .stdout(predicate::str::contains("schneeforge.toml not found").not());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn scan_reports_malformed_manifest_instead_of_not_found() {
+    let dir = state_dir("scan-malformed-manifest");
+    let repo = dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::write(repo.join("schneeforge.toml"), "not toml {{{").unwrap();
+
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(&repo)
+        .arg("scan")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("manifest error:"))
+        .stdout(predicate::str::contains("schneeforge.toml not found").not());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn status_respects_repo_flag() {
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("--repo")
