@@ -222,7 +222,7 @@ fn doctor(repo: &str, tc: &ToolInventory) -> Result {
 
 fn scan(repo: &str, tc: &ToolInventory) -> Result {
     let target = detect_target();
-    let manifest = load_manifest(repo);
+    let manifest = load_manifest(repo)?;
     println!("=== scan ===");
     println!();
     print!("{}", schneeforge_core::scan(&target, tc));
@@ -647,9 +647,25 @@ fn uninstall() -> Result {
 }
 
 /// manifest 読み取りは source 解決経由: managed なら tag-pinned 取得、
-/// それ以外は local filesystem
-fn load_manifest(repo: &str) -> Option<Manifest> {
-    schneeforge_core::load_manifest_for(repo, &StateStore::default()).ok()
+/// それ以外は local filesystem。local manifest が単に存在しない場合だけ
+/// `None` を返し、state corruption / managed source inconsistency / parse・fetch
+/// failure は read-only surface でも明示的な error として伝播する。
+fn load_manifest(repo: &str) -> std::result::Result<Option<Manifest>, String> {
+    let store = StateStore::default();
+    let state = store.load().map_err(|e| e.to_string())?;
+    let managed = state
+        .as_ref()
+        .and_then(|s| s.source.as_ref())
+        .is_some_and(|source| source.managed);
+    let manifest_path = std::path::Path::new(repo).join("schneeforge.toml");
+
+    if !managed && !manifest_path.exists() {
+        return Ok(None);
+    }
+
+    schneeforge_core::load_manifest_for(repo, &store)
+        .map(Some)
+        .map_err(|e| e.to_string())
 }
 
 fn run_nix(sub: NixSub, repo: &str) -> Result {
