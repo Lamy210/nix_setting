@@ -67,3 +67,18 @@ setup() {
   result="$(detect_host)"
   [ "$result" = "unsupported" ]
 }
+
+@test "runtime missing-Nix guidance uses SchneeForge Managed Nix" {
+  local files=(
+    "$BATS_TEST_DIRNAME/../bootstrap.sh"
+    "$BATS_TEST_DIRNAME/../crates/core/src/bootstrap.rs"
+    "$BATS_TEST_DIRNAME/../crates/core/src/tool.rs"
+    "$BATS_TEST_DIRNAME/../crates/core/src/diagnostics.rs"
+    "$BATS_TEST_DIRNAME/../crates/cli/src/legacy_main.rs"
+  )
+
+  for file in "${files[@]}"; do
+    ! grep -Fq "nixos.org/nix/install" "$file"
+    grep -Fq "schneeforge nix install" "$file"
+  done
+}
