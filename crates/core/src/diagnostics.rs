@@ -274,7 +274,7 @@ pub fn nix_health(tc: &ToolInventory) -> NixHealth {
             source: None,
             error: Some(
                 "nix not found in PATH or known locations. \
-                 install: curl -L https://nixos.org/nix/install | sh"
+                 install with SchneeForge Managed Nix: schneeforge nix install"
                     .to_string(),
             ),
             warning: None,
