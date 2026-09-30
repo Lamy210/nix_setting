@@ -141,7 +141,7 @@ pub fn setup(repo: &str, store: &StateStore, tc: &ToolInventory) -> Result<Apply
     let pre = preflight(tc);
     if !pre.nix_installed {
         return Err(Error::Precondition(
-            "Nix is not installed (install: curl -L https://nixos.org/nix/install | sh)"
+            "Nix is not installed; install it with `schneeforge nix install` (Managed Nix)"
                 .to_string(),
         ));
     }
@@ -255,6 +255,36 @@ mod tests {
         };
         assert!(report.nix_installed);
         assert!(!report.flakes_enabled);
+    }
+
+    #[test]
+    fn setup_guides_missing_nix_to_managed_nix() {
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-setup-managed-nix-guidance-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = StateStore::new(dir.join("state.json"));
+        let tc = ToolInventory {
+            nix: None,
+            git: None,
+            homebrew: None,
+            nh: None,
+        };
+
+        let err = setup("/nonexistent/repo", &store, &tc).unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.contains("schneeforge nix install"),
+            "missing Nix guidance must use Managed Nix: {message}"
+        );
+        assert!(
+            !message.contains("curl"),
+            "missing Nix guidance must not recommend curl|sh: {message}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
