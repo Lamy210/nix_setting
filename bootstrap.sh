@@ -11,8 +11,10 @@ cd "$REPO_DIR"
 if ! resolve_nix; then
   echo "Nix is not installed."
   echo
-  echo "Install Nix first:"
-  echo "  curl -L https://nixos.org/nix/install | sh"
+  echo "Install Nix through SchneeForge Managed Nix first:"
+  echo "  schneeforge nix install"
+  echo "If the SchneeForge CLI is not installed yet, run:"
+  echo "  ./install.sh"
   exit 1
 fi
 
