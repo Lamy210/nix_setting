@@ -534,16 +534,30 @@ pub fn update(
         UpdateAction::NoOp(note) => note_output(&note, capture),
     };
 
-    // 更新後の source 状態を State へ反映 (applied 情報は変えない)
-    let new_source = crate::source::SourceResolver::new().detect(repo, git).ok();
-    let mut saved = previous.unwrap_or_default();
-    saved.source = new_source.clone();
-    store.save(&saved)?;
+    // 更新後の source 状態を State へ反映 (applied 情報は変えない)。
+    // 再検出に失敗した場合は既存 source semantic を None で上書きしない。
+    let new_source = persist_detected_source(
+        store,
+        previous,
+        crate::source::SourceResolver::new().detect(repo, git),
+    )?;
 
     Ok(UpdateResult {
         output,
-        source: new_source,
+        source: Some(new_source),
     })
+}
+
+fn persist_detected_source(
+    store: &StateStore,
+    previous: Option<crate::state::State>,
+    detected: Result<crate::source::SourceState>,
+) -> Result<crate::source::SourceState> {
+    let new_source = detected?;
+    let mut saved = previous.unwrap_or_default();
+    saved.source = Some(new_source.clone());
+    store.save(&saved)?;
+    Ok(new_source)
 }
 
 /// checkout 表現の Release update 後に表示する managed 移行の案内
@@ -1317,6 +1331,30 @@ mod tests {
         .unwrap();
         assert!(!result.migrated_from_checkout);
         let _ = std::fs::remove_dir_all(&repo);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn update_redetect_error_preserves_existing_source_state() {
+        let (store, dir) = temp_state_store("update-redetect-error");
+        let previous = crate::state::State {
+            source: Some(managed_release_state("v0.2.0", "stable")),
+            profile: Some("developer".to_string()),
+            ..crate::state::State::default()
+        };
+        store.save(&previous).unwrap();
+
+        let err = persist_detected_source(
+            &store,
+            Some(previous.clone()),
+            Err(Error::Precondition("source redetect failed".to_string())),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("source redetect failed"), "{err}");
+
+        let loaded = store.load().unwrap().expect("previous state must remain");
+        assert_eq!(loaded.source, previous.source);
+        assert_eq!(loaded.profile, previous.profile);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
