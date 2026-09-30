@@ -2,7 +2,7 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-09-23
+最終更新: 2026-09-30
 
 ## 完成済み
 
@@ -172,7 +172,7 @@ PR #62-#68 を sequential chain で merge。
 - **未完了**: macOS manual Final Acceptance、production key pair/secret/public-key provision、signed N→N+1 E2E、tampered artifact signature mismatch E2E
 - 上記 activation gate 完了までは production updater を有効化せず、placeholder/test trust root は shipping しない
 
-### Release/source fail-closed hardening + Managed Nix 2.35.2（2026-09-23）
+### Release/source fail-closed hardening + Managed Nix 2.35.2（2026-09-23〜09-30）
 
 release/source/update 境界の重複実装と silent fallback を整理し、Managed Nix provider bump の実機相当 acceptance を pre-merge で閉じた。
 
@@ -188,6 +188,10 @@ release/source/update 境界の重複実装と silent fallback を整理し、Ma
   - missing state と corrupt/unreadable state を分離し、state-dependent effect 前に error を伝播
   - `managed=true` は immutable GitHub release source のみ許可し、mutable ref / kind-tag mismatch / unsupported remote を checkout fallback・network/cache effect 前に拒否
   - Diagnostics / Dashboard / source status / self-update も semantic corruption を未初期化扱いしない
+- **2026-09-30 fail-closed follow-up (#138/#139)**:
+  - checkout 型 `update()` の更新後 source 再検出 error を `None` へ変換せず伝播し、失敗時は既存 source/profile state を保持
+  - `bootstrap-manifest.toml` の symlink 拒否を public `ManagedNix::load_from_repo()` 自体へ集約し、direct caller でも repository trust boundary を維持
+  - #139 は #138 merge 後の `develop` を history rewrite 無しで topic branch に取り込み、latest-head run #701 の全 22 jobs green を確認して squash merge
 - **upstream bump workflow hardening (#131)**:
   - `bootstrap-manifest.toml` 全書き換えを廃止し、専用 helper で version + 3 architecture SHA256 のみ更新
   - header comment / ordering / unrelated metadata を保持し、expected field の欠落・重複は fail-closed
