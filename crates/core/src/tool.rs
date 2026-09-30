@@ -112,7 +112,7 @@ impl fmt::Display for ToolRequirementError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ToolRequirementError::NixNotFound => f.write_str(
-                "nix not found in PATH or known locations (install: curl -L https://nixos.org/nix/install | sh)",
+                "nix not found in PATH or known locations (install with SchneeForge Managed Nix: schneeforge nix install)",
             ),
             ToolRequirementError::GitNotFound => f.write_str(
                 "git not found in PATH or known locations (install via your OS package manager)",
