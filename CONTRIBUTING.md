@@ -138,16 +138,29 @@ git push origin --delete release/vX.Y.Z
 
 ## 品質ゲート（CI）
 
-```
-openspec-check   openspec validate --all --strict
-flake-check      nix flake check + Linux build
-macos-check      nix-darwin + HM build
-rust-check       cargo test / fmt / clippy
-lint             statix / deadnix / actionlint / shellcheck
-secret-scan      trufflehog
-```
+### 現行 required contexts
 
-> `openspec-check` はこの workflow hardening から strict validation を enforce する。CI topology の分割・`ci-required` aggregator は follow-up `refactor-ci-critical-path` で扱う。
+`openspec/specs/development-workflow/spec.md` で定義している現行の branch-protection required contexts は次の 7 件。
+
+| Context | 主な検証 |
+|---------|----------|
+| `openspec-check` | `openspec validate --all --strict --no-interactive` |
+| `flake-check` | flake check + Linux default profile evaluation + minimal profile realization |
+| `rust-check` | `rust-quality` / `rust-build-smoke` の fail-closed aggregation |
+| `lint` | actionlint / shellcheck / statix / deadnix + raw tool spawn guard |
+| `bootstrap-test` | bootstrap/install/source-update/Managed Nix contract + nix-unit |
+| `managed-nix-e2e` | release 相当 Linux CLI binary の Managed Nix full lifecycle |
+| `release-artifact-check` | macOS CLI / DMG / portability / release metadata の release-path gate |
+
+`ci-required` は上記 7 contexts を fail-closed で集約する **shadow candidate**。server-side required context への移行は別 change とし、既存 contexts を先に外さない。
+
+### 追加 CI
+
+- `macos-check`: `macos-15` + Xcode 26.3 / `macos-26` + Xcode 26.6 の stable compatibility matrix を fail-closed 集約
+- `secret-scan`: trufflehog + unintended image file scan
+- `docker-check`: Docker sandbox で flake / devShell smoke
+- `devshell-smoke` / `template-check`: named devShell と project template の回帰検証
+- `windows-check`: experimental Windows launcher / WSL2 delegation contract の non-required lane
 
 ## OpenSpec の必須条件
 
