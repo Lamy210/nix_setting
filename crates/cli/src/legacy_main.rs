@@ -169,7 +169,7 @@ fn doctor(repo: &str, tc: &ToolInventory) -> Result {
         }
         None => {
             println!("  installed: no");
-            println!("  install:   curl -L https://nixos.org/nix/install | sh");
+            println!("  install:   schneeforge nix install (Managed Nix)");
         }
     }
     println!();
