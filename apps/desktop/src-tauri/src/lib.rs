@@ -1,6 +1,6 @@
 use schneeforge_core::{
-    detect_target, release_page_url, resolve_repo, scan, Diagnostics, PreflightReport,
-    ToolInventory, VerifyReport, DEFAULT_REPO_URL,
+    detect_target, release_page_url, resolve_repo, scan, Diagnostics, Error, Manifest,
+    PreflightReport, StateStore, ToolInventory, VerifyReport, DEFAULT_REPO_URL,
 };
 use serde::Serialize;
 use std::sync::Mutex;
@@ -535,11 +535,15 @@ fn run_verify(state: tauri::State<'_, CachedToolInventory>) -> Result<VerifyRepo
     Ok(schneeforge_core::verify(&resolve_repo(None), &tc))
 }
 
-fn load_manifest() -> Option<schneeforge_core::Manifest> {
-    let repo = resolve_repo(None);
-    // source 解決経由: managed source は tag-pinned 取得 + state cache、
-    // それ以外は local filesystem 読み取り
-    schneeforge_core::load_manifest_for(&repo, &schneeforge_core::StateStore::default()).ok()
+fn load_dashboard_manifest(repo: &str, store: &StateStore) -> Result<Option<Manifest>, String> {
+    // Dashboard は manifest 非存在/parse failure を optional 表示として扱う既存挙動を
+    // 維持する。一方、state error は「未設定」と同義ではないため fail-closed で
+    // caller へ伝播する (update-state-load-fail-closed D5)。
+    match schneeforge_core::load_manifest_for(repo, store) {
+        Ok(manifest) => Ok(Some(manifest)),
+        Err(error @ Error::State(_)) => Err(error.to_string()),
+        Err(_) => Ok(None),
+    }
 }
 
 fn validate_dashboard_state(
@@ -566,9 +570,8 @@ async fn get_dashboard(
 ) -> Result<schneeforge_core::DashboardSnapshot, String> {
     let tc = state.get_or_discover()?;
     tauri::async_runtime::spawn_blocking(move || {
-        let repo_state = schneeforge_core::StateStore::default()
-            .load()
-            .map_err(|e| e.to_string())?;
+        let store = StateStore::default();
+        let repo_state = store.load().map_err(|e| e.to_string())?;
         validate_dashboard_state(repo_state.as_ref())?;
         let channel = schneeforge_core::channel_of(repo_state.as_ref());
         let repo_url =
@@ -578,10 +581,12 @@ async fn get_dashboard(
                 .map_err(|e| e.to_string()),
             None => Err("git not found; cannot resolve available release".to_string()),
         };
+        let repo = resolve_repo(None);
+        let manifest = load_dashboard_manifest(&repo, &store)?;
         Ok(schneeforge_core::snapshot(
             env!("CARGO_PKG_VERSION"),
             repo_state.as_ref(),
-            load_manifest().as_ref(),
+            manifest.as_ref(),
             available,
         ))
     })
@@ -1276,6 +1281,50 @@ mod tests {
             js.contains("s.profile"),
             "frontend should display the effective profile"
         );
+    }
+
+    #[test]
+    fn dashboard_manifest_loader_propagates_state_errors() {
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-dashboard-state-error-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = dir.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(
+            repo.join("schneeforge.toml"),
+            "schema = 1\n[profiles]\ndefault = \"developer\"\navailable = [\"developer\"]\n",
+        )
+        .unwrap();
+
+        let store = StateStore::new(dir.join("state.json"));
+        std::fs::write(store.path(), "{not-json").unwrap();
+
+        let err = load_dashboard_manifest(repo.to_str().unwrap(), &store).unwrap_err();
+        assert!(err.contains("state error"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dashboard_manifest_loader_keeps_non_state_manifest_failure_optional() {
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-dashboard-manifest-optional-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = StateStore::new(dir.join("state.json"));
+
+        let manifest = load_dashboard_manifest(
+            dir.join("missing-repo").to_str().unwrap(),
+            &store,
+        )
+        .unwrap();
+        assert!(manifest.is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
