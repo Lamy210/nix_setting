@@ -53,7 +53,9 @@ detect_host() {
 # experimental-features を確認する。
 nix_has_required_flake_features() {
   local features
-  features="$("$NIX_BIN" config show experimental-features 2>/dev/null)" || return 1
+  if ! features="$("$NIX_BIN" config show experimental-features 2>/dev/null)"; then
+    return 2
+  fi
   printf '%s\n' "$features" | awk '
     {
       for (i = 1; i <= NF; i++) {
@@ -70,8 +72,15 @@ ensure_flakes_enabled() {
   config_home="${XDG_CONFIG_HOME:-${HOME:?HOME must be set}/.config}"
   conf="$config_home/nix/nix.conf"
 
+  local feature_status=0
   if nix_has_required_flake_features; then
     return 0
+  else
+    feature_status=$?
+  fi
+  if [ "$feature_status" -eq 2 ]; then
+    echo "Failed to inspect effective Nix settings; refusing to modify $conf" >&2
+    return 1
   fi
 
   mkdir -p "$(dirname "$conf")"
@@ -81,10 +90,17 @@ ensure_flakes_enabled() {
   fi
   printf '%s\n' 'extra-experimental-features = nix-command flakes' >>"$conf"
 
-  if ! nix_has_required_flake_features; then
-    echo "Failed to enable flakes: $NIX_BIN config show experimental-features still lacks nix-command / flakes" >&2
-    return 1
+  if nix_has_required_flake_features; then
+    return 0
+  else
+    feature_status=$?
   fi
+  if [ "$feature_status" -eq 2 ]; then
+    echo "Failed to verify effective Nix settings after updating $conf" >&2
+  else
+    echo "Failed to enable flakes: $NIX_BIN config show experimental-features still lacks nix-command / flakes" >&2
+  fi
+  return 1
 }
 
 HOST="$(detect_host)"
