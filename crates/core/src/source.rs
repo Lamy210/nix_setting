@@ -290,37 +290,36 @@ impl SourceResolver {
     }
 }
 
-/// 現在 checkout されている branch 名 (detached HEAD は None)
-fn current_branch(repo: &str, git: &ResolvedTool) -> Result<Option<String>> {
-    let out = git_output(repo, git, &["symbolic-ref", "--short", "HEAD"]);
-    match out {
-        Ok(branch) => {
-            let branch = branch.trim();
-            if branch.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(branch.to_string()))
-            }
-        }
-        // detached HEAD では symbolic-ref が非 exit で失敗する
-        Err(_) => Ok(None),
+/// 現在 checkout されている branch 名 (detached HEAD は None)。
+///
+/// `rev-parse --abbrev-ref HEAD` は detached HEAD を正常終了 + literal `HEAD`
+/// で表現するため、Git 自体の実行失敗と detached 状態を混同しない。
+pub(crate) fn current_branch(repo: &str, git: &ResolvedTool) -> Result<Option<String>> {
+    let out = git_output(repo, git, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    let branch = out.trim();
+    if branch == "HEAD" {
+        Ok(None)
+    } else if branch.is_empty() {
+        Err(Error::Command {
+            command: git.path.display().to_string(),
+            detail: "rev-parse --abbrev-ref HEAD returned empty output".to_string(),
+        })
+    } else {
+        Ok(Some(branch.to_string()))
     }
 }
 
-/// HEAD が指している exact tag (複数 tag は最初の 1 つ)
+/// HEAD が指している exact tag (複数 tag は最初の 1 つ)。
+///
+/// `git tag --points-at HEAD` は「tag 無し」を正常終了 + 空出力で表現するため、
+/// tag が無い状態と Git 実行失敗を区別できる。
 fn exact_tag(repo: &str, git: &ResolvedTool) -> Result<Option<String>> {
-    let out = git_output(repo, git, &["describe", "--tags", "--exact-match"]);
-    match out {
-        Ok(tag) => {
-            let tag = tag.trim();
-            if tag.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(tag.to_string()))
-            }
-        }
-        Err(_) => Ok(None),
-    }
+    let out = git_output(repo, git, &["tag", "--points-at", "HEAD"])?;
+    Ok(out
+        .lines()
+        .map(str::trim)
+        .find(|tag| !tag.is_empty())
+        .map(ToOwned::to_owned))
 }
 
 /// HEAD の commit hash
@@ -492,6 +491,20 @@ mod tests {
                 "{invalid} must not be accepted as a release tag"
             );
         }
+    }
+
+    #[test]
+    fn git_ref_helpers_propagate_inspection_errors() {
+        let dir = temp_repo("invalid-ref-inspection");
+        let git = resolved_git();
+
+        let branch_err = current_branch(dir.to_str().unwrap(), &git).unwrap_err();
+        assert!(matches!(branch_err, Error::Command { .. }), "{branch_err}");
+
+        let tag_err = exact_tag(dir.to_str().unwrap(), &git).unwrap_err();
+        assert!(matches!(tag_err, Error::Command { .. }), "{tag_err}");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
