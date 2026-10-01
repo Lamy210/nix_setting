@@ -82,8 +82,7 @@ pub fn enable_flakes(tc: &ToolInventory) -> Result<()> {
             "show".to_string(),
             "experimental-features".to_string(),
         ],
-    )
-    .unwrap_or_default();
+    )?;
     if has_required_flake_features(&current) {
         return Ok(());
     }
@@ -255,6 +254,23 @@ mod tests {
             homebrew: None,
             nh: None,
         }
+    }
+
+    #[test]
+    fn enable_flakes_propagates_effective_config_inspection_failure() {
+        let tc = ToolInventory {
+            nix: Some(ResolvedTool::new(
+                PathBuf::from("/__schneeforge_missing_nix_binary__"),
+                ToolSource::Path,
+            )),
+            git: None,
+            homebrew: None,
+            nh: None,
+        };
+
+        let result = enable_flakes(&tc);
+
+        assert!(matches!(result, Err(Error::Command { .. })));
     }
 
     #[test]
