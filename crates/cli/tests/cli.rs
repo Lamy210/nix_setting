@@ -101,10 +101,7 @@ fn scan_reports_corrupt_state_instead_of_missing_manifest() {
         .env("XDG_STATE_HOME", &dir)
         .assert()
         .failure()
-        .stderr(
-            predicate::str::contains("state error:")
-                .and(predicate::str::contains("parse"))
-        )
+        .stderr(predicate::str::contains("state error:").and(predicate::str::contains("parse")))
         .stdout(predicate::str::contains("schneeforge.toml not found").not());
 
     let _ = std::fs::remove_dir_all(&dir);
