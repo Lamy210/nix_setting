@@ -136,18 +136,45 @@ pub fn preflight(tc: &ToolInventory) -> PreflightReport {
     }
 }
 
-/// 初回セットアップ: Nix 確認 → flakes 有効化 → apply
-pub fn setup(repo: &str, store: &StateStore, tc: &ToolInventory) -> Result<ApplyResult> {
-    let pre = preflight(tc);
+fn ensure_setup_nix_and_flakes_with(
+    tc: &ToolInventory,
+    mut inspect: impl FnMut(&ToolInventory) -> PreflightReport,
+    mut enable: impl FnMut(&ToolInventory) -> Result<()>,
+) -> Result<()> {
+    let pre = inspect(tc);
     if !pre.nix_installed {
         return Err(Error::Precondition(
             "Nix is not installed; install it with `schneeforge nix install` (Managed Nix)"
                 .to_string(),
         ));
     }
-    if !pre.flakes_enabled {
-        enable_flakes(tc)?;
+    if pre.flakes_enabled {
+        return Ok(());
     }
+
+    enable(tc)?;
+
+    // bootstrap-flow contract: flakes を有効化した後は再診断し、実際に有効に
+    // なったことを確認してから apply へ進む。
+    let post = inspect(tc);
+    if !post.nix_installed {
+        return Err(Error::Precondition(
+            "Nix became unavailable while enabling flakes; run `schneeforge doctor`"
+                .to_string(),
+        ));
+    }
+    if !post.flakes_enabled {
+        return Err(Error::Precondition(
+            "flakes are still disabled after updating nix.conf; verify with `nix config show experimental-features`"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// 初回セットアップ: Nix 確認 → flakes 有効化 + 再診断 → apply
+pub fn setup(repo: &str, store: &StateStore, tc: &ToolInventory) -> Result<ApplyResult> {
+    ensure_setup_nix_and_flakes_with(tc, preflight, enable_flakes)?;
     let target = detect_target();
     apply(&target, repo, store, tc, false)
 }
@@ -255,6 +282,88 @@ mod tests {
         };
         assert!(report.nix_installed);
         assert!(!report.flakes_enabled);
+    }
+
+    fn preflight_state(nix_installed: bool, flakes_enabled: bool) -> PreflightReport {
+        PreflightReport {
+            nix_installed,
+            flakes_enabled,
+            git_installed: true,
+        }
+    }
+
+    #[test]
+    fn setup_preconditions_recheck_flakes_after_enable() {
+        let tc = dummy_tc();
+        let mut inspections = 0;
+        let mut enables = 0;
+
+        ensure_setup_nix_and_flakes_with(
+            &tc,
+            |_| {
+                inspections += 1;
+                if inspections == 1 {
+                    preflight_state(true, false)
+                } else {
+                    preflight_state(true, true)
+                }
+            },
+            |_| {
+                enables += 1;
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(inspections, 2, "flakes enable must be followed by re-diagnosis");
+        assert_eq!(enables, 1);
+    }
+
+    #[test]
+    fn setup_preconditions_fail_if_flakes_remain_disabled() {
+        let tc = dummy_tc();
+        let mut inspections = 0;
+        let mut enables = 0;
+
+        let err = ensure_setup_nix_and_flakes_with(
+            &tc,
+            |_| {
+                inspections += 1;
+                preflight_state(true, false)
+            },
+            |_| {
+                enables += 1;
+                Ok(())
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(inspections, 2, "failure must be based on post-enable diagnosis");
+        assert_eq!(enables, 1);
+        assert!(err.to_string().contains("flakes are still disabled"), "{err}");
+    }
+
+    #[test]
+    fn setup_preconditions_skip_enable_when_flakes_already_work() {
+        let tc = dummy_tc();
+        let mut inspections = 0;
+        let mut enables = 0;
+
+        ensure_setup_nix_and_flakes_with(
+            &tc,
+            |_| {
+                inspections += 1;
+                preflight_state(true, true)
+            },
+            |_| {
+                enables += 1;
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(inspections, 1);
+        assert_eq!(enables, 0);
     }
 
     #[test]
