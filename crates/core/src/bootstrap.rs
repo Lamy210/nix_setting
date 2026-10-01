@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
@@ -37,6 +37,30 @@ pub fn doctor(tc: &ToolInventory) -> DoctorReport {
     }
 }
 
+fn append_config_line(path: &Path, line: &str) -> Result<()> {
+    let needs_separator = match std::fs::read(path) {
+        Ok(content) => !content.is_empty() && !content.ends_with(b"\n"),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+        Err(e) => {
+            return Err(Error::Io(format!("read {}: {e}", path.display())));
+        }
+    };
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| Error::Io(format!("open {}: {e}", path.display())))?;
+
+    use std::io::Write;
+    if needs_separator {
+        file.write_all(b"\n")
+            .map_err(|e| Error::Io(format!("write {}: {e}", path.display())))?;
+    }
+    file.write_all(line.as_bytes())
+        .map_err(|e| Error::Io(format!("write {}: {e}", path.display())))
+}
+
 /// nix.conf に experimental-features (nix-command flakes) を追記する
 ///
 /// flakes 有効化は Nix を必要とする操作 (run_capture で現在の設定を確認するため)。
@@ -67,19 +91,7 @@ pub fn enable_flakes(tc: &ToolInventory) -> Result<()> {
     if let Some(parent) = conf.parent() {
         std::fs::create_dir_all(parent).map_err(|e| Error::Io(format!("create_dir: {e}")))?;
     }
-    let line = "experimental-features = nix-command flakes\n";
-    match std::fs::OpenOptions::new().append(true).open(&conf) {
-        Ok(mut f) => {
-            use std::io::Write;
-            f.write_all(line.as_bytes())
-                .map_err(|e| Error::Io(format!("write {}: {e}", conf.display())))?;
-        }
-        Err(_) => {
-            std::fs::write(&conf, line)
-                .map_err(|e| Error::Io(format!("write {}: {e}", conf.display())))?;
-        }
-    }
-    Ok(())
+    append_config_line(&conf, "extra-experimental-features = nix-command flakes\n")
 }
 
 /// 初回セットアップ前の前提条件チェック結果（nix と flakes を分離）
@@ -243,6 +255,46 @@ mod tests {
             homebrew: None,
             nh: None,
         }
+    }
+
+    #[test]
+    fn append_config_line_separates_unterminated_existing_content() {
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-nix-config-append-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let conf = dir.join("nix.conf");
+        std::fs::write(&conf, "experimental-features = ca-derivations").unwrap();
+
+        append_config_line(&conf, "extra-experimental-features = nix-command flakes\n").unwrap();
+
+        let content = std::fs::read_to_string(&conf).unwrap();
+        assert_eq!(
+            content,
+            "experimental-features = ca-derivations\nextra-experimental-features = nix-command flakes\n"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn append_config_line_creates_new_file_without_leading_separator() {
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-nix-config-create-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let conf = dir.join("nix.conf");
+
+        append_config_line(&conf, "extra-experimental-features = nix-command flakes\n").unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(&conf).unwrap(),
+            "extra-experimental-features = nix-command flakes\n"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
