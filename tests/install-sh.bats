@@ -98,6 +98,27 @@ EOF
   [ "$status" -eq 0 ]
 }
 
+@test "ensure_flakes_enabled fails closed when effective config inspection fails" {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config"
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$XDG_CONFIG_HOME/nix"
+  printf '%s\n' 'experimental-features = ca-derivations' >"$XDG_CONFIG_HOME/nix/nix.conf"
+  cp "$XDG_CONFIG_HOME/nix/nix.conf" "$BATS_TEST_TMPDIR/nix.conf.before"
+  cat >"$BATS_TEST_TMPDIR/bin/fake-nix" <<'EOF'
+#!/usr/bin/env bash
+exit 23
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin/fake-nix"
+  export NIX_BIN="$BATS_TEST_TMPDIR/bin/fake-nix"
+  eval "$INSTALL_FUNCTIONS"
+
+  run ensure_flakes_enabled
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "実効設定確認に失敗"
+  cmp -s "$BATS_TEST_TMPDIR/nix.conf.before" "$XDG_CONFIG_HOME/nix/nix.conf"
+}
+
 @test "ensure_flakes_enabled writes XDG config and rechecks effective features" {
   mkdir -p "$BATS_TEST_TMPDIR/bin"
   export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config"
