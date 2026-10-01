@@ -82,3 +82,16 @@ setup() {
     grep -Fq "schneeforge nix install" "$file"
   done
 }
+
+
+@test "shell bootstrap paths verify effective flakes config instead of grepping nix.conf" {
+  local files=(
+    "$BATS_TEST_DIRNAME/../install.sh"
+    "$BATS_TEST_DIRNAME/../bootstrap.sh"
+  )
+
+  for file in "${files[@]}"; do
+    grep -Fq 'config show experimental-features' "$file"
+    ! grep -Fq 'grep -q "experimental-features"' "$file"
+  done
+}

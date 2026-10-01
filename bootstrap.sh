@@ -49,6 +49,40 @@ detect_host() {
   esac
 }
 
+# nix.conf の存在や文字列ではなく、resolved Nix が実際に認識している
+# experimental-features を確認する。
+nix_has_required_flake_features() {
+  local features
+  features="$("$NIX_BIN" config show experimental-features 2>/dev/null)" || return 1
+  printf '%s\n' "$features" | awk '
+    {
+      for (i = 1; i <= NF; i++) {
+        if ($i == "nix-command") have_nix_command = 1
+        if ($i == "flakes") have_flakes = 1
+      }
+    }
+    END { exit !(have_nix_command && have_flakes) }
+  '
+}
+
+ensure_flakes_enabled() {
+  local config_home conf
+  config_home="${XDG_CONFIG_HOME:-${HOME:?HOME must be set}/.config}"
+  conf="$config_home/nix/nix.conf"
+
+  if nix_has_required_flake_features; then
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$conf")"
+  printf '%s\n' 'experimental-features = nix-command flakes' >>"$conf"
+
+  if ! nix_has_required_flake_features; then
+    echo "Failed to enable flakes: $NIX_BIN config show experimental-features still lacks nix-command / flakes" >&2
+    return 1
+  fi
+}
+
 HOST="$(detect_host)"
 
 case "$HOST" in
@@ -84,13 +118,7 @@ EOF
 echo "Generated machine input: $MACHINE_INPUT"
 MACHINE_OVERRIDE=(--override-input machine "$MACHINE_INPUT")
 
-mkdir -p "$HOME/.config/nix"
-
-if ! grep -q "experimental-features" "$HOME/.config/nix/nix.conf" 2>/dev/null; then
-  cat >>"$HOME/.config/nix/nix.conf" <<'NIXCONF'
-experimental-features = nix-command flakes
-NIXCONF
-fi
+ensure_flakes_enabled
 
 echo
 echo "Backing up existing dotfiles..."
