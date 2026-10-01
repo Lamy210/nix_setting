@@ -232,10 +232,11 @@ pub fn load_manifest_for_with(
     cache_base: &Path,
     fetch: &dyn Fn(&str) -> std::result::Result<String, String>,
 ) -> Result<Manifest> {
-    let managed = store
-        .load()?
-        .and_then(|s| s.source)
-        .filter(|s| s.is_managed_release());
+    let source = store.load()?.and_then(|s| s.source);
+    if let Some(source) = source.as_ref() {
+        source.validate_managed_release()?;
+    }
+    let managed = source.filter(|s| s.is_managed_release());
     match managed {
         Some(source) => {
             let content = read_managed_file_with(&source, "schneeforge.toml", cache_base, fetch)?;
@@ -471,6 +472,33 @@ mod tests {
         };
         let err = load_manifest_for_with("/tmp/fallback-repo", &store, &dir, &fetch).unwrap_err();
         assert!(matches!(err, Error::State(_)), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_manifest_rejects_invalid_managed_state_before_path_fallback() {
+        let dir = temp_dir("manifest-invalid-managed-state");
+        let repo = dir.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(repo.join("schneeforge.toml"), MANIFEST_TOML).unwrap();
+        let store = temp_store(
+            &dir,
+            Some(SourceState {
+                kind: SourceKind::Local,
+                ref_: ".".to_string(),
+                channel: None,
+                managed: true,
+                remote: Some("https://github.com/Lamy210/nix_setting.git".to_string()),
+                revision: None,
+            }),
+        );
+        let fetch = |_url: &str| -> std::result::Result<String, String> {
+            panic!("invalid managed state must fail before path fallback/fetch");
+        };
+
+        let err = load_manifest_for_with(repo.to_str().unwrap(), &store, &dir, &fetch).unwrap_err();
+        assert!(matches!(err, Error::State(_)), "{err}");
+        assert!(err.to_string().contains("not a release kind"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
