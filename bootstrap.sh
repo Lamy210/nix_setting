@@ -78,7 +78,7 @@ ensure_flakes_enabled() {
   printf '%s\n' 'experimental-features = nix-command flakes' >>"$conf"
 
   if ! nix_has_required_flake_features; then
-    echo "Failed to enable flakes: nix config show experimental-features still lacks nix-command / flakes" >&2
+    echo "Failed to enable flakes: $NIX_BIN config show experimental-features still lacks nix-command / flakes" >&2
     return 1
   fi
 }
