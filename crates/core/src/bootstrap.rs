@@ -301,7 +301,6 @@ mod tests {
         assert!(!report.flakes_enabled);
     }
 
-
     #[test]
     fn effective_flake_features_require_both_exact_tokens() {
         assert!(has_required_flake_features(
