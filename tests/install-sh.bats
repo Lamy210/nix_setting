@@ -74,6 +74,69 @@ EOF
   [ "$status" -ne 0 ]
 }
 
+
+@test "nix_has_required_flake_features requires both effective features" {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  cat >"$BATS_TEST_TMPDIR/bin/fake-nix" <<'EOF'
+#!/usr/bin/env bash
+echo "experimental-features = nix-command"
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin/fake-nix"
+  export NIX_BIN="$BATS_TEST_TMPDIR/bin/fake-nix"
+  eval "$INSTALL_FUNCTIONS"
+
+  run nix_has_required_flake_features
+  [ "$status" -ne 0 ]
+
+  cat >"$BATS_TEST_TMPDIR/bin/fake-nix" <<'EOF'
+#!/usr/bin/env bash
+echo "experimental-features = flakes nix-command"
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin/fake-nix"
+
+  run nix_has_required_flake_features
+  [ "$status" -eq 0 ]
+}
+
+@test "ensure_flakes_enabled writes XDG config and rechecks effective features" {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config"
+  export HOME="$BATS_TEST_TMPDIR/home"
+  cat >"$BATS_TEST_TMPDIR/bin/fake-nix" <<'EOF'
+#!/usr/bin/env bash
+conf="${XDG_CONFIG_HOME}/nix/nix.conf"
+if grep -Fxq "experimental-features = nix-command flakes" "$conf" 2>/dev/null; then
+  echo "experimental-features = nix-command flakes"
+else
+  echo "experimental-features = nix-command"
+fi
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin/fake-nix"
+  export NIX_BIN="$BATS_TEST_TMPDIR/bin/fake-nix"
+  eval "$INSTALL_FUNCTIONS"
+
+  run ensure_flakes_enabled
+  [ "$status" -eq 0 ]
+  grep -Fxq "experimental-features = nix-command flakes" "$XDG_CONFIG_HOME/nix/nix.conf"
+}
+
+@test "ensure_flakes_enabled fails closed when recheck still lacks flakes" {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config"
+  export HOME="$BATS_TEST_TMPDIR/home"
+  cat >"$BATS_TEST_TMPDIR/bin/fake-nix" <<'EOF'
+#!/usr/bin/env bash
+echo "experimental-features = nix-command"
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin/fake-nix"
+  export NIX_BIN="$BATS_TEST_TMPDIR/bin/fake-nix"
+  eval "$INSTALL_FUNCTIONS"
+
+  run ensure_flakes_enabled
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "有効化後"
+}
+
 @test "install.sh calls schneeforge nix install via sudo" {
   run grep -n 'sudo env NIX_SETTING_DIR.*nix install' "$INSTALL_SH"
   [ "$status" -eq 0 ]
@@ -538,8 +601,17 @@ EOF
   PATH="$BATS_TEST_TMPDIR:$PATH"
   ln -sf "$BATS_TEST_TMPDIR/bin-git" "$BATS_TEST_TMPDIR/git"
 
-  # nix stub: step 2 で「Nix found」にする (Managed Nix install 経路は別 test で担保)
-  ln -sf "$BATS_TEST_TMPDIR/bin-git" "$BATS_TEST_TMPDIR/nix"
+  # nix stub: step 2 で「Nix found」にし、実効 flakes 設定も返す。
+  # git_log へ混ぜると「git invocation 無し」の assertion を壊すため分離する。
+  cat >"$BATS_TEST_TMPDIR/bin-nix" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = "config" ] && [ "$2" = "show" ] && [ "$3" = "experimental-features" ]; then
+  echo "experimental-features = nix-command flakes"
+fi
+exit 0
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin-nix"
+  ln -sf "$BATS_TEST_TMPDIR/bin-nix" "$BATS_TEST_TMPDIR/nix"
 
   # sf binary stub: 引数を log に記録する「fetch 済み binary」
   cat >"$BATS_TEST_TMPDIR/sfbin/schneeforge" <<EOF
@@ -599,16 +671,24 @@ exit 0
 EOF
   chmod +x "$repo/bootstrap.sh"
 
-  # git / nix stub: invocation を log に記録する (実環境の git に依存しない)
+  # git stub は invocation を記録。nix stub は実効 flakes 設定を返し、
+  # git_log には書かない (bootstrap 以外の git invocation が無いことを検証するため)。
   cat >"$BATS_TEST_TMPDIR/bin-stub" <<EOF
 #!/usr/bin/env bash
 echo "\$*" >>"$git_log"
 exit 0
 EOF
-  chmod +x "$BATS_TEST_TMPDIR/bin-stub"
+  cat >"$BATS_TEST_TMPDIR/bin-nix" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = "config" ] && [ "$2" = "show" ] && [ "$3" = "experimental-features" ]; then
+  echo "experimental-features = nix-command flakes"
+fi
+exit 0
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin-stub" "$BATS_TEST_TMPDIR/bin-nix"
   PATH="$BATS_TEST_TMPDIR:$PATH"
   ln -sf "$BATS_TEST_TMPDIR/bin-stub" "$BATS_TEST_TMPDIR/git"
-  ln -sf "$BATS_TEST_TMPDIR/bin-stub" "$BATS_TEST_TMPDIR/nix"
+  ln -sf "$BATS_TEST_TMPDIR/bin-nix" "$BATS_TEST_TMPDIR/nix"
 
   eval "$INSTALL_FUNCTIONS"
   fetch_schneeforge_binary() {
