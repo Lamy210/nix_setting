@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -37,6 +38,48 @@ pub fn doctor(tc: &ToolInventory) -> DoctorReport {
     }
 }
 
+fn nix_user_config_path_with(
+    nix_user_conf_files: Option<&OsStr>,
+    xdg_config_home: Option<&OsStr>,
+    home: Option<&OsStr>,
+) -> Result<PathBuf> {
+    if let Some(raw) = nix_user_conf_files {
+        let first = std::env::split_paths(raw)
+            .next()
+            .filter(|path| !path.as_os_str().is_empty())
+            .ok_or_else(|| {
+                Error::Precondition(
+                    "NIX_USER_CONF_FILES is set but its first config path is empty".to_string(),
+                )
+            })?;
+        return Ok(first);
+    }
+
+    if let Some(base) = xdg_config_home.filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(base).join("nix").join("nix.conf"));
+    }
+
+    if let Some(home) = home.filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(home).join(".config").join("nix").join("nix.conf"));
+    }
+
+    Err(Error::Precondition(
+        "cannot resolve Nix user config path; set NIX_USER_CONF_FILES, XDG_CONFIG_HOME, or HOME"
+            .to_string(),
+    ))
+}
+
+fn nix_user_config_path() -> Result<PathBuf> {
+    let user_conf_files = std::env::var_os("NIX_USER_CONF_FILES");
+    let xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+    let home = std::env::var_os("HOME");
+    nix_user_config_path_with(
+        user_conf_files.as_deref(),
+        xdg_config_home.as_deref(),
+        home.as_deref(),
+    )
+}
+
 fn append_config_line(path: &Path, line: &str) -> Result<()> {
     let needs_separator = match std::fs::read(path) {
         Ok(content) => !content.is_empty() && !content.ends_with(b"\n"),
@@ -66,11 +109,7 @@ fn append_config_line(path: &Path, line: &str) -> Result<()> {
 /// flakes 有効化は Nix を必要とする操作 (run_capture で現在の設定を確認するため)。
 pub fn enable_flakes(tc: &ToolInventory) -> Result<()> {
     let nix = tc.require_nix()?;
-    let base = std::env::var("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".config")))
-        .unwrap_or_else(|_| PathBuf::from("."));
-    let conf = base.join("nix").join("nix.conf");
+    let conf = nix_user_config_path()?;
 
     // nix.conf の文字列ではなく、resolved Nix が実際に認識している設定を
     // authoritative source とする。コメント中の "flakes" や nix-command 欠落を
@@ -255,6 +294,67 @@ mod tests {
             homebrew: None,
             nh: None,
         }
+    }
+
+    #[test]
+    fn nix_user_config_path_prefers_first_nix_user_conf_file() {
+        let files = std::env::join_paths([
+            PathBuf::from("/tmp/schneeforge-high-priority.conf"),
+            PathBuf::from("/tmp/schneeforge-low-priority.conf"),
+        ])
+        .unwrap();
+
+        let path = nix_user_config_path_with(
+            Some(files.as_os_str()),
+            Some(OsStr::new("/tmp/xdg-config")),
+            Some(OsStr::new("/tmp/home")),
+        )
+        .unwrap();
+
+        assert_eq!(
+            path,
+            PathBuf::from("/tmp/schneeforge-high-priority.conf")
+        );
+    }
+
+    #[test]
+    fn nix_user_config_path_falls_back_to_xdg_then_home() {
+        let xdg = nix_user_config_path_with(
+            None,
+            Some(OsStr::new("/tmp/xdg-config")),
+            Some(OsStr::new("/tmp/home")),
+        )
+        .unwrap();
+        assert_eq!(xdg, PathBuf::from("/tmp/xdg-config/nix/nix.conf"));
+
+        let home =
+            nix_user_config_path_with(None, None, Some(OsStr::new("/tmp/home"))).unwrap();
+        assert_eq!(home, PathBuf::from("/tmp/home/.config/nix/nix.conf"));
+    }
+
+    #[test]
+    fn nix_user_config_path_rejects_empty_explicit_override() {
+        let err = nix_user_config_path_with(
+            Some(OsStr::new("")),
+            Some(OsStr::new("/tmp/xdg-config")),
+            Some(OsStr::new("/tmp/home")),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("NIX_USER_CONF_FILES is set but its first config path is empty"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn nix_user_config_path_fails_without_config_root() {
+        let err = nix_user_config_path_with(None, None, None).unwrap_err();
+        assert!(
+            err.to_string().contains("cannot resolve Nix user config path"),
+            "{err}"
+        );
     }
 
     #[test]
