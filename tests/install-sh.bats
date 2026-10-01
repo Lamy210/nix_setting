@@ -103,12 +103,12 @@ EOF
   export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config"
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$XDG_CONFIG_HOME/nix"
-  printf '%s' 'trusted-users = root' >"$XDG_CONFIG_HOME/nix/nix.conf"
+  printf '%s' 'experimental-features = ca-derivations' >"$XDG_CONFIG_HOME/nix/nix.conf"
   cat >"$BATS_TEST_TMPDIR/bin/fake-nix" <<'EOF'
 #!/usr/bin/env bash
 conf="${XDG_CONFIG_HOME}/nix/nix.conf"
-if grep -Fxq "experimental-features = nix-command flakes" "$conf" 2>/dev/null; then
-  echo "experimental-features = nix-command flakes"
+if grep -Fxq "extra-experimental-features = nix-command flakes" "$conf" 2>/dev/null; then
+  echo "experimental-features = ca-derivations nix-command flakes"
 else
   echo "experimental-features = nix-command"
 fi
@@ -119,8 +119,8 @@ EOF
 
   run ensure_flakes_enabled
   [ "$status" -eq 0 ]
-  grep -Fxq "trusted-users = root" "$XDG_CONFIG_HOME/nix/nix.conf"
-  grep -Fxq "experimental-features = nix-command flakes" "$XDG_CONFIG_HOME/nix/nix.conf"
+  grep -Fxq "experimental-features = ca-derivations" "$XDG_CONFIG_HOME/nix/nix.conf"
+  grep -Fxq "extra-experimental-features = nix-command flakes" "$XDG_CONFIG_HOME/nix/nix.conf"
 }
 
 @test "ensure_flakes_enabled fails closed when recheck still lacks flakes" {
