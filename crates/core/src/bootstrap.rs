@@ -292,7 +292,7 @@ mod tests {
 
         assert_eq!(
             std::fs::read_to_string(&conf).unwrap(),
-            "experimental-features = nix-command flakes\n"
+            "extra-experimental-features = nix-command flakes\n"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
