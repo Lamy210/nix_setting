@@ -159,8 +159,7 @@ fn ensure_setup_nix_and_flakes_with(
     let post = inspect(tc);
     if !post.nix_installed {
         return Err(Error::Precondition(
-            "Nix became unavailable while enabling flakes; run `schneeforge doctor`"
-                .to_string(),
+            "Nix became unavailable while enabling flakes; run `schneeforge doctor`".to_string(),
         ));
     }
     if !post.flakes_enabled {
@@ -315,7 +314,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(inspections, 2, "flakes enable must be followed by re-diagnosis");
+        assert_eq!(
+            inspections, 2,
+            "flakes enable must be followed by re-diagnosis"
+        );
         assert_eq!(enables, 1);
     }
 
@@ -338,9 +340,15 @@ mod tests {
         )
         .unwrap_err();
 
-        assert_eq!(inspections, 2, "failure must be based on post-enable diagnosis");
+        assert_eq!(
+            inspections, 2,
+            "failure must be based on post-enable diagnosis"
+        );
         assert_eq!(enables, 1);
-        assert!(err.to_string().contains("flakes are still disabled"), "{err}");
+        assert!(
+            err.to_string().contains("flakes are still disabled"),
+            "{err}"
+        );
     }
 
     #[test]
