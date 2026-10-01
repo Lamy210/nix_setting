@@ -323,29 +323,10 @@ fn sync_args(repo: &str) -> Vec<String> {
     ]
 }
 
-/// checkout 中の branch 名。detached HEAD (release tag の depth-1 clone 等) では None
+/// checkout 中の branch 名。detached HEAD (release tag の depth-1 clone 等) では None。
+/// source classification と同じ fail-closed contract を共有する。
 fn current_branch(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Option<String>> {
-    let out = run_capture(
-        &git.path,
-        &[
-            "-C".to_string(),
-            repo.to_string(),
-            "symbolic-ref".to_string(),
-            "--short".to_string(),
-            "HEAD".to_string(),
-        ],
-    );
-    match out {
-        Ok(branch) => {
-            let branch = branch.trim();
-            if branch.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(branch.to_string()))
-            }
-        }
-        Err(_) => Ok(None),
-    }
+    crate::source::current_branch(repo, git)
 }
 
 /// state に記録された managed source (v2 §7)。
@@ -1729,6 +1710,50 @@ mod tests {
         // git init 直後は branch checkout (master / main 等) のはず
         assert!(branch.is_some(), "expected branch checkout after git init");
         let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sync_fails_closed_when_branch_inspection_command_fails() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!(
+            "sf-sync-ref-inspection-error-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let fake_git = dir.join("fake-git");
+        std::fs::write(
+            &fake_git,
+            r#"#!/bin/sh
+case "$*" in
+  *"status --porcelain"*) exit 0 ;;
+  *) echo "simulated git ref inspection failure" >&2; exit 23 ;;
+esac
+"#,
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&fake_git, permissions).unwrap();
+
+        let tc = ToolInventory {
+            git: Some(resolved_git(&fake_git)),
+            ..dummy_tc()
+        };
+        let (lock, lock_dir) = temp_operation_lock("ref-inspection-error");
+
+        let err = sync_with_lock(dir.to_str().unwrap(), &tc, true, &lock).unwrap_err();
+        assert!(matches!(err, Error::Command { .. }), "{err}");
+        assert!(
+            err.to_string().contains("simulated git ref inspection failure"),
+            "{err}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&lock_dir);
     }
 
     #[test]
