@@ -134,6 +134,10 @@ ensure_flakes_enabled() {
 
   echo "[3/4] Enabling flakes..."
   mkdir -p "$(dirname "$conf")"
+  # 既存 nix.conf が末尾改行なしでも設定行を連結しない。
+  if [ -s "$conf" ]; then
+    printf '\n' >>"$conf"
+  fi
   printf '%s\n' 'experimental-features = nix-command flakes' >>"$conf"
 
   if ! nix_has_required_flake_features; then
