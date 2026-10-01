@@ -4,8 +4,14 @@ extract_detect_host() {
   sed -n '/^detect_host()/,/^}/p' "$BATS_TEST_DIRNAME/../bootstrap.sh"
 }
 
+extract_flake_functions() {
+  sed -n '/^nix_has_required_flake_features()/,/^}/p' "$BATS_TEST_DIRNAME/../bootstrap.sh"
+  sed -n '/^ensure_flakes_enabled()/,/^}/p' "$BATS_TEST_DIRNAME/../bootstrap.sh"
+}
+
 setup() {
   detect_host_body="$(extract_detect_host)"
+  flake_functions="$(extract_flake_functions)"
 }
 
 @test "detect_host returns darwin-aarch64 on macOS arm64" {
@@ -94,4 +100,25 @@ setup() {
     grep -Fq 'config show experimental-features' "$file"
     ! grep -Fq 'grep -q "experimental-features"' "$file"
   done
+}
+
+@test "bootstrap fails closed when effective Nix config inspection fails" {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config"
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$XDG_CONFIG_HOME/nix"
+  printf '%s\n' 'experimental-features = ca-derivations' >"$XDG_CONFIG_HOME/nix/nix.conf"
+  cp "$XDG_CONFIG_HOME/nix/nix.conf" "$BATS_TEST_TMPDIR/nix.conf.before"
+  cat >"$BATS_TEST_TMPDIR/bin/fake-nix" <<'EOF'
+#!/usr/bin/env bash
+exit 23
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin/fake-nix"
+  export NIX_BIN="$BATS_TEST_TMPDIR/bin/fake-nix"
+  eval "$flake_functions"
+
+  run ensure_flakes_enabled
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "refusing to modify"
+  cmp -s "$BATS_TEST_TMPDIR/nix.conf.before" "$XDG_CONFIG_HOME/nix/nix.conf"
 }

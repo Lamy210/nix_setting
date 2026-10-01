@@ -111,7 +111,9 @@ ensure_nix_state_dir() {
 # resolved Nix の config show を authoritative source とする。
 nix_has_required_flake_features() {
   local features
-  features="$("$NIX_BIN" config show experimental-features 2>/dev/null)" || return 1
+  if ! features="$("$NIX_BIN" config show experimental-features 2>/dev/null)"; then
+    return 2
+  fi
   printf '%s\n' "$features" | awk '
     {
       for (i = 1; i <= NF; i++) {
@@ -128,8 +130,15 @@ ensure_flakes_enabled() {
   config_home="${XDG_CONFIG_HOME:-${HOME:?HOME must be set}/.config}"
   conf="$config_home/nix/nix.conf"
 
+  local feature_status=0
   if nix_has_required_flake_features; then
     return 0
+  else
+    feature_status=$?
+  fi
+  if [ "$feature_status" -eq 2 ]; then
+    echo "[error] Nix の実効設定確認に失敗したため $conf を変更しません: $NIX_BIN config show experimental-features" >&2
+    return 1
   fi
 
   echo "[3/4] Enabling flakes..."
@@ -140,10 +149,17 @@ ensure_flakes_enabled() {
   fi
   printf '%s\n' 'extra-experimental-features = nix-command flakes' >>"$conf"
 
-  if ! nix_has_required_flake_features; then
-    echo "[error] flakes の有効化後も $NIX_BIN config show experimental-features に nix-command / flakes が反映されません" >&2
-    return 1
+  if nix_has_required_flake_features; then
+    return 0
+  else
+    feature_status=$?
   fi
+  if [ "$feature_status" -eq 2 ]; then
+    echo "[error] flakes 有効化後の Nix 設定確認に失敗しました: $NIX_BIN config show experimental-features" >&2
+  else
+    echo "[error] flakes の有効化後も $NIX_BIN config show experimental-features に nix-command / flakes が反映されません" >&2
+  fi
+  return 1
 }
 
 # Managed Nix 経路で使う schneeforge CLI binary を GitHub Release から取得し、
