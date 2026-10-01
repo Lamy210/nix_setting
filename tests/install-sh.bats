@@ -102,6 +102,8 @@ EOF
   mkdir -p "$BATS_TEST_TMPDIR/bin"
   export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config"
   export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$XDG_CONFIG_HOME/nix"
+  printf '%s' 'trusted-users = root' >"$XDG_CONFIG_HOME/nix/nix.conf"
   cat >"$BATS_TEST_TMPDIR/bin/fake-nix" <<'EOF'
 #!/usr/bin/env bash
 conf="${XDG_CONFIG_HOME}/nix/nix.conf"
@@ -117,6 +119,7 @@ EOF
 
   run ensure_flakes_enabled
   [ "$status" -eq 0 ]
+  grep -Fxq "trusted-users = root" "$XDG_CONFIG_HOME/nix/nix.conf"
   grep -Fxq "experimental-features = nix-command flakes" "$XDG_CONFIG_HOME/nix/nix.conf"
 }
 
