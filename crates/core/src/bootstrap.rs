@@ -91,7 +91,7 @@ pub fn enable_flakes(tc: &ToolInventory) -> Result<()> {
     if let Some(parent) = conf.parent() {
         std::fs::create_dir_all(parent).map_err(|e| Error::Io(format!("create_dir: {e}")))?;
     }
-    append_config_line(&conf, "experimental-features = nix-command flakes\n")
+    append_config_line(&conf, "extra-experimental-features = nix-command flakes\n")
 }
 
 /// 初回セットアップ前の前提条件チェック結果（nix と flakes を分離）
@@ -266,14 +266,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let conf = dir.join("nix.conf");
-        std::fs::write(&conf, "trusted-users = root").unwrap();
+        std::fs::write(&conf, "experimental-features = ca-derivations").unwrap();
 
-        append_config_line(&conf, "experimental-features = nix-command flakes\n").unwrap();
+        append_config_line(&conf, "extra-experimental-features = nix-command flakes\n").unwrap();
 
         let content = std::fs::read_to_string(&conf).unwrap();
         assert_eq!(
             content,
-            "trusted-users = root\nexperimental-features = nix-command flakes\n"
+            "experimental-features = ca-derivations\nextra-experimental-features = nix-command flakes\n"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -288,7 +288,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let conf = dir.join("nix.conf");
 
-        append_config_line(&conf, "experimental-features = nix-command flakes\n").unwrap();
+        append_config_line(&conf, "extra-experimental-features = nix-command flakes\n").unwrap();
 
         assert_eq!(
             std::fs::read_to_string(&conf).unwrap(),
