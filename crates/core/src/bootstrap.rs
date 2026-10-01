@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use crate::discovery::detect_target;
 use crate::error::{Error, Result};
+use crate::nix_features::has_required_flake_features;
 use crate::operations::{apply, ApplyResult};
 use crate::process::{command_succeeds, run_capture};
 use crate::state::StateStore;
@@ -34,21 +35,6 @@ pub fn doctor(tc: &ToolInventory) -> DoctorReport {
         git: tc.git.as_ref().is_some_and(|t| t.path.is_file()),
         host: detect_target().name().to_string(),
     }
-}
-
-fn has_required_flake_features(output: &str) -> bool {
-    let mut have_nix_command = false;
-    let mut have_flakes = false;
-
-    for token in output.split_whitespace() {
-        match token {
-            "nix-command" => have_nix_command = true,
-            "flakes" => have_flakes = true,
-            _ => {}
-        }
-    }
-
-    have_nix_command && have_flakes
 }
 
 /// nix.conf に experimental-features (nix-command flakes) を追記する
@@ -299,25 +285,6 @@ mod tests {
         };
         assert!(report.nix_installed);
         assert!(!report.flakes_enabled);
-    }
-
-    #[test]
-    fn effective_flake_features_require_both_exact_tokens() {
-        assert!(has_required_flake_features(
-            "experimental-features = nix-command flakes"
-        ));
-        assert!(has_required_flake_features(
-            "experimental-features = flakes nix-command"
-        ));
-        assert!(!has_required_flake_features(
-            "experimental-features = flakes"
-        ));
-        assert!(!has_required_flake_features(
-            "experimental-features = nix-command"
-        ));
-        assert!(!has_required_flake_features(
-            "experimental-features = nix-command flakes-extra"
-        ));
     }
 
     fn preflight_state(nix_installed: bool, flakes_enabled: bool) -> PreflightReport {
