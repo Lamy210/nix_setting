@@ -100,6 +100,7 @@ EOF
 
 @test "ensure_flakes_enabled writes XDG config and rechecks effective features" {
   mkdir -p "$BATS_TEST_TMPDIR/bin"
+  unset NIX_USER_CONF_FILES || true
   export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config"
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$XDG_CONFIG_HOME/nix"
@@ -121,6 +122,45 @@ EOF
   [ "$status" -eq 0 ]
   grep -Fxq "experimental-features = ca-derivations" "$XDG_CONFIG_HOME/nix/nix.conf"
   grep -Fxq "extra-experimental-features = nix-command flakes" "$XDG_CONFIG_HOME/nix/nix.conf"
+}
+
+@test "ensure_flakes_enabled respects first NIX_USER_CONF_FILES path" {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  export HOME="$BATS_TEST_TMPDIR/home"
+  export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/xdg"
+  export NIX_USER_CONF_FILES="$BATS_TEST_TMPDIR/high-priority.conf:$BATS_TEST_TMPDIR/low-priority.conf"
+  printf '%s' 'experimental-features = ca-derivations' >"$BATS_TEST_TMPDIR/high-priority.conf"
+
+  cat >"$BATS_TEST_TMPDIR/bin/fake-nix" <<'EOF'
+#!/usr/bin/env bash
+conf="${NIX_USER_CONF_FILES%%:*}"
+if grep -Fxq "extra-experimental-features = nix-command flakes" "$conf" 2>/dev/null; then
+  echo "experimental-features = ca-derivations nix-command flakes"
+else
+  echo "experimental-features = nix-command"
+fi
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin/fake-nix"
+  export NIX_BIN="$BATS_TEST_TMPDIR/bin/fake-nix"
+  eval "$INSTALL_FUNCTIONS"
+
+  run ensure_flakes_enabled
+  [ "$status" -eq 0 ]
+  grep -Fxq "experimental-features = ca-derivations" "$BATS_TEST_TMPDIR/high-priority.conf"
+  grep -Fxq "extra-experimental-features = nix-command flakes" "$BATS_TEST_TMPDIR/high-priority.conf"
+  [ ! -e "$BATS_TEST_TMPDIR/low-priority.conf" ]
+  [ ! -e "$XDG_CONFIG_HOME/nix/nix.conf" ]
+}
+
+@test "nix_user_config_path rejects empty explicit override" {
+  export NIX_USER_CONF_FILES=""
+  export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/xdg"
+  export HOME="$BATS_TEST_TMPDIR/home"
+  eval "$INSTALL_FUNCTIONS"
+
+  run nix_user_config_path
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "first config path is empty"
 }
 
 @test "ensure_flakes_enabled fails closed when recheck still lacks flakes" {
