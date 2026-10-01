@@ -137,7 +137,7 @@ ensure_flakes_enabled() {
   printf '%s\n' 'experimental-features = nix-command flakes' >>"$conf"
 
   if ! nix_has_required_flake_features; then
-    echo "[error] flakes の有効化後も nix config show experimental-features に nix-command / flakes が反映されません" >&2
+    echo "[error] flakes の有効化後も $NIX_BIN config show experimental-features に nix-command / flakes が反映されません" >&2
     return 1
   fi
 }
