@@ -106,6 +106,42 @@ ensure_nix_state_dir() {
   [ -d "$state_dir" ] || mkdir -p "$state_dir"
 }
 
+# 実際に有効な Nix 設定を確認する。nix.conf の文字列 grep では、
+# コメントや flakes を含まない experimental-features 行を誤検知するため、
+# resolved Nix の config show を authoritative source とする。
+nix_has_required_flake_features() {
+  local features
+  features="$("$NIX_BIN" config show experimental-features 2>/dev/null)" || return 1
+  printf '%s\n' "$features" | awk '
+    {
+      for (i = 1; i <= NF; i++) {
+        if ($i == "nix-command") have_nix_command = 1
+        if ($i == "flakes") have_flakes = 1
+      }
+    }
+    END { exit !(have_nix_command && have_flakes) }
+  '
+}
+
+ensure_flakes_enabled() {
+  local config_home conf
+  config_home="${XDG_CONFIG_HOME:-${HOME:?HOME must be set}/.config}"
+  conf="$config_home/nix/nix.conf"
+
+  if nix_has_required_flake_features; then
+    return 0
+  fi
+
+  echo "[3/4] Enabling flakes..."
+  mkdir -p "$(dirname "$conf")"
+  printf '%s\n' 'experimental-features = nix-command flakes' >>"$conf"
+
+  if ! nix_has_required_flake_features; then
+    echo "[error] flakes の有効化後も nix config show experimental-features に nix-command / flakes が反映されません" >&2
+    return 1
+  fi
+}
+
 # Managed Nix 経路で使う schneeforge CLI binary を GitHub Release から取得し、
 # CHECKSUMS.txt の sha256 と突合してから path を標準出力へ出す。
 # (version pinning / 検証の詳細は schneeforge nix install 側が持つため、ここでは
@@ -357,15 +393,11 @@ fi
 # Nix installer が作らないことがあるフォルダを保証
 ensure_nix_state_dir
 
-# 3. Enable flakes
-mkdir -p "$HOME/.config/nix"
-if ! grep -q "experimental-features" "$HOME/.config/nix/nix.conf" 2>/dev/null; then
-  echo "[3/4] Enabling flakes..."
-  cat >>"$HOME/.config/nix/nix.conf" <<'NIXCONF'
-experimental-features = nix-command flakes
-NIXCONF
-else
+# 3. Enable flakes and verify the effective Nix configuration.
+if ensure_flakes_enabled; then
   echo "[3/4] Flakes: enabled"
+else
+  exit 1
 fi
 
 # 4. Apply
