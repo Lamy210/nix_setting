@@ -74,6 +74,69 @@ EOF
   [ "$status" -ne 0 ]
 }
 
+
+@test "nix_has_required_flake_features requires both effective features" {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  cat >"$BATS_TEST_TMPDIR/bin/fake-nix" <<'EOF'
+#!/usr/bin/env bash
+echo "experimental-features = nix-command"
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin/fake-nix"
+  NIX_BIN="$BATS_TEST_TMPDIR/bin/fake-nix"
+  eval "$INSTALL_FUNCTIONS"
+
+  run nix_has_required_flake_features
+  [ "$status" -ne 0 ]
+
+  cat >"$BATS_TEST_TMPDIR/bin/fake-nix" <<'EOF'
+#!/usr/bin/env bash
+echo "experimental-features = flakes nix-command"
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin/fake-nix"
+
+  run nix_has_required_flake_features
+  [ "$status" -eq 0 ]
+}
+
+@test "ensure_flakes_enabled writes XDG config and rechecks effective features" {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config"
+  export HOME="$BATS_TEST_TMPDIR/home"
+  cat >"$BATS_TEST_TMPDIR/bin/fake-nix" <<'EOF'
+#!/usr/bin/env bash
+conf="${XDG_CONFIG_HOME}/nix/nix.conf"
+if grep -Fxq "experimental-features = nix-command flakes" "$conf" 2>/dev/null; then
+  echo "experimental-features = nix-command flakes"
+else
+  echo "experimental-features = nix-command"
+fi
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin/fake-nix"
+  NIX_BIN="$BATS_TEST_TMPDIR/bin/fake-nix"
+  eval "$INSTALL_FUNCTIONS"
+
+  run ensure_flakes_enabled
+  [ "$status" -eq 0 ]
+  grep -Fxq "experimental-features = nix-command flakes" "$XDG_CONFIG_HOME/nix/nix.conf"
+}
+
+@test "ensure_flakes_enabled fails closed when recheck still lacks flakes" {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config"
+  export HOME="$BATS_TEST_TMPDIR/home"
+  cat >"$BATS_TEST_TMPDIR/bin/fake-nix" <<'EOF'
+#!/usr/bin/env bash
+echo "experimental-features = nix-command"
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/bin/fake-nix"
+  NIX_BIN="$BATS_TEST_TMPDIR/bin/fake-nix"
+  eval "$INSTALL_FUNCTIONS"
+
+  run ensure_flakes_enabled
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "有効化後"
+}
+
 @test "install.sh calls schneeforge nix install via sudo" {
   run grep -n 'sudo env NIX_SETTING_DIR.*nix install' "$INSTALL_SH"
   [ "$status" -eq 0 ]
