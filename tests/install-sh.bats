@@ -82,7 +82,7 @@ EOF
 echo "experimental-features = nix-command"
 EOF
   chmod +x "$BATS_TEST_TMPDIR/bin/fake-nix"
-  NIX_BIN="$BATS_TEST_TMPDIR/bin/fake-nix"
+  export NIX_BIN="$BATS_TEST_TMPDIR/bin/fake-nix"
   eval "$INSTALL_FUNCTIONS"
 
   run nix_has_required_flake_features
@@ -112,7 +112,7 @@ else
 fi
 EOF
   chmod +x "$BATS_TEST_TMPDIR/bin/fake-nix"
-  NIX_BIN="$BATS_TEST_TMPDIR/bin/fake-nix"
+  export NIX_BIN="$BATS_TEST_TMPDIR/bin/fake-nix"
   eval "$INSTALL_FUNCTIONS"
 
   run ensure_flakes_enabled
@@ -129,7 +129,7 @@ EOF
 echo "experimental-features = nix-command"
 EOF
   chmod +x "$BATS_TEST_TMPDIR/bin/fake-nix"
-  NIX_BIN="$BATS_TEST_TMPDIR/bin/fake-nix"
+  export NIX_BIN="$BATS_TEST_TMPDIR/bin/fake-nix"
   eval "$INSTALL_FUNCTIONS"
 
   run ensure_flakes_enabled
