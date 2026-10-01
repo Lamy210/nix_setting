@@ -36,6 +36,21 @@ pub fn doctor(tc: &ToolInventory) -> DoctorReport {
     }
 }
 
+fn has_required_flake_features(output: &str) -> bool {
+    let mut have_nix_command = false;
+    let mut have_flakes = false;
+
+    for token in output.split_whitespace() {
+        match token {
+            "nix-command" => have_nix_command = true,
+            "flakes" => have_flakes = true,
+            _ => {}
+        }
+    }
+
+    have_nix_command && have_flakes
+}
+
 /// nix.conf に experimental-features (nix-command flakes) を追記する
 ///
 /// flakes 有効化は Nix を必要とする操作 (run_capture で現在の設定を確認するため)。
@@ -47,16 +62,19 @@ pub fn enable_flakes(tc: &ToolInventory) -> Result<()> {
         .unwrap_or_else(|_| PathBuf::from("."));
     let conf = base.join("nix").join("nix.conf");
 
-    // 解決済み nix を使って現在の設定を確認し、既に flakes が入っていれば何もしない
-    if let Ok(content) = std::fs::read_to_string(&conf) {
-        if content.contains("flakes") {
-            return Ok(());
-        }
-    }
-    // 念のため resolved nix 経由で現在の有効設定も確認（ファイルと実際の挙動が一致しないケース）
-    let current =
-        run_capture(&nix.path, &["config".to_string(), "show".to_string()]).unwrap_or_default();
-    if current.contains("flakes") {
+    // nix.conf の文字列ではなく、resolved Nix が実際に認識している設定を
+    // authoritative source とする。コメント中の "flakes" や nix-command 欠落を
+    // 有効状態として扱わない。
+    let current = run_capture(
+        &nix.path,
+        &[
+            "config".to_string(),
+            "show".to_string(),
+            "experimental-features".to_string(),
+        ],
+    )
+    .unwrap_or_default();
+    if has_required_flake_features(&current) {
         return Ok(());
     }
 
@@ -121,7 +139,7 @@ pub fn preflight(tc: &ToolInventory) -> PreflightReport {
                         "experimental-features".to_string(),
                     ],
                 )
-                .map(|out| out.contains("flakes"))
+                .map(|out| has_required_flake_features(&out))
                 .unwrap_or(false)
             })
             .unwrap_or(false)
@@ -281,6 +299,26 @@ mod tests {
         };
         assert!(report.nix_installed);
         assert!(!report.flakes_enabled);
+    }
+
+
+    #[test]
+    fn effective_flake_features_require_both_exact_tokens() {
+        assert!(has_required_flake_features(
+            "experimental-features = nix-command flakes"
+        ));
+        assert!(has_required_flake_features(
+            "experimental-features = flakes nix-command"
+        ));
+        assert!(!has_required_flake_features(
+            "experimental-features = flakes"
+        ));
+        assert!(!has_required_flake_features(
+            "experimental-features = nix-command"
+        ));
+        assert!(!has_required_flake_features(
+            "experimental-features = nix-command flakes-extra"
+        ));
     }
 
     fn preflight_state(nix_installed: bool, flakes_enabled: bool) -> PreflightReport {
