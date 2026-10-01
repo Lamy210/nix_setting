@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use crate::discovery::detect_target;
 use crate::error::{Error, Result};
+use crate::nix_features::has_required_flake_features;
 use crate::operations::{apply, ApplyResult};
 use crate::process::{command_succeeds, run_capture};
 use crate::state::StateStore;
@@ -47,16 +48,19 @@ pub fn enable_flakes(tc: &ToolInventory) -> Result<()> {
         .unwrap_or_else(|_| PathBuf::from("."));
     let conf = base.join("nix").join("nix.conf");
 
-    // 解決済み nix を使って現在の設定を確認し、既に flakes が入っていれば何もしない
-    if let Ok(content) = std::fs::read_to_string(&conf) {
-        if content.contains("flakes") {
-            return Ok(());
-        }
-    }
-    // 念のため resolved nix 経由で現在の有効設定も確認（ファイルと実際の挙動が一致しないケース）
-    let current =
-        run_capture(&nix.path, &["config".to_string(), "show".to_string()]).unwrap_or_default();
-    if current.contains("flakes") {
+    // nix.conf の文字列ではなく、resolved Nix が実際に認識している設定を
+    // authoritative source とする。コメント中の "flakes" や nix-command 欠落を
+    // 有効状態として扱わない。
+    let current = run_capture(
+        &nix.path,
+        &[
+            "config".to_string(),
+            "show".to_string(),
+            "experimental-features".to_string(),
+        ],
+    )
+    .unwrap_or_default();
+    if has_required_flake_features(&current) {
         return Ok(());
     }
 
@@ -121,7 +125,7 @@ pub fn preflight(tc: &ToolInventory) -> PreflightReport {
                         "experimental-features".to_string(),
                     ],
                 )
-                .map(|out| out.contains("flakes"))
+                .map(|out| has_required_flake_features(&out))
                 .unwrap_or(false)
             })
             .unwrap_or(false)

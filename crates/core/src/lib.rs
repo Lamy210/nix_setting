@@ -9,6 +9,7 @@ pub mod lock;
 pub mod machine;
 pub mod managed_nix;
 pub mod manifest;
+pub(crate) mod nix_features;
 pub mod operations;
 pub(crate) mod process;
 pub mod profile;

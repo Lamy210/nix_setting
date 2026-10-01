@@ -4,6 +4,7 @@ use crate::discovery::{current_user, detect_arch, detect_platform, detect_target
 use crate::error::{Error, Result};
 use crate::managed_nix::status::{classify_current, StatusReport};
 use crate::manifest::Validation;
+use crate::nix_features::has_required_flake_features;
 use crate::process::{command_succeeds, run_capture};
 use crate::repo::resolve_repo;
 use crate::state::StateStore;
@@ -307,7 +308,7 @@ pub fn nix_health(tc: &ToolInventory) -> NixHealth {
             "experimental-features".to_string(),
         ],
     )
-    .map(|out| out.contains("flakes"))
+    .map(|out| has_required_flake_features(&out))
     .unwrap_or(false);
 
     // XDG state フォルダ欠如は警告扱い（error にはしない）。Nix installer が
@@ -320,7 +321,7 @@ pub fn nix_health(tc: &ToolInventory) -> NixHealth {
         Some("`nix store ping` failed; nix-daemon not running or socket not accessible".to_string())
     } else if !flakes_available {
         Some(
-            "experimental-features does not include `flakes`; \
+            "experimental-features must include both `nix-command` and `flakes`; \
              run `schneeforge doctor` or add `experimental-features = nix-command flakes`"
                 .to_string(),
         )
