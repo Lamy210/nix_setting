@@ -1748,7 +1748,8 @@ esac
         let err = sync_with_lock(dir.to_str().unwrap(), &tc, true, &lock).unwrap_err();
         assert!(matches!(err, Error::Command { .. }), "{err}");
         assert!(
-            err.to_string().contains("simulated git ref inspection failure"),
+            err.to_string()
+                .contains("simulated git ref inspection failure"),
             "{err}"
         );
 
