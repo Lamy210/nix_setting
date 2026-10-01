@@ -95,3 +95,17 @@ setup() {
     ! grep -Fq 'grep -q "experimental-features"' "$file"
   done
 }
+
+
+@test "shell flakes config resolution honors NIX_USER_CONF_FILES" {
+  local files=(
+    "$BATS_TEST_DIRNAME/../install.sh"
+    "$BATS_TEST_DIRNAME/../bootstrap.sh"
+  )
+
+  for file in "${files[@]}"; do
+    grep -Fq 'nix_user_config_path()' "$file"
+    grep -Fq 'NIX_USER_CONF_FILES' "$file"
+    grep -Fq 'NIX_USER_CONF_FILES%%:*' "$file"
+  done
+}
