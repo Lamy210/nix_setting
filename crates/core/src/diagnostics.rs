@@ -322,7 +322,7 @@ pub fn nix_health(tc: &ToolInventory) -> NixHealth {
     } else if !flakes_available {
         Some(
             "experimental-features must include both `nix-command` and `flakes`; \
-             run `schneeforge doctor` or add `experimental-features = nix-command flakes`"
+             run `schneeforge doctor` or add `extra-experimental-features = nix-command flakes`"
                 .to_string(),
         )
     } else {
