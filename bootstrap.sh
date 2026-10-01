@@ -49,6 +49,35 @@ detect_host() {
   esac
 }
 
+# Nix の user config 書き込み先を実際の探索規則に合わせる。
+# NIX_USER_CONF_FILES が set の場合、Nix は通常の XDG/HOME config の代わりに
+# その list を逆順に load するため、先頭 path が最も高い precedence を持つ。
+nix_user_config_path() {
+  local first
+  if [ "${NIX_USER_CONF_FILES+x}" = "x" ]; then
+    first="${NIX_USER_CONF_FILES%%:*}"
+    if [ -z "$first" ]; then
+      echo "[error] NIX_USER_CONF_FILES is set but its first config path is empty" >&2
+      return 1
+    fi
+    printf '%s\n' "$first"
+    return 0
+  fi
+
+  if [ -n "${XDG_CONFIG_HOME:-}" ]; then
+    printf '%s\n' "${XDG_CONFIG_HOME}/nix/nix.conf"
+    return 0
+  fi
+
+  if [ -n "${HOME:-}" ]; then
+    printf '%s\n' "${HOME}/.config/nix/nix.conf"
+    return 0
+  fi
+
+  echo "[error] cannot resolve Nix user config path; set NIX_USER_CONF_FILES, XDG_CONFIG_HOME, or HOME" >&2
+  return 1
+}
+
 # nix.conf の存在や文字列ではなく、resolved Nix が実際に認識している
 # experimental-features を確認する。
 nix_has_required_flake_features() {
@@ -66,9 +95,8 @@ nix_has_required_flake_features() {
 }
 
 ensure_flakes_enabled() {
-  local config_home conf
-  config_home="${XDG_CONFIG_HOME:-${HOME:?HOME must be set}/.config}"
-  conf="$config_home/nix/nix.conf"
+  local conf
+  conf="$(nix_user_config_path)" || return 1
 
   if nix_has_required_flake_features; then
     return 0
