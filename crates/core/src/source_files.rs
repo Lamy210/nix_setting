@@ -496,8 +496,7 @@ mod tests {
             panic!("invalid managed state must fail before path fallback/fetch");
         };
 
-        let err =
-            load_manifest_for_with(repo.to_str().unwrap(), &store, &dir, &fetch).unwrap_err();
+        let err = load_manifest_for_with(repo.to_str().unwrap(), &store, &dir, &fetch).unwrap_err();
         assert!(matches!(err, Error::State(_)), "{err}");
         assert!(err.to_string().contains("not a release kind"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
