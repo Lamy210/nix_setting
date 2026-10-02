@@ -143,7 +143,7 @@ pub fn fetch_available(
         .ok_or_else(|| {
             Error::ReleaseMetadata(format!("no release tag found for channel {channel}"))
         })?;
-    ReleaseMetadata::fetch(&tag)
+    ReleaseMetadata::fetch_from(repo_url, &tag)
 }
 
 /// `available` version が `current` より新しいか。
