@@ -313,7 +313,7 @@ pub(crate) fn current_branch(repo: &str, git: &ResolvedTool) -> Result<Option<St
 ///
 /// `git tag --points-at HEAD` は「tag 無し」を正常終了 + 空出力で表現するため、
 /// tag が無い状態と Git 実行失敗を区別できる。
-fn exact_tag(repo: &str, git: &ResolvedTool) -> Result<Option<String>> {
+pub(crate) fn exact_tag(repo: &str, git: &ResolvedTool) -> Result<Option<String>> {
     let out = git_output(repo, git, &["tag", "--points-at", "HEAD"])?;
     Ok(out
         .lines()
