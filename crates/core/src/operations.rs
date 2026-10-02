@@ -872,10 +872,7 @@ fn list_tags(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Vec<String>>
 
 /// 現在 checkout されている ref (exact tag があれば tag 名)。
 /// tag 無しと Git inspection failure を区別する。
-fn current_checkout_ref(
-    repo: &str,
-    git: &crate::tool::ResolvedTool,
-) -> Result<Option<String>> {
+fn current_checkout_ref(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Option<String>> {
     crate::source::exact_tag(repo, git)
 }
 
