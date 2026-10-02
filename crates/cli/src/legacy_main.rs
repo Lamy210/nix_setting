@@ -244,6 +244,15 @@ fn status(repo: &str) -> Result {
     let state = StateStore::default()
         .load()
         .map_err(|e| e.to_string())?;
+    if let Some(source) = state
+        .as_ref()
+        .and_then(|state| state.source.as_ref())
+        .filter(|source| source.managed)
+    {
+        source
+            .validate_managed_release()
+            .map_err(|e| e.to_string())?;
+    }
     println!("=== status ===");
     println!();
     println!("  host: {target}");
