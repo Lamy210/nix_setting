@@ -1778,8 +1778,7 @@ esac
         std::fs::set_permissions(&fake_git, permissions).unwrap();
         let git = resolved_git(&fake_git);
 
-        let update_err =
-            update_release(repo.to_str().unwrap(), &git, "stable", true).unwrap_err();
+        let update_err = update_release(repo.to_str().unwrap(), &git, "stable", true).unwrap_err();
         assert!(matches!(update_err, Error::Command { .. }), "{update_err}");
         assert!(
             update_err
