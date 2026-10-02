@@ -826,7 +826,8 @@ fn update_release(
         ));
     }
 
-    // 新しい tag を取得 (network。失敗したら local tag のみで続行)
+    // 新しい tag を取得する。remote fetch に失敗した状態で local tag のみを
+    // 「latest」と判定すると stale 情報で成功扱いしてしまうため fail-closed。
     let fetch_args = vec![
         "-C".to_string(),
         repo.to_string(),
@@ -834,7 +835,7 @@ fn update_release(
         "--tags".to_string(),
         "--quiet".to_string(),
     ];
-    let _ = run_capture(&git.path, &fetch_args);
+    run_capture(&git.path, &fetch_args)?;
 
     let tags = list_tags(repo, git)?;
     let current = current_checkout_ref(repo, git)?;
@@ -1877,6 +1878,52 @@ esac
 
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&lock_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn release_update_fails_closed_when_tag_fetch_fails() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let repo =
+            std::env::temp_dir().join(format!("sf-release-fetch-error-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+
+        let marker = repo.join("continued-after-fetch");
+        let fake_git = repo.join("fake-git");
+        std::fs::write(
+            &fake_git,
+            format!(
+                r#"#!/bin/sh
+case "$*" in
+  *"status --porcelain"*) exit 0 ;;
+  *"fetch --tags --quiet"*) echo "simulated release tag fetch failure" >&2; exit 24 ;;
+  *) touch "{}"; exit 0 ;;
+esac
+"#,
+                marker.display()
+            ),
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&fake_git, permissions).unwrap();
+        let git = resolved_git(&fake_git);
+
+        let err = update_release(repo.to_str().unwrap(), &git, "stable", true).unwrap_err();
+        assert!(matches!(err, Error::Command { .. }), "{err}");
+        assert!(
+            err.to_string()
+                .contains("simulated release tag fetch failure"),
+            "{err}"
+        );
+        assert!(
+            !marker.exists(),
+            "release update must not inspect stale local tags after fetch failure"
+        );
+
+        let _ = std::fs::remove_dir_all(&repo);
     }
 
     #[cfg(unix)]
