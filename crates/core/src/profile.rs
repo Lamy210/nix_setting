@@ -260,10 +260,7 @@ x86_64-linux = true
     fn write_profile_input_escapes_nix_interpolation() {
         let path = write_profile_input("dev${boom}\"\\").unwrap();
         let content = std::fs::read_to_string(path).unwrap();
-        assert_eq!(
-            content,
-            "{ profile = \"dev\\${boom}\\\"\\\\\"; }\n"
-        );
+        assert_eq!(content, "{ profile = \"dev\\${boom}\\\"\\\\\"; }\n");
     }
 
     #[test]
