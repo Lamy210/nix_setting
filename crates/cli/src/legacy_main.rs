@@ -597,7 +597,8 @@ fn source_kind_line(
         .load()
         .map_err(|e| e.to_string())?
         .and_then(|s| s.source);
-    let state = if let Some(src) = stored.as_ref().filter(|s| s.is_managed_release()) {
+    let state = if let Some(src) = stored.as_ref().filter(|s| s.managed) {
+        src.validate_managed_release().map_err(|e| e.to_string())?;
         src.clone()
     } else {
         let Some(git) = tc.git.as_ref() else {
