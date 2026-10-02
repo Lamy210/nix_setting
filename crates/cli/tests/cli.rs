@@ -54,6 +54,27 @@ fn status_runs_without_nix() {
 }
 
 #[test]
+fn doctor_reports_semantically_invalid_managed_state() {
+    let dir = state_dir("doctor-invalid-managed");
+    write_source_state(
+        &dir,
+        r#"{"kind":"release-stable","ref":"main","channel":"stable","managed":true,"remote":"https://github.com/Lamy210/nix_setting.git"}"#,
+    );
+
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("doctor")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("source: (state error:")
+                .and(predicate::str::contains("valid release tag")),
+        );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn status_rejects_semantically_invalid_managed_state() {
     let dir = state_dir("status-invalid-managed");
     write_source_state(
