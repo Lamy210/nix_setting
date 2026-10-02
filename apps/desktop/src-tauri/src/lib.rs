@@ -603,7 +603,7 @@ async fn get_dashboard(
 fn open_release(version: String) -> Result<CommandOutput, String> {
     let repo_url =
         std::env::var("SCHNEEFORGE_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string());
-    let url = release_page_url(&repo_url, &version);
+    let url = release_page_url(&repo_url, &version).map_err(|e| e.to_string())?;
     match tauri_plugin_opener::open_url(&url, None::<&str>) {
         Ok(()) => Ok(CommandOutput {
             success: true,
@@ -1437,8 +1437,16 @@ mod tests {
             "backend must define the `open_release` command"
         );
         assert_eq!(
-            schneeforge_core::release_page_url(DEFAULT_REPO_URL, "0.2.0-rc.7"),
+            schneeforge_core::release_page_url(DEFAULT_REPO_URL, "0.2.0-rc.7").unwrap(),
             "https://github.com/Lamy210/nix_setting/releases/tag/v0.2.0-rc.7"
+        );
+        assert_eq!(
+            schneeforge_core::release_page_url(
+                "git@github.com:example/schneeforge-fork.git",
+                "1.2.3"
+            )
+            .unwrap(),
+            "https://github.com/example/schneeforge-fork/releases/tag/v1.2.3"
         );
     }
 

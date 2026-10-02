@@ -151,14 +151,18 @@ fn metadata_text_from_download(
 
 /// release page の URL。GUI の「GitHub Releases を開く」誘導で使う。
 /// `repo_url` は `DEFAULT_REPO_URL` (`SCHNEEFORGE_REPO_URL` で上書き可) を
-/// 想定し、`.git` suffix は web URL への変換で落とす。`version` は
-/// `ReleaseMetadata.version` (tag から先頭の v を除いたもの) で、tag は
-/// 常に `v<version>` (`validate` と同じ規約)。
-pub fn release_page_url(repo_url: &str, version: &str) -> String {
-    format!(
-        "{}/releases/tag/v{version}",
-        repo_url.trim_end_matches(".git")
-    )
+/// 想定する。HTTPS / SSH の supported GitHub repository URL を canonical
+/// HTTPS web URL へ正規化する。`version` は `ReleaseMetadata.version`
+/// (tag から先頭の v を除いたもの) で、tag は常に `v<version>`。
+pub fn release_page_url(repo_url: &str, version: &str) -> Result<String> {
+    let (owner, repo) = github_slug(repo_url).ok_or_else(|| {
+        Error::ReleaseMetadata(format!(
+            "unsupported GitHub repository URL for release page: {repo_url}"
+        ))
+    })?;
+    Ok(format!(
+        "https://github.com/{owner}/{repo}/releases/tag/v{version}"
+    ))
 }
 
 #[cfg(test)]
@@ -354,21 +358,32 @@ mod tests {
     }
 
     #[test]
-    fn release_page_url_shape() {
-        // DEFAULT_REPO_URL は .git 付き
+    fn release_page_url_normalizes_supported_repository_urls() {
         assert_eq!(
-            release_page_url(crate::DEFAULT_REPO_URL, "0.2.0-rc.7"),
+            release_page_url(crate::DEFAULT_REPO_URL, "0.2.0-rc.7").unwrap(),
             "https://github.com/Lamy210/nix_setting/releases/tag/v0.2.0-rc.7"
         );
-        // .git 無しの URL もそのまま通る
         assert_eq!(
-            release_page_url("https://github.com/example/fork", "1.0.0"),
+            release_page_url("https://github.com/example/fork", "1.0.0").unwrap(),
             "https://github.com/example/fork/releases/tag/v1.0.0"
         );
-        // SCHNEEFORGE_REPO_URL 上書き (fork) の case
         assert_eq!(
-            release_page_url("https://github.com/example/fork.git", "1.0.0"),
+            release_page_url("git@github.com:example/fork.git", "1.0.0").unwrap(),
             "https://github.com/example/fork/releases/tag/v1.0.0"
+        );
+        assert_eq!(
+            release_page_url("ssh://git@github.com/example/fork.git", "1.0.0").unwrap(),
+            "https://github.com/example/fork/releases/tag/v1.0.0"
+        );
+    }
+
+    #[test]
+    fn release_page_url_rejects_unsupported_repository() {
+        let err = release_page_url("https://gitlab.com/example/fork.git", "1.0.0").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("unsupported GitHub repository URL for release page"),
+            "{err}"
         );
     }
 
