@@ -931,6 +931,57 @@ fn self_update_fails_closed_for_non_github_origin() {
 }
 
 #[test]
+fn self_update_uses_current_preview_checkout_when_state_source_is_absent() {
+    if !git_available() {
+        eprintln!("skipping: git not available");
+        return;
+    }
+    if !self_update_platform_supported() {
+        eprintln!("skipping: no release binary for this platform");
+        return;
+    }
+
+    let dir = cli_dir("self-update-preview-checkout");
+    let origin = origin_repo(&dir, &["v0.0.1", "v0.0.1-rc.1"]);
+    let git_config = git_rewrite_config(&dir, &origin);
+    let checkout = dir.join("checkout");
+    git(
+        &dir,
+        &[
+            "clone",
+            "-q",
+            origin.to_str().unwrap(),
+            checkout.to_str().unwrap(),
+        ],
+    );
+    git(&checkout, &["checkout", "-q", "v0.0.1-rc.1"]);
+
+    // apply/rollback 後の checkout 表現と同様、State は存在するが source は無い。
+    let state = dir.join("state");
+    std::fs::create_dir_all(state.join("schneeforge")).unwrap();
+    std::fs::write(
+        state.join("schneeforge/state.json"),
+        r#"{"applied_revision":"abc123"}"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("--repo")
+        .arg(&checkout)
+        .arg("self-update")
+        .env("XDG_STATE_HOME", &state)
+        .env("SCHNEEFORGE_REPO_URL", TEST_MANAGED_REPO_URL)
+        .env("GIT_CONFIG_GLOBAL", &git_config)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "最新 release を確認中 (channel: preview)",
+        ));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn self_update_rejects_semantically_invalid_managed_state_before_release_lookup() {
     let state = state_dir("self-update-invalid-managed");
     write_source_state(
