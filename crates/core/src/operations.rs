@@ -2051,7 +2051,7 @@ esac
             },
             None,
             Some("v9.9.9".to_string()),
-            &|_| Err(Error::ReleaseMetadata("metadata unavailable".to_string())),
+            &|tag| Ok(metadata_of(tag)),
         )
         .unwrap_err();
         assert!(matches!(init_err, Error::Command { .. }), "{init_err}");
