@@ -1538,7 +1538,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("sf-warn-local-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        assert!(release_lock_warning(dir.to_str().unwrap(), &dummy_tc()).is_none());
+        assert!(
+            release_lock_warning(dir.to_str().unwrap(), &dummy_tc())
+                .unwrap()
+                .is_none()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
