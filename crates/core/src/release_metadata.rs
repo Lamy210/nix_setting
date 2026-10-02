@@ -307,7 +307,10 @@ mod tests {
             }),
         )
         .unwrap_err();
-        assert!(matches!(server_error, Error::ManagedNix(_)), "{server_error}");
+        assert!(
+            matches!(server_error, Error::ManagedNix(_)),
+            "{server_error}"
+        );
     }
 
     #[test]
