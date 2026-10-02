@@ -385,7 +385,13 @@ mod tests {
 
     #[test]
     fn release_page_url_rejects_invalid_versions() {
-        for version in ["", "v1.2.3", "1.2", "1.2.3/../../issues", "1.2.3?tab=assets"] {
+        for version in [
+            "",
+            "v1.2.3",
+            "1.2",
+            "1.2.3/../../issues",
+            "1.2.3?tab=assets",
+        ] {
             let err = release_page_url("https://github.com/example/fork.git", version).unwrap_err();
             assert!(
                 err.to_string()
