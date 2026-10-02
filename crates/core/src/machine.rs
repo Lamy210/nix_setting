@@ -205,7 +205,7 @@ fn hostname_via_command() -> Option<String> {
 
 /// Nix double-quoted string literal に埋め込む値を escape する。
 ///
-/// \`"\` / \`\\\` に加えて Nix interpolation の開始列 \`${\` を必ず
+/// `"` / `\\` に加えて Nix interpolation の開始列 `${` を必ず
 /// literal として保持する。制御文字も source 上で明示 escape し、
 /// machine/profile input が外部文字列から Nix 式へ変化しないようにする。
 pub(crate) fn escape_nix_string(s: &str) -> String {
