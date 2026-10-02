@@ -54,6 +54,25 @@ fn status_runs_without_nix() {
 }
 
 #[test]
+fn status_rejects_semantically_invalid_managed_state() {
+    let dir = state_dir("status-invalid-managed");
+    write_source_state(
+        &dir,
+        r#"{"kind":"release-stable","ref":"main","channel":"stable","managed":true,"remote":"https://github.com/Lamy210/nix_setting.git"}"#,
+    );
+
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("status")
+        .env("XDG_STATE_HOME", &dir)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("valid release tag"))
+        .stdout(predicate::str::contains("manifest not found").not());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn scan_runs() {
     if !nix_available() {
         eprintln!("skipping: nix not installed");
