@@ -87,8 +87,9 @@ impl ReleaseMetadata {
     /// 後方互換 API。managed source / fork のように repository identity が
     /// 明示されている経路は `asset_url_for_repo` / `fetch_from` を使う。
     pub fn asset_url(tag: &str) -> String {
-        Self::asset_url_for_repo(crate::bootstrap::DEFAULT_REPO_URL, tag)
-            .expect("DEFAULT_REPO_URL must be a supported GitHub repository")
+        format!(
+            "https://github.com/Lamy210/nix_setting/releases/download/{tag}/{METADATA_ASSET}"
+        )
     }
 
     /// 指定 repository の release metadata asset URL。
