@@ -733,8 +733,7 @@ pub fn source_init(
         channel,
         tag,
         &|t| {
-            crate::release_metadata::ReleaseMetadata::fetch_from(&url, t)
-                .map_err(|e| e.to_string())
+            crate::release_metadata::ReleaseMetadata::fetch_from(&url, t).map_err(|e| e.to_string())
         },
     )
 }
