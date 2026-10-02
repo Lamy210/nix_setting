@@ -12,6 +12,11 @@ pub enum Error {
     Manifest(String),
     /// release metadata (schneeforge-release.json) の parse・検証エラー
     ReleaseMetadata(String),
+    /// release tag に metadata asset が存在しない。
+    ///
+    /// managed source の revision 記録では、旧 release 互換のためこの case のみ
+    /// warning 付き skip を許可する。network / parse / validation error と混同しない。
+    ReleaseMetadataAssetMissing { tag: String },
     /// コマンド実行エラー
     Command { command: String, detail: String },
     /// State file の読み込み・parse エラー
@@ -36,6 +41,9 @@ impl fmt::Display for Error {
             }
             Error::Manifest(msg) => write!(f, "manifest error: {msg}"),
             Error::ReleaseMetadata(msg) => write!(f, "release metadata error: {msg}"),
+            Error::ReleaseMetadataAssetMissing { tag } => {
+                write!(f, "release metadata asset is missing for tag {tag}")
+            }
             Error::State(msg) => write!(f, "state error: {msg}"),
             Error::Command { command, detail } => write!(f, "{command}: {detail}"),
             Error::Io(msg) => write!(f, "io error: {msg}"),
