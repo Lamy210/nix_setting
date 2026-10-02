@@ -323,29 +323,10 @@ fn sync_args(repo: &str) -> Vec<String> {
     ]
 }
 
-/// checkout 中の branch 名。detached HEAD (release tag の depth-1 clone 等) では None
+/// checkout 中の branch 名。detached HEAD (release tag の depth-1 clone 等) では None。
+/// source classification と同じ fail-closed contract を共有する。
 fn current_branch(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Option<String>> {
-    let out = run_capture(
-        &git.path,
-        &[
-            "-C".to_string(),
-            repo.to_string(),
-            "symbolic-ref".to_string(),
-            "--short".to_string(),
-            "HEAD".to_string(),
-        ],
-    );
-    match out {
-        Ok(branch) => {
-            let branch = branch.trim();
-            if branch.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(branch.to_string()))
-            }
-        }
-        Err(_) => Ok(None),
-    }
+    crate::source::current_branch(repo, git)
 }
 
 /// state に記録された managed source (v2 §7)。
@@ -789,10 +770,9 @@ fn source_init_with(
 
     // 既存 checkout が同 tag を pin していれば移行として表示する
     // (checkout dir は削除しない。user が自由に退避できる)
-    let checkout = crate::source::SourceResolver::new().detect(repo, git).ok();
-    let migrated_from_checkout = checkout
-        .as_ref()
-        .is_some_and(|c| !c.managed && c.kind == source.kind && c.ref_ == source.ref_);
+    let checkout = crate::source::SourceResolver::new().detect(repo, git)?;
+    let migrated_from_checkout =
+        !checkout.managed && checkout.kind == source.kind && checkout.ref_ == source.ref_;
 
     saved.source = Some(source.clone());
     store.save(&saved)?;
@@ -829,7 +809,7 @@ fn update_release(
     let _ = run_capture(&git.path, &fetch_args);
 
     let tags = list_tags(repo, git)?;
-    let current = current_checkout_ref(repo, git);
+    let current = current_checkout_ref(repo, git)?;
     let latest = crate::source::latest_tag_for_channel(&tags, channel);
 
     let Some(latest) = latest else {
@@ -890,25 +870,10 @@ fn list_tags(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Vec<String>>
         .collect())
 }
 
-/// 現在 checkout されている ref (exact tag があれば tag 名)
-fn current_checkout_ref(repo: &str, git: &crate::tool::ResolvedTool) -> Option<String> {
-    let out = run_capture(
-        &git.path,
-        &[
-            "-C".to_string(),
-            repo.to_string(),
-            "describe".to_string(),
-            "--tags".to_string(),
-            "--exact-match".to_string(),
-        ],
-    )
-    .ok()?;
-    let tag = out.trim();
-    if tag.is_empty() {
-        None
-    } else {
-        Some(tag.to_string())
-    }
+/// 現在 checkout されている ref (exact tag があれば tag 名)。
+/// tag 無しと Git inspection failure を区別する。
+fn current_checkout_ref(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Option<String>> {
+    crate::source::exact_tag(repo, git)
 }
 
 /// source sync (Advanced): 従来 sync の git pull --ff-only。
@@ -961,7 +926,7 @@ fn deps_update_with(
     if managed_source(store)?.is_some() {
         return Err(Error::Precondition(DEPS_MANAGED_ERROR.to_string()));
     }
-    let warning = release_lock_warning(repo, tc);
+    let warning = release_lock_warning(repo, tc)?;
     let output = upgrade(repo, tc, capture)?;
     Ok(match (warning, output) {
         (Some(w), Some(o)) => Some(format!("{w}\n{o}")),
@@ -974,12 +939,12 @@ fn deps_update_with(
 }
 
 /// Release source で flake.lock を更新する場合の警告文
-fn release_lock_warning(repo: &str, tc: &ToolInventory) -> Option<String> {
-    let git = tc.git.as_ref()?;
-    let state = crate::source::SourceResolver::new()
-        .detect(repo, git)
-        .ok()?;
-    if state.kind.is_release() {
+fn release_lock_warning(repo: &str, tc: &ToolInventory) -> Result<Option<String>> {
+    let Some(git) = tc.git.as_ref() else {
+        return Ok(None);
+    };
+    let state = crate::source::SourceResolver::new().detect(repo, git)?;
+    Ok(if state.kind.is_release() {
         Some(
             "warning: this source is a release checkout (verified as a unit: source revision \
              + flake.lock). Updating flake.lock moves it off the verified release. \
@@ -988,7 +953,7 @@ fn release_lock_warning(repo: &str, tc: &ToolInventory) -> Option<String> {
         )
     } else {
         None
-    }
+    })
 }
 
 #[cfg(test)]
@@ -1570,7 +1535,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("sf-warn-local-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        assert!(release_lock_warning(dir.to_str().unwrap(), &dummy_tc()).is_none());
+        assert!(release_lock_warning(dir.to_str().unwrap(), &dummy_tc())
+            .unwrap()
+            .is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1729,6 +1696,122 @@ mod tests {
         // git init 直後は branch checkout (master / main 等) のはず
         assert!(branch.is_some(), "expected branch checkout after git init");
         let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sync_fails_closed_when_branch_inspection_command_fails() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!(
+            "sf-sync-ref-inspection-error-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let fake_git = dir.join("fake-git");
+        std::fs::write(
+            &fake_git,
+            r#"#!/bin/sh
+case "$*" in
+  *"status --porcelain"*) exit 0 ;;
+  *) echo "simulated git ref inspection failure" >&2; exit 23 ;;
+esac
+"#,
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&fake_git, permissions).unwrap();
+
+        let tc = ToolInventory {
+            git: Some(resolved_git(&fake_git)),
+            ..dummy_tc()
+        };
+        let (lock, lock_dir) = temp_operation_lock("ref-inspection-error");
+
+        let err = sync_with_lock(dir.to_str().unwrap(), &tc, true, &lock).unwrap_err();
+        assert!(matches!(err, Error::Command { .. }), "{err}");
+        assert!(
+            err.to_string()
+                .contains("simulated git ref inspection failure"),
+            "{err}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&lock_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ref_inspection_errors_abort_effectful_consumers_before_mutation() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let repo =
+            std::env::temp_dir().join(format!("sf-ref-consumers-error-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+
+        let fake_git = repo.join("fake-git");
+        std::fs::write(
+            &fake_git,
+            r#"#!/bin/sh
+case "$*" in
+  *"status --porcelain"*) exit 0 ;;
+  *"fetch --tags --quiet"*) exit 0 ;;
+  *"tag --list"*) echo "v9.9.9"; exit 0 ;;
+  *) echo "simulated git ref inspection failure" >&2; exit 23 ;;
+esac
+"#,
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&fake_git, permissions).unwrap();
+        let git = resolved_git(&fake_git);
+
+        let update_err = update_release(repo.to_str().unwrap(), &git, "stable", true).unwrap_err();
+        assert!(matches!(update_err, Error::Command { .. }), "{update_err}");
+        assert!(
+            update_err
+                .to_string()
+                .contains("simulated git ref inspection failure"),
+            "{update_err}"
+        );
+
+        let (store, state_dir) = temp_state_store("init-ref-inspection-error");
+        let init_err = source_init_with(
+            repo.to_str().unwrap(),
+            &store,
+            &git,
+            &RemoteTags {
+                url: "https://github.com/Lamy210/nix_setting.git",
+                tags: &[],
+            },
+            None,
+            Some("v9.9.9".to_string()),
+            &|_| Err("metadata unavailable".to_string()),
+        )
+        .unwrap_err();
+        assert!(matches!(init_err, Error::Command { .. }), "{init_err}");
+        assert!(
+            store.load().unwrap().is_none(),
+            "source init must not persist state after ref inspection failure"
+        );
+
+        let tc = ToolInventory {
+            git: Some(git),
+            ..dummy_tc()
+        };
+        let warning_err = release_lock_warning(repo.to_str().unwrap(), &tc).unwrap_err();
+        assert!(
+            matches!(warning_err, Error::Command { .. }),
+            "{warning_err}"
+        );
+
+        let _ = std::fs::remove_dir_all(&repo);
+        let _ = std::fs::remove_dir_all(&state_dir);
     }
 
     #[test]
