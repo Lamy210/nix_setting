@@ -309,17 +309,28 @@ pub(crate) fn current_branch(repo: &str, git: &ResolvedTool) -> Result<Option<St
     }
 }
 
-/// HEAD が指している exact tag (複数 tag は最初の 1 つ)。
+/// HEAD が指している一意な exact tag。
 ///
 /// `git tag --points-at HEAD` は「tag 無し」を正常終了 + 空出力で表現するため、
-/// tag が無い状態と Git 実行失敗を区別できる。
+/// tag が無い状態と Git 実行失敗を区別できる。同一 commit に複数 tag が
+/// 付いている detached HEAD は checkout 元 ref を一意に復元できないため、
+/// 任意の tag を選ばず fail-closed に拒否する。
 pub(crate) fn exact_tag(repo: &str, git: &ResolvedTool) -> Result<Option<String>> {
     let out = git_output(repo, git, &["tag", "--points-at", "HEAD"])?;
-    Ok(out
+    let tags: Vec<&str> = out
         .lines()
         .map(str::trim)
-        .find(|tag| !tag.is_empty())
-        .map(ToOwned::to_owned))
+        .filter(|tag| !tag.is_empty())
+        .collect();
+
+    match tags.as_slice() {
+        [] => Ok(None),
+        [tag] => Ok(Some((*tag).to_string())),
+        _ => Err(Error::Precondition(format!(
+            "detached HEAD points at multiple exact tags; source ref is ambiguous: {}",
+            tags.join(", ")
+        ))),
+    }
 }
 
 /// HEAD の commit hash
@@ -503,6 +514,27 @@ mod tests {
 
         let tag_err = exact_tag(dir.to_str().unwrap(), &git).unwrap_err();
         assert!(matches!(tag_err, Error::Command { .. }), "{tag_err}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn detect_rejects_multiple_exact_tags_on_detached_head() {
+        let dir = temp_repo("multiple-exact-tags");
+        git_cmd(&dir, &["init", "-q", "-b", "main"]);
+        commit_file(&dir, "a.txt");
+        git_cmd(&dir, &["tag", "v0.2.0"]);
+        git_cmd(&dir, &["tag", "v0.3.0-rc.1"]);
+        let rev = git_stdout(&dir, &["rev-parse", "HEAD"]);
+        git_cmd(&dir, &["checkout", "-q", &rev]);
+
+        let err = SourceResolver::new()
+            .detect(dir.to_str().unwrap(), &resolved_git())
+            .unwrap_err();
+        assert!(matches!(err, Error::Precondition(_)), "{err}");
+        assert!(err.to_string().contains("multiple exact tags"), "{err}");
+        assert!(err.to_string().contains("v0.2.0"), "{err}");
+        assert!(err.to_string().contains("v0.3.0-rc.1"), "{err}");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
