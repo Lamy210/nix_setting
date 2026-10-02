@@ -942,7 +942,14 @@ fn self_update_uses_current_preview_checkout_when_state_source_is_absent() {
     }
 
     let dir = cli_dir("self-update-preview-checkout");
-    let origin = origin_repo(&dir, &["v0.0.1", "v0.0.1-rc.1"]);
+    // SourceResolver は detached HEAD が指す exact tag から channel を判定する。
+    // stable / preview tag を同一 commit に付けると checkout 元 tag は Git から
+    // 一意に復元できないため、実 release と同様に別 commit へ配置する。
+    let origin = origin_repo(&dir, &["v0.0.1"]);
+    std::fs::write(origin.join("PREVIEW.md"), "# preview\n").unwrap();
+    git(&origin, &["add", "."]);
+    git(&origin, &["commit", "-q", "-m", "preview"]);
+    git(&origin, &["tag", "v0.0.1-rc.1"]);
     let git_config = git_rewrite_config(&dir, &origin);
     let checkout = dir.join("checkout");
     git(
