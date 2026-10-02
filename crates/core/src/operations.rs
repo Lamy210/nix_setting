@@ -616,7 +616,7 @@ fn update_managed(
     let url = state.remote_url();
     let tags = crate::dashboard::remote_tags(&url, git)?;
     update_managed_with(store, &tags, state, channel, capture, &|tag| {
-        crate::release_metadata::ReleaseMetadata::fetch_from(&url, tag).map_err(|e| e.to_string())
+        crate::release_metadata::ReleaseMetadata::fetch_from(&url, tag)
     })
 }
 
@@ -630,7 +630,7 @@ fn update_managed_with(
     fetch_meta: &dyn Fn(
         &str,
     )
-        -> std::result::Result<crate::release_metadata::ReleaseMetadata, String>,
+        -> Result<crate::release_metadata::ReleaseMetadata>,
 ) -> Result<UpdateResult> {
     validate_release_channel(channel)?;
     let latest = crate::source::latest_tag_for_channel(tags, channel).cloned();
@@ -654,7 +654,7 @@ fn update_managed_with(
 
     let mut new_state = state.clone();
     new_state.ref_ = latest.clone();
-    new_state.revision = record_revision(&latest, fetch_meta);
+    new_state.revision = record_revision(&latest, fetch_meta)?;
 
     let mut saved = store.load()?.unwrap_or_default();
     saved.source = Some(new_state.clone());
@@ -675,14 +675,17 @@ fn record_revision(
     fetch_meta: &dyn Fn(
         &str,
     )
-        -> std::result::Result<crate::release_metadata::ReleaseMetadata, String>,
-) -> Option<String> {
+        -> Result<crate::release_metadata::ReleaseMetadata>,
+) -> Result<Option<String>> {
     match fetch_meta(tag) {
-        Ok(m) => Some(m.source_revision),
-        Err(e) => {
-            eprintln!("warning: revision of {tag} is not verified (no release metadata?): {e}");
-            None
+        Ok(m) => Ok(Some(m.source_revision)),
+        Err(Error::ReleaseMetadataAssetMissing { .. }) => {
+            eprintln!(
+                "warning: revision of {tag} is not verified (release metadata asset missing)"
+            );
+            Ok(None)
         }
+        Err(error) => Err(error),
     }
 }
 
@@ -733,7 +736,7 @@ pub fn source_init(
         channel,
         tag,
         &|t| {
-            crate::release_metadata::ReleaseMetadata::fetch_from(&url, t).map_err(|e| e.to_string())
+            crate::release_metadata::ReleaseMetadata::fetch_from(&url, t)
         },
     )
 }
@@ -755,7 +758,7 @@ fn source_init_with(
     fetch_meta: &dyn Fn(
         &str,
     )
-        -> std::result::Result<crate::release_metadata::ReleaseMetadata, String>,
+        -> Result<crate::release_metadata::ReleaseMetadata>,
 ) -> Result<SourceInitResult> {
     let mut saved = store.load()?.unwrap_or_default();
     if let Some(c) = &channel {
@@ -796,7 +799,7 @@ fn source_init_with(
         revision: None,
     };
     source.validate_managed_release()?;
-    source.revision = record_revision(&resolved_tag, fetch_meta);
+    source.revision = record_revision(&resolved_tag, fetch_meta)?;
 
     // 既存 checkout が同 tag を pin していれば移行として表示する
     // (checkout dir は削除しない。user が自由に退避できる)
@@ -1280,12 +1283,42 @@ mod tests {
         let state = managed_release_state("v0.2.0", "stable");
         let tags = vec!["v0.2.0".to_string(), "v0.2.1".to_string()];
         let result = update_managed_with(&store, &tags, &state, "stable", true, &|t| {
-            Err(format!("HTTP 404: {t}"))
+            Err(Error::ReleaseMetadataAssetMissing { tag: t.to_string() })
         })
         .unwrap();
         // metadata asset が無い tag は警告付きで検証 skip (fail しない)
         assert_eq!(result.source.as_ref().unwrap().ref_, "v0.2.1");
         assert_eq!(result.source.as_ref().unwrap().revision, None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn update_managed_metadata_failure_preserves_existing_state() {
+        let (store, dir) = temp_state_store("metadata-error");
+        let state = managed_release_state("v0.2.0", "stable");
+        let previous = crate::state::State {
+            source: Some(state.clone()),
+            profile: Some("developer".to_string()),
+            ..crate::state::State::default()
+        };
+        store.save(&previous).unwrap();
+        let tags = vec!["v0.2.0".to_string(), "v0.3.0".to_string()];
+
+        let err = update_managed_with(&store, &tags, &state, "stable", true, &|_| {
+            Err(Error::ReleaseMetadata(
+                "simulated metadata validation failure".to_string(),
+            ))
+        })
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("simulated metadata validation failure"),
+            "{err}"
+        );
+        let loaded = store.load().unwrap().expect("previous state must remain");
+        assert_eq!(loaded.source, previous.source);
+        assert_eq!(loaded.profile, previous.profile);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1418,6 +1451,48 @@ mod tests {
     }
 
     #[test]
+    fn source_init_metadata_failure_does_not_persist_state() {
+        let repo = std::env::temp_dir().join(format!(
+            "sf-init-metadata-error-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = resolved_git(std::path::Path::new("git"));
+        let (store, dir) = temp_state_store("init-metadata-error");
+        let tags = vec!["v0.2.0".to_string()];
+
+        let err = source_init_with(
+            repo.to_str().unwrap(),
+            &store,
+            &git,
+            &RemoteTags {
+                url: "https://github.com/Lamy210/nix_setting.git",
+                tags: &tags,
+            },
+            None,
+            Some("v0.2.0".to_string()),
+            &|_| {
+                Err(Error::ReleaseMetadata(
+                    "simulated metadata parse failure".to_string(),
+                ))
+            },
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("simulated metadata parse failure"),
+            "{err}"
+        );
+        assert!(
+            store.load().unwrap().is_none(),
+            "source init must not persist state when metadata validation fails"
+        );
+        let _ = std::fs::remove_dir_all(&repo);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn source_init_rejects_non_github_remote_before_metadata_fetch() {
         let (repo, _git_bin) = (
             std::env::temp_dir().join(format!("sf-init-invalid-remote-{}", std::process::id())),
@@ -1429,7 +1504,7 @@ mod tests {
         let (store, dir) = temp_state_store("init-invalid-remote");
         let tags = vec!["v0.2.0".to_string()];
         let fetch_meta =
-            |_tag: &str| -> std::result::Result<crate::release_metadata::ReleaseMetadata, String> {
+            |_tag: &str| -> Result<crate::release_metadata::ReleaseMetadata> {
                 panic!("invalid managed remote must fail before metadata fetch")
             };
 
@@ -1976,7 +2051,7 @@ esac
             },
             None,
             Some("v9.9.9".to_string()),
-            &|_| Err("metadata unavailable".to_string()),
+            &|_| Err(Error::ReleaseMetadata("metadata unavailable".to_string())),
         )
         .unwrap_err();
         assert!(matches!(init_err, Error::Command { .. }), "{init_err}");
