@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::managed_nix::download::{download_text_detailed, TextDownloadError};
-use crate::source::{classify_release_tag, github_slug};
+use crate::source::{classify_release_tag, github_slug, is_commit_revision};
 
 pub const RELEASE_METADATA_SCHEMA: u32 = 1;
 const METADATA_ASSET: &str = "schneeforge-release.json";
@@ -72,6 +72,12 @@ impl ReleaseMetadata {
             return Err(Error::ReleaseMetadata(format!(
                 "channel {} does not match version {} (expected {expected_channel})",
                 self.channel, self.version
+            )));
+        }
+        if !is_commit_revision(&self.source_revision) {
+            return Err(Error::ReleaseMetadata(format!(
+                "source_revision must be a canonical 40-hex commit SHA, got {}",
+                self.source_revision
             )));
         }
         if self.systems.is_empty() {
@@ -212,6 +218,25 @@ mod tests {
         let json = sample_json().replace("\"schema\": 1", "\"schema\": 2");
         let err = ReleaseMetadata::parse(&json).unwrap_err();
         assert!(err.to_string().contains("schema 2"), "{err}");
+    }
+
+    #[test]
+    fn validate_rejects_invalid_source_revision() {
+        let mut metadata = sample();
+
+        for revision in [
+            "",
+            "deadbeef",
+            "0123456789abcdef0123456789abcdef0123456g",
+            "0123456789ABCDEF0123456789abcdef01234567",
+        ] {
+            metadata.source_revision = revision.to_string();
+            let err = metadata.validate("v0.2.0-rc.5").unwrap_err();
+            assert!(
+                err.to_string().contains("40-hex commit SHA"),
+                "{revision}: {err}"
+            );
+        }
     }
 
     #[test]
