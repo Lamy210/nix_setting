@@ -47,7 +47,7 @@ mod native_cli {
             Cmd::Sync => with_tool_inventory(|tc| sync(&repo, tc), &repo),
             Cmd::Verify => with_tool_inventory(|tc| verify(&repo, tc), &repo),
             Cmd::Uninstall => uninstall(),
-            Cmd::SelfUpdate => with_tool_inventory(self_update, &repo),
+            Cmd::SelfUpdate => with_tool_inventory(|tc| self_update(&repo, tc), &repo),
             Cmd::Nix(nix_args) => run_nix(nix_args.command, &repo),
         };
         if let Err(error) = result {
