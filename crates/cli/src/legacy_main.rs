@@ -3,8 +3,8 @@ mod nix_cmd;
 use clap::{Parser, Subcommand};
 use nix_cmd::{NixArgs, NixSub};
 use schneeforge_core::{
-    detect_target, run_self_update, Manifest, ReleaseMetadata, SelfUpdateStatus, SourceKind,
-    SourceResolver, StateStore, ToolInventory,
+    channel_of, detect_target, run_self_update, Manifest, ReleaseMetadata, SelfUpdateStatus,
+    SourceKind, SourceResolver, StateStore, ToolInventory,
 };
 /// Declarative Developer Workstation Manager
 #[derive(Parser)]
@@ -126,7 +126,7 @@ fn main() {
         Cmd::Sync => with_tool_inventory(|tc| sync(&repo, tc), &repo),
         Cmd::Verify => with_tool_inventory(|tc| verify(&repo, tc), &repo),
         Cmd::Uninstall => uninstall(),
-        Cmd::SelfUpdate => with_tool_inventory(|tc| self_update(&repo, tc), &repo),
+        Cmd::SelfUpdate => with_tool_inventory(self_update, &repo),
         Cmd::Nix(nix_args) => run_nix(nix_args.command, &repo),
     };
     if let Err(e) = result {
@@ -351,7 +351,7 @@ fn update(repo: &str, tc: &ToolInventory) -> Result {
     Ok(())
 }
 
-fn self_update(repo: &str, tc: &ToolInventory) -> Result {
+fn self_update(tc: &ToolInventory) -> Result {
     let state = StateStore::default()
         .load()
         .map_err(|e| e.to_string())?;
@@ -370,23 +370,12 @@ fn self_update(repo: &str, tc: &ToolInventory) -> Result {
                 .to_string(),
         );
     };
-    // managed source は persisted state を authoritative に使い、それ以外は
-    // current checkout を再検出する。apply/rollback 後は checkout 型 source を
-    // state に保持しないため、state だけを見ると Preview checkout まで stable
-    // default に落ちてしまう。
-    let source = SourceResolver::new()
-        .resolve(
-            repo,
-            git,
-            state.as_ref().and_then(|state| state.source.as_ref()),
-        )
-        .map_err(|e| e.to_string())?;
-    let channel = source.kind.release_channel().unwrap_or("stable");
+    let channel = channel_of(state.as_ref());
     println!("最新 release を確認中 (channel: {channel})...");
-    match run_self_update(git, env!("CARGO_PKG_VERSION"), channel).map_err(|e| e.to_string())? {
+    match run_self_update(git, env!("CARGO_PKG_VERSION"), &channel).map_err(|e| e.to_string())? {
         SelfUpdateStatus::UpToDate { version } => {
             // `version` は channel の最新 tag であり利用中の版とは限らない
-            // (例: source 未初期化で channel が stable default のとき rc 版が
+            // (例: state 未初期化で channel が stable default のとき rc 版が
             // stable の最新より新しい)。downgrade はしない旨を出す
             let current = env!("CARGO_PKG_VERSION");
             if version == current {
