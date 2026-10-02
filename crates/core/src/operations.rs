@@ -1813,7 +1813,10 @@ esac
             ..dummy_tc()
         };
         let warning_err = release_lock_warning(repo.to_str().unwrap(), &tc).unwrap_err();
-        assert!(matches!(warning_err, Error::Command { .. }), "{warning_err}");
+        assert!(
+            matches!(warning_err, Error::Command { .. }),
+            "{warning_err}"
+        );
 
         let _ = std::fs::remove_dir_all(&repo);
         let _ = std::fs::remove_dir_all(&state_dir);
