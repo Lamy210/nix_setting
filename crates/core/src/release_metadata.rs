@@ -160,8 +160,14 @@ pub fn release_page_url(repo_url: &str, version: &str) -> Result<String> {
             "unsupported GitHub repository URL for release page: {repo_url}"
         ))
     })?;
+    let tag = format!("v{version}");
+    if classify_release_tag(&tag).is_none() {
+        return Err(Error::ReleaseMetadata(format!(
+            "invalid SemVer release version for release page: {version}"
+        )));
+    }
     Ok(format!(
-        "https://github.com/{owner}/{repo}/releases/tag/v{version}"
+        "https://github.com/{owner}/{repo}/releases/tag/{tag}"
     ))
 }
 
@@ -375,6 +381,24 @@ mod tests {
             release_page_url("ssh://git@github.com/example/fork.git", "1.0.0").unwrap(),
             "https://github.com/example/fork/releases/tag/v1.0.0"
         );
+    }
+
+    #[test]
+    fn release_page_url_rejects_invalid_versions() {
+        for version in [
+            "",
+            "v1.2.3",
+            "1.2",
+            "1.2.3/../../issues",
+            "1.2.3?tab=assets",
+        ] {
+            let err = release_page_url("https://github.com/example/fork.git", version).unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains("invalid SemVer release version for release page"),
+                "{version}: {err}"
+            );
+        }
     }
 
     #[test]
