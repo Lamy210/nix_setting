@@ -1538,11 +1538,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("sf-warn-local-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        assert!(
-            release_lock_warning(dir.to_str().unwrap(), &dummy_tc())
-                .unwrap()
-                .is_none()
-        );
+        assert!(release_lock_warning(dir.to_str().unwrap(), &dummy_tc())
+            .unwrap()
+            .is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1753,10 +1751,8 @@ esac
     fn ref_inspection_errors_abort_effectful_consumers_before_mutation() {
         use std::os::unix::fs::PermissionsExt;
 
-        let repo = std::env::temp_dir().join(format!(
-            "sf-ref-consumers-error-{}",
-            std::process::id()
-        ));
+        let repo =
+            std::env::temp_dir().join(format!("sf-ref-consumers-error-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&repo);
         std::fs::create_dir_all(repo.join(".git")).unwrap();
 
