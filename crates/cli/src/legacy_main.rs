@@ -244,6 +244,15 @@ fn status(repo: &str) -> Result {
     let state = StateStore::default()
         .load()
         .map_err(|e| e.to_string())?;
+    if let Some(source) = state
+        .as_ref()
+        .and_then(|state| state.source.as_ref())
+        .filter(|source| source.managed)
+    {
+        source
+            .validate_managed_release()
+            .map_err(|e| e.to_string())?;
+    }
     println!("=== status ===");
     println!();
     println!("  host: {target}");
@@ -588,7 +597,8 @@ fn source_kind_line(
         .load()
         .map_err(|e| e.to_string())?
         .and_then(|s| s.source);
-    let state = if let Some(src) = stored.as_ref().filter(|s| s.is_managed_release()) {
+    let state = if let Some(src) = stored.as_ref().filter(|s| s.managed) {
+        src.validate_managed_release().map_err(|e| e.to_string())?;
         src.clone()
     } else {
         let Some(git) = tc.git.as_ref() else {
