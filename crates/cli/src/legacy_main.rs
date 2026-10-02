@@ -594,10 +594,9 @@ fn source_kind_line(
         let Some(git) = tc.git.as_ref() else {
             return Ok(None);
         };
-        let Some(state) = SourceResolver::new().detect(repo, git).ok() else {
-            return Ok(None);
-        };
-        state
+        SourceResolver::new()
+            .detect(repo, git)
+            .map_err(|e| e.to_string())?
     };
     let _ = SourceKind::Local; // import 確認用 (kind は Display 経由で使用)
     let display_ref = state.flake_ref().unwrap_or_else(|| state.ref_.clone());
