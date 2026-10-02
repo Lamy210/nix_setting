@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
-use crate::managed_nix::download_text;
+use crate::managed_nix::download::{download_text_detailed, TextDownloadError};
 use crate::source::{classify_release_tag, github_slug};
 
 pub const RELEASE_METADATA_SCHEMA: u32 = 1;
@@ -127,10 +127,25 @@ impl ReleaseMetadata {
             )));
         }
         let url = Self::asset_url_for_repo(repo_url, tag)?;
-        let text = download_text(&url).map_err(Error::ManagedNix)?;
+        let text = metadata_text_from_download(tag, download_text_detailed(&url))?;
         let metadata = Self::parse(&text)?;
         metadata.validate(tag)?;
         Ok(metadata)
+    }
+}
+
+fn metadata_text_from_download(
+    tag: &str,
+    downloaded: std::result::Result<String, TextDownloadError>,
+) -> Result<String> {
+    match downloaded {
+        Ok(text) => Ok(text),
+        Err(TextDownloadError::HttpStatus { status: 404, .. }) => {
+            Err(Error::ReleaseMetadataAssetMissing {
+                tag: tag.to_string(),
+            })
+        }
+        Err(error) => Err(Error::ManagedNix(error.into_managed_nix())),
     }
 }
 
@@ -256,6 +271,43 @@ mod tests {
         };
         let err = m.validate("v0.2.0-rc.5").unwrap_err();
         assert!(err.to_string().contains("systems"), "{err}");
+    }
+
+    #[test]
+    fn missing_metadata_asset_is_structured_separately_from_other_failures() {
+        let missing = metadata_text_from_download(
+            "v0.1.0",
+            Err(TextDownloadError::HttpStatus {
+                url: "https://example.invalid/v0.1.0/schneeforge-release.json".to_string(),
+                status: 404,
+            }),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            missing,
+            Error::ReleaseMetadataAssetMissing { ref tag } if tag == "v0.1.0"
+        ));
+
+        let unavailable = metadata_text_from_download(
+            "v0.2.0",
+            Err(TextDownloadError::Other(
+                crate::managed_nix::ManagedNixError::Download {
+                    source: "network unavailable".to_string(),
+                },
+            )),
+        )
+        .unwrap_err();
+        assert!(matches!(unavailable, Error::ManagedNix(_)), "{unavailable}");
+
+        let server_error = metadata_text_from_download(
+            "v0.2.0",
+            Err(TextDownloadError::HttpStatus {
+                url: "https://example.invalid/v0.2.0/schneeforge-release.json".to_string(),
+                status: 500,
+            }),
+        )
+        .unwrap_err();
+        assert!(matches!(server_error, Error::ManagedNix(_)), "{server_error}");
     }
 
     #[test]
