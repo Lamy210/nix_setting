@@ -114,8 +114,12 @@ pub fn clear_selection() -> Result<()> {
 /// atomic write により truncate 中の読み取りで空の file が観測されない
 pub fn write_profile_input(name: &str) -> Result<std::path::PathBuf> {
     let path = default_profile_nix_path();
-    crate::machine::atomic_write(&path, &format!("{{ profile = \"{name}\"; }}\n"))
-        .map_err(|e| Error::Io(format!("write profile input ({e})")))?;
+    let escaped_name = crate::machine::escape_nix_string(name);
+    crate::machine::atomic_write(
+        &path,
+        &format!("{{ profile = \"{escaped_name}\"; }}\n"),
+    )
+    .map_err(|e| Error::Io(format!("write profile input ({e})")))?;
     Ok(path)
 }
 
@@ -250,6 +254,16 @@ x86_64-linux = true
         let path = write_profile_input("developer").unwrap();
         let content = std::fs::read_to_string(path).unwrap();
         assert_eq!(content, "{ profile = \"developer\"; }\n");
+    }
+
+    #[test]
+    fn write_profile_input_escapes_nix_interpolation() {
+        let path = write_profile_input("dev${boom}\"\\").unwrap();
+        let content = std::fs::read_to_string(path).unwrap();
+        assert_eq!(
+            content,
+            "{ profile = \"dev\\${boom}\\\"\\\\\"; }\n"
+        );
     }
 
     #[test]
