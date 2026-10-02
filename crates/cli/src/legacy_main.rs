@@ -355,6 +355,15 @@ fn self_update(repo: &str, tc: &ToolInventory) -> Result {
     let state = StateStore::default()
         .load()
         .map_err(|e| e.to_string())?;
+    if let Some(source) = state
+        .as_ref()
+        .and_then(|state| state.source.as_ref())
+        .filter(|source| source.managed)
+    {
+        source
+            .validate_managed_release()
+            .map_err(|e| e.to_string())?;
+    }
     let Some(git) = tc.git.as_ref() else {
         return Err(
             "git not found; cannot resolve latest release (install git or update via install.sh)"
