@@ -616,7 +616,7 @@ fn update_managed(
     let url = state.remote_url();
     let tags = crate::dashboard::remote_tags(&url, git)?;
     update_managed_with(store, &tags, state, channel, capture, &|tag| {
-        crate::release_metadata::ReleaseMetadata::fetch(tag).map_err(|e| e.to_string())
+        crate::release_metadata::ReleaseMetadata::fetch_from(&url, tag).map_err(|e| e.to_string())
     })
 }
 
@@ -732,7 +732,9 @@ pub fn source_init(
         },
         channel,
         tag,
-        &|t| crate::release_metadata::ReleaseMetadata::fetch(t).map_err(|e| e.to_string()),
+        &|t| {
+            crate::release_metadata::ReleaseMetadata::fetch_from(&url, t).map_err(|e| e.to_string())
+        },
     )
 }
 

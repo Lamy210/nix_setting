@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::managed_nix::download_text;
-use crate::source::classify_release_tag;
+use crate::source::{classify_release_tag, github_slug};
 
 pub const RELEASE_METADATA_SCHEMA: u32 = 1;
 const METADATA_ASSET: &str = "schneeforge-release.json";
@@ -82,15 +82,40 @@ impl ReleaseMetadata {
         Ok(())
     }
 
-    /// release tag の metadata asset URL
+    /// upstream repository の release metadata asset URL。
+    ///
+    /// 後方互換 API。managed source / fork のように repository identity が
+    /// 明示されている経路は `asset_url_for_repo` / `fetch_from` を使う。
     pub fn asset_url(tag: &str) -> String {
         format!("https://github.com/Lamy210/nix_setting/releases/download/{tag}/{METADATA_ASSET}")
     }
 
-    /// 指定 tag の metadata を GitHub release asset から取得して parse・検証する。
-    /// asset が存在しない release (metadata 導入前の release や存在しない tag) や
-    /// network error は fail-closed に error。
+    /// 指定 repository の release metadata asset URL。
+    ///
+    /// managed source と同じ GitHub repository identity を使い、fork の tag を
+    /// upstream metadata と混同しない。
+    pub fn asset_url_for_repo(repo_url: &str, tag: &str) -> Result<String> {
+        let (owner, repo) = github_slug(repo_url).ok_or_else(|| {
+            Error::ReleaseMetadata(format!(
+                "unsupported GitHub repository URL for release metadata: {repo_url}"
+            ))
+        })?;
+        Ok(format!(
+            "https://github.com/{owner}/{repo}/releases/download/{tag}/{METADATA_ASSET}"
+        ))
+    }
+
+    /// 現在の repository (`SCHNEEFORGE_REPO_URL` / default) から指定 tag の
+    /// metadata を取得して parse・検証する。
     pub fn fetch(tag: &str) -> Result<Self> {
+        let repo_url = crate::source::repo_url();
+        Self::fetch_from(&repo_url, tag)
+    }
+
+    /// 指定 repository / tag の metadata を GitHub release asset から取得して
+    /// parse・検証する。asset が存在しない release や network error は
+    /// fail-closed に error。
+    pub fn fetch_from(repo_url: &str, tag: &str) -> Result<Self> {
         if !tag.starts_with('v') {
             return Err(Error::ReleaseMetadata(format!(
                 "tag must start with 'v': {tag}"
@@ -101,7 +126,8 @@ impl ReleaseMetadata {
                 "invalid SemVer release tag: {tag}"
             )));
         }
-        let text = download_text(&Self::asset_url(tag)).map_err(Error::ManagedNix)?;
+        let url = Self::asset_url_for_repo(repo_url, tag)?;
+        let text = download_text(&url).map_err(Error::ManagedNix)?;
         let metadata = Self::parse(&text)?;
         metadata.validate(tag)?;
         Ok(metadata)
@@ -237,6 +263,38 @@ mod tests {
         assert_eq!(
             ReleaseMetadata::asset_url("v0.2.0-rc.5"),
             "https://github.com/Lamy210/nix_setting/releases/download/v0.2.0-rc.5/schneeforge-release.json"
+        );
+    }
+
+    #[test]
+    fn asset_url_for_repo_preserves_fork_identity() {
+        assert_eq!(
+            ReleaseMetadata::asset_url_for_repo(
+                "https://github.com/example/schneeforge-fork.git",
+                "v1.2.3"
+            )
+            .unwrap(),
+            "https://github.com/example/schneeforge-fork/releases/download/v1.2.3/schneeforge-release.json"
+        );
+        assert_eq!(
+            ReleaseMetadata::asset_url_for_repo(
+                "git@github.com:example/schneeforge-fork.git",
+                "v1.2.3-rc.1"
+            )
+            .unwrap(),
+            "https://github.com/example/schneeforge-fork/releases/download/v1.2.3-rc.1/schneeforge-release.json"
+        );
+    }
+
+    #[test]
+    fn asset_url_for_repo_rejects_unsupported_repository() {
+        let err =
+            ReleaseMetadata::asset_url_for_repo("https://gitlab.com/example/schneeforge", "v1.2.3")
+                .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("unsupported GitHub repository URL"),
+            "{err}"
         );
     }
 

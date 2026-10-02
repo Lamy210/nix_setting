@@ -1,6 +1,6 @@
 //! GUI Dashboard (v2 §28) — Installed / Available 表示のための snapshot 構築。
 //!
-//! available release の解決 (`git ls-remote --tags` + `ReleaseMetadata::fetch`)
+//! available release の解決 (`git ls-remote --tags` + repository-aware metadata fetch)
 //! は network を伴うため snapshot 構築から分離し、呼び出し元が結果を差し込む。
 //! これにより offline でも installed 側は表示でき、test は hermetic になる。
 
@@ -143,7 +143,7 @@ pub fn fetch_available(
         .ok_or_else(|| {
             Error::ReleaseMetadata(format!("no release tag found for channel {channel}"))
         })?;
-    ReleaseMetadata::fetch(&tag)
+    ReleaseMetadata::fetch_from(repo_url, &tag)
 }
 
 /// `available` version が `current` より新しいか。
