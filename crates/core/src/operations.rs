@@ -770,10 +770,9 @@ fn source_init_with(
 
     // 既存 checkout が同 tag を pin していれば移行として表示する
     // (checkout dir は削除しない。user が自由に退避できる)
-    let checkout = crate::source::SourceResolver::new().detect(repo, git).ok();
-    let migrated_from_checkout = checkout
-        .as_ref()
-        .is_some_and(|c| !c.managed && c.kind == source.kind && c.ref_ == source.ref_);
+    let checkout = crate::source::SourceResolver::new().detect(repo, git)?;
+    let migrated_from_checkout =
+        !checkout.managed && checkout.kind == source.kind && checkout.ref_ == source.ref_;
 
     saved.source = Some(source.clone());
     store.save(&saved)?;
@@ -810,7 +809,7 @@ fn update_release(
     let _ = run_capture(&git.path, &fetch_args);
 
     let tags = list_tags(repo, git)?;
-    let current = current_checkout_ref(repo, git);
+    let current = current_checkout_ref(repo, git)?;
     let latest = crate::source::latest_tag_for_channel(&tags, channel);
 
     let Some(latest) = latest else {
@@ -871,25 +870,13 @@ fn list_tags(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Vec<String>>
         .collect())
 }
 
-/// 現在 checkout されている ref (exact tag があれば tag 名)
-fn current_checkout_ref(repo: &str, git: &crate::tool::ResolvedTool) -> Option<String> {
-    let out = run_capture(
-        &git.path,
-        &[
-            "-C".to_string(),
-            repo.to_string(),
-            "describe".to_string(),
-            "--tags".to_string(),
-            "--exact-match".to_string(),
-        ],
-    )
-    .ok()?;
-    let tag = out.trim();
-    if tag.is_empty() {
-        None
-    } else {
-        Some(tag.to_string())
-    }
+/// 現在 checkout されている ref (exact tag があれば tag 名)。
+/// tag 無しと Git inspection failure を区別する。
+fn current_checkout_ref(
+    repo: &str,
+    git: &crate::tool::ResolvedTool,
+) -> Result<Option<String>> {
+    crate::source::exact_tag(repo, git)
 }
 
 /// source sync (Advanced): 従来 sync の git pull --ff-only。
@@ -942,7 +929,7 @@ fn deps_update_with(
     if managed_source(store)?.is_some() {
         return Err(Error::Precondition(DEPS_MANAGED_ERROR.to_string()));
     }
-    let warning = release_lock_warning(repo, tc);
+    let warning = release_lock_warning(repo, tc)?;
     let output = upgrade(repo, tc, capture)?;
     Ok(match (warning, output) {
         (Some(w), Some(o)) => Some(format!("{w}\n{o}")),
@@ -955,12 +942,12 @@ fn deps_update_with(
 }
 
 /// Release source で flake.lock を更新する場合の警告文
-fn release_lock_warning(repo: &str, tc: &ToolInventory) -> Option<String> {
-    let git = tc.git.as_ref()?;
-    let state = crate::source::SourceResolver::new()
-        .detect(repo, git)
-        .ok()?;
-    if state.kind.is_release() {
+fn release_lock_warning(repo: &str, tc: &ToolInventory) -> Result<Option<String>> {
+    let Some(git) = tc.git.as_ref() else {
+        return Ok(None);
+    };
+    let state = crate::source::SourceResolver::new().detect(repo, git)?;
+    Ok(if state.kind.is_release() {
         Some(
             "warning: this source is a release checkout (verified as a unit: source revision \
              + flake.lock). Updating flake.lock moves it off the verified release. \
@@ -969,7 +956,7 @@ fn release_lock_warning(repo: &str, tc: &ToolInventory) -> Option<String> {
         )
     } else {
         None
-    }
+    })
 }
 
 #[cfg(test)]
