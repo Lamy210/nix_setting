@@ -231,22 +231,35 @@ pub fn verify(repo: &str, tc: &ToolInventory) -> VerifyReport {
 /// process-global env を変更せず hermetic に検証できるようにする。
 fn verify_with_store(repo: &str, tc: &ToolInventory, state_store: &StateStore) -> VerifyReport {
     let state_result = state_store.load();
-    let managed = state_result
+    let semantic_error = state_result
         .as_ref()
         .ok()
         .and_then(|state| state.as_ref())
         .and_then(|state| state.source.as_ref())
-        .is_some_and(|source| source.is_managed_release());
-    let state_check = match &state_result {
-        Ok(Some(_)) => VerifyCheck {
+        .filter(|source| source.managed)
+        .and_then(|source| source.validate_managed_release().err())
+        .map(|error| error.to_string());
+    let managed = semantic_error.is_none()
+        && state_result
+            .as_ref()
+            .ok()
+            .and_then(|state| state.as_ref())
+            .and_then(|state| state.source.as_ref())
+            .is_some_and(|source| source.is_managed_release());
+    let state_check = match (&state_result, &semantic_error) {
+        (_, Some(error)) => VerifyCheck {
+            name: format!("state ({error})"),
+            ok: false,
+        },
+        (Ok(Some(_)), None) => VerifyCheck {
             name: "state".to_string(),
             ok: true,
         },
-        Ok(None) => VerifyCheck {
+        (Ok(None), None) => VerifyCheck {
             name: "state (not initialized)".to_string(),
             ok: false,
         },
-        Err(e) => VerifyCheck {
+        (Err(e), None) => VerifyCheck {
             name: format!("state ({e})"),
             ok: false,
         },
@@ -283,6 +296,11 @@ fn verify_with_store(repo: &str, tc: &ToolInventory, state_store: &StateStore) -
     if let Err(e) = &state_result {
         checks.push(VerifyCheck {
             name: format!("source (state unavailable: {e})"),
+            ok: false,
+        });
+    } else if let Some(error) = &semantic_error {
+        checks.push(VerifyCheck {
+            name: format!("source (state invalid: {error})"),
             ok: false,
         });
     } else {
@@ -1613,6 +1631,51 @@ mod tests {
             "source semantics must also fail closed when state is corrupt"
         );
         let _ = std::fs::remove_dir_all(&corrupt_dir);
+    }
+
+    #[test]
+    fn verify_rejects_semantically_invalid_managed_state_without_repository_fallback() {
+        let tc = dummy_tc();
+        let (store, dir) = temp_state_store("verify-invalid-managed");
+        let repo = dir.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        store
+            .save(&crate::state::State {
+                source: Some(crate::source::SourceState {
+                    kind: crate::source::SourceKind::ReleaseStable,
+                    ref_: "main".to_string(),
+                    channel: Some("stable".to_string()),
+                    managed: true,
+                    remote: Some("https://github.com/Lamy210/nix_setting.git".to_string()),
+                    revision: None,
+                }),
+                ..crate::state::State::default()
+            })
+            .unwrap();
+
+        let report = verify_with_store(repo.to_str().unwrap(), &tc, &store);
+        let state_check = report
+            .checks
+            .iter()
+            .find(|check| check.name.starts_with("state"))
+            .expect("state check must be present");
+        assert!(!state_check.ok);
+        assert!(
+            state_check.name.contains("valid release tag"),
+            "{}",
+            state_check.name
+        );
+        assert!(report.checks.iter().any(|check| {
+            !check.ok
+                && check.name.starts_with("source (state invalid:")
+                && check.name.contains("valid release tag")
+        }));
+        assert!(
+            report.checks.iter().all(|check| check.name != "repository"),
+            "invalid managed state must not fall back to local repository semantics"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
