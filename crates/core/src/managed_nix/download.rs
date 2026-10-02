@@ -171,30 +171,71 @@ fn classify_reqwest_error(cls: &NetworkClassifier, dest_exists: bool) -> Managed
     }
 }
 
+/// text download の内部エラー。
+///
+/// release metadata は HTTP 404 だけを「旧 release の asset 欠落」として
+/// 区別する必要があるため status を構造化して保持する。公開 `download_text`
+/// API は従来どおり `ManagedNixError` へ変換する。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TextDownloadError {
+    HttpStatus { url: String, status: u16 },
+    Other(ManagedNixError),
+}
+
+impl TextDownloadError {
+    pub(crate) fn into_managed_nix(self) -> ManagedNixError {
+        match self {
+            TextDownloadError::HttpStatus { url, status } => ManagedNixError::Download {
+                source: format!("{url}: HTTP {status}"),
+            },
+            TextDownloadError::Other(error) => error,
+        }
+    }
+}
+
+/// URL から文字列を GET し、HTTP status を失わず返す内部 API。
+pub(crate) fn download_text_detailed(url: &str) -> Result<String, TextDownloadError> {
+    let client = http_client().map_err(TextDownloadError::Other)?;
+    let response = client.get(url).send().map_err(|e| {
+        TextDownloadError::Other(ManagedNixError::Download {
+            source: format!("{url}: {e}"),
+        })
+    })?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(TextDownloadError::HttpStatus {
+            url: url.to_string(),
+            status: status.as_u16(),
+        });
+    }
+    response.text().map_err(|e| {
+        TextDownloadError::Other(ManagedNixError::Download {
+            source: format!("{url}: {e}"),
+        })
+    })
+}
+
 /// URL から文字列を GET する (SHA256SUMS / release metadata の取得等)。
 /// HTTP error status は error page body を返さず fail-closed にする。
 pub fn download_text(url: &str) -> Result<String, ManagedNixError> {
-    let client = http_client()?;
-    let response = client
-        .get(url)
-        .send()
-        .map_err(|e| ManagedNixError::Download {
-            source: format!("{url}: {e}"),
-        })?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(ManagedNixError::Download {
-            source: format!("{url}: HTTP {status}"),
-        });
-    }
-    response.text().map_err(|e| ManagedNixError::Download {
-        source: format!("{url}: {e}"),
-    })
+    download_text_detailed(url).map_err(TextDownloadError::into_managed_nix)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_download_http_status_preserves_legacy_error_shape() {
+        let error = TextDownloadError::HttpStatus {
+            url: "https://example.invalid/asset".to_string(),
+            status: 404,
+        }
+        .into_managed_nix();
+
+        assert!(matches!(error, ManagedNixError::Download { .. }));
+        assert!(error.to_string().contains("HTTP 404"), "{error}");
+    }
 
     #[test]
     fn cache_path_contains_version() {
