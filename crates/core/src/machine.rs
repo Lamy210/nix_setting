@@ -203,14 +203,31 @@ fn hostname_via_command() -> Option<String> {
     None
 }
 
-/// Nix string literal 内の escape (`"` と `\` のみ。改行等は入らない想定)
-fn escape_nix_string(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+/// Nix double-quoted string literal に埋め込む値を escape する。
+///
+/// \`"\` / \`\\\` に加えて Nix interpolation の開始列 \`${\` を必ず
+/// literal として保持する。制御文字も source 上で明示 escape し、
+/// machine/profile input が外部文字列から Nix 式へ変化しないようにする。
+pub(crate) fn escape_nix_string(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace("${", "\\${")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nix_string_escape_blocks_interpolation_and_control_chars() {
+        assert_eq!(
+            escape_nix_string("a${b}\"\\\n\r\t"),
+            "a\\${b}\\\"\\\\\\n\\r\\t"
+        );
+    }
 
     #[test]
     fn machine_nix_contains_facts() {
