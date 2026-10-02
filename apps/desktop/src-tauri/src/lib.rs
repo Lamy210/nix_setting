@@ -560,32 +560,6 @@ fn validate_dashboard_state(
     Ok(())
 }
 
-fn resolve_dashboard_state(
-    repo: &str,
-    state: Option<schneeforge_core::State>,
-    git: Option<&schneeforge_core::ResolvedTool>,
-) -> Result<Option<schneeforge_core::State>, String> {
-    validate_dashboard_state(state.as_ref())?;
-
-    let Some(git) = git else {
-        return Ok(state);
-    };
-    let source = schneeforge_core::SourceResolver::new()
-        .resolve(
-            repo,
-            git,
-            state.as_ref().and_then(|state| state.source.as_ref()),
-        )
-        .map_err(|e| e.to_string())?;
-
-    // checkout 型 source は apply/rollback 後の persisted State には保持しない。
-    // Dashboard の view model だけ current checkout の検出結果で補い、
-    // managed source は SourceResolver::resolve が persisted state を優先する。
-    let mut effective = state.unwrap_or_default();
-    effective.source = Some(source);
-    Ok(Some(effective))
-}
-
 /// `get_dashboard` (v2 §28): Installed / Available の snapshot を返す。
 /// available 解決 (git ls-remote + release metadata fetch) は network を
 /// 伴うため blocking 実行し、失敗しても command error にせず
@@ -597,10 +571,8 @@ async fn get_dashboard(
     let tc = state.get_or_discover()?;
     tauri::async_runtime::spawn_blocking(move || {
         let store = StateStore::default();
-        let persisted_state = store.load().map_err(|e| e.to_string())?;
-        let repo = resolve_repo(None);
-        let repo_state =
-            resolve_dashboard_state(&repo, persisted_state, tc.git.as_ref())?;
+        let repo_state = store.load().map_err(|e| e.to_string())?;
+        validate_dashboard_state(repo_state.as_ref())?;
         let channel = schneeforge_core::channel_of(repo_state.as_ref());
         let repo_url =
             std::env::var("SCHNEEFORGE_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string());
@@ -609,6 +581,7 @@ async fn get_dashboard(
                 .map_err(|e| e.to_string()),
             None => Err("git not found; cannot resolve available release".to_string()),
         };
+        let repo = resolve_repo(None);
         let manifest = load_dashboard_manifest(&repo, &store)?;
         Ok(schneeforge_core::snapshot(
             env!("CARGO_PKG_VERSION"),
@@ -1350,63 +1323,6 @@ mod tests {
         )
         .unwrap();
         assert!(manifest.is_none());
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn dashboard_resolves_preview_checkout_when_state_source_is_absent() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = std::env::temp_dir().join(format!(
-            "schneeforge-dashboard-preview-checkout-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        let repo = dir.join("repo");
-        std::fs::create_dir_all(repo.join(".git")).unwrap();
-
-        let fake_git = dir.join("fake-git");
-        std::fs::write(
-            &fake_git,
-            r#"#!/bin/sh
-case "$*" in
-  *"rev-parse --abbrev-ref HEAD"*) echo "HEAD"; exit 0 ;;
-  *"tag --points-at HEAD"*) echo "v0.2.0-rc.7"; exit 0 ;;
-  *) echo "unexpected git invocation: $*" >&2; exit 23 ;;
-esac
-"#,
-        )
-        .unwrap();
-        let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&fake_git, permissions).unwrap();
-
-        let git = schneeforge_core::ResolvedTool {
-            path: fake_git,
-            source: schneeforge_core::ToolSource::Path,
-            version: None,
-        };
-        let persisted = schneeforge_core::State {
-            applied_revision: Some("abc123".to_string()),
-            source: None,
-            ..Default::default()
-        };
-
-        let resolved = resolve_dashboard_state(
-            repo.to_str().unwrap(),
-            Some(persisted),
-            Some(&git),
-        )
-        .unwrap()
-        .expect("dashboard state");
-        assert_eq!(
-            schneeforge_core::channel_of(Some(&resolved)),
-            "preview",
-            "current preview checkout must drive Dashboard channel even when apply cleared state.source"
-        );
-        assert_eq!(resolved.applied_revision.as_deref(), Some("abc123"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
