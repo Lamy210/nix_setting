@@ -87,9 +87,7 @@ impl ReleaseMetadata {
     /// 後方互換 API。managed source / fork のように repository identity が
     /// 明示されている経路は `asset_url_for_repo` / `fetch_from` を使う。
     pub fn asset_url(tag: &str) -> String {
-        format!(
-            "https://github.com/Lamy210/nix_setting/releases/download/{tag}/{METADATA_ASSET}"
-        )
+        format!("https://github.com/Lamy210/nix_setting/releases/download/{tag}/{METADATA_ASSET}")
     }
 
     /// 指定 repository の release metadata asset URL。
@@ -290,13 +288,12 @@ mod tests {
 
     #[test]
     fn asset_url_for_repo_rejects_unsupported_repository() {
-        let err = ReleaseMetadata::asset_url_for_repo(
-            "https://gitlab.com/example/schneeforge",
-            "v1.2.3",
-        )
-        .unwrap_err();
+        let err =
+            ReleaseMetadata::asset_url_for_repo("https://gitlab.com/example/schneeforge", "v1.2.3")
+                .unwrap_err();
         assert!(
-            err.to_string().contains("unsupported GitHub repository URL"),
+            err.to_string()
+                .contains("unsupported GitHub repository URL"),
             "{err}"
         );
     }
