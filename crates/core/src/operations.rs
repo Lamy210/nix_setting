@@ -1744,6 +1744,77 @@ esac
         let _ = std::fs::remove_dir_all(&lock_dir);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn ref_inspection_errors_abort_effectful_consumers_before_mutation() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let repo = std::env::temp_dir().join(format!(
+            "sf-ref-consumers-error-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+
+        let fake_git = repo.join("fake-git");
+        std::fs::write(
+            &fake_git,
+            r#"#!/bin/sh
+case "$*" in
+  *"status --porcelain"*) exit 0 ;;
+  *"fetch --tags --quiet"*) exit 0 ;;
+  *"tag --list"*) echo "v9.9.9"; exit 0 ;;
+  *) echo "simulated git ref inspection failure" >&2; exit 23 ;;
+esac
+"#,
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&fake_git, permissions).unwrap();
+        let git = resolved_git(&fake_git);
+
+        let update_err =
+            update_release(repo.to_str().unwrap(), &git, "stable", true).unwrap_err();
+        assert!(matches!(update_err, Error::Command { .. }), "{update_err}");
+        assert!(
+            update_err
+                .to_string()
+                .contains("simulated git ref inspection failure"),
+            "{update_err}"
+        );
+
+        let (store, state_dir) = temp_state_store("init-ref-inspection-error");
+        let init_err = source_init_with(
+            repo.to_str().unwrap(),
+            &store,
+            &git,
+            &RemoteTags {
+                url: "https://github.com/Lamy210/nix_setting.git",
+                tags: &[],
+            },
+            None,
+            Some("v9.9.9".to_string()),
+            &|_| Err("metadata unavailable".to_string()),
+        )
+        .unwrap_err();
+        assert!(matches!(init_err, Error::Command { .. }), "{init_err}");
+        assert!(
+            store.load().unwrap().is_none(),
+            "source init must not persist state after ref inspection failure"
+        );
+
+        let tc = ToolInventory {
+            git: Some(git),
+            ..dummy_tc()
+        };
+        let warning_err = release_lock_warning(repo.to_str().unwrap(), &tc).unwrap_err();
+        assert!(matches!(warning_err, Error::Command { .. }), "{warning_err}");
+
+        let _ = std::fs::remove_dir_all(&repo);
+        let _ = std::fs::remove_dir_all(&state_dir);
+    }
+
     #[test]
     fn sync_is_noop_on_release_tag_detached_checkout() {
         // regression (PR #18 review P1): install.sh は fresh clone を
