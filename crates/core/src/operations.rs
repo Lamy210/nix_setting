@@ -627,10 +627,7 @@ fn update_managed_with(
     state: &crate::source::SourceState,
     channel: &str,
     capture: bool,
-    fetch_meta: &dyn Fn(
-        &str,
-    )
-        -> Result<crate::release_metadata::ReleaseMetadata>,
+    fetch_meta: &dyn Fn(&str) -> Result<crate::release_metadata::ReleaseMetadata>,
 ) -> Result<UpdateResult> {
     validate_release_channel(channel)?;
     let latest = crate::source::latest_tag_for_channel(tags, channel).cloned();
@@ -672,10 +669,7 @@ fn update_managed_with(
 /// (fail-closed にすると asset 導入前の旧 tag への設定が全滅するため)
 fn record_revision(
     tag: &str,
-    fetch_meta: &dyn Fn(
-        &str,
-    )
-        -> Result<crate::release_metadata::ReleaseMetadata>,
+    fetch_meta: &dyn Fn(&str) -> Result<crate::release_metadata::ReleaseMetadata>,
 ) -> Result<Option<String>> {
     match fetch_meta(tag) {
         Ok(m) => Ok(Some(m.source_revision)),
@@ -735,9 +729,7 @@ pub fn source_init(
         },
         channel,
         tag,
-        &|t| {
-            crate::release_metadata::ReleaseMetadata::fetch_from(&url, t)
-        },
+        &|t| crate::release_metadata::ReleaseMetadata::fetch_from(&url, t),
     )
 }
 
@@ -755,10 +747,7 @@ fn source_init_with(
     remote: &RemoteTags,
     channel: Option<String>,
     tag: Option<String>,
-    fetch_meta: &dyn Fn(
-        &str,
-    )
-        -> Result<crate::release_metadata::ReleaseMetadata>,
+    fetch_meta: &dyn Fn(&str) -> Result<crate::release_metadata::ReleaseMetadata>,
 ) -> Result<SourceInitResult> {
     let mut saved = store.load()?.unwrap_or_default();
     if let Some(c) = &channel {
@@ -1452,10 +1441,8 @@ mod tests {
 
     #[test]
     fn source_init_metadata_failure_does_not_persist_state() {
-        let repo = std::env::temp_dir().join(format!(
-            "sf-init-metadata-error-{}",
-            std::process::id()
-        ));
+        let repo =
+            std::env::temp_dir().join(format!("sf-init-metadata-error-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&repo);
         std::fs::create_dir_all(&repo).unwrap();
         let git = resolved_git(std::path::Path::new("git"));
@@ -1503,10 +1490,9 @@ mod tests {
         let git = resolved_git(std::path::Path::new("git"));
         let (store, dir) = temp_state_store("init-invalid-remote");
         let tags = vec!["v0.2.0".to_string()];
-        let fetch_meta =
-            |_tag: &str| -> Result<crate::release_metadata::ReleaseMetadata> {
-                panic!("invalid managed remote must fail before metadata fetch")
-            };
+        let fetch_meta = |_tag: &str| -> Result<crate::release_metadata::ReleaseMetadata> {
+            panic!("invalid managed remote must fail before metadata fetch")
+        };
 
         let err = source_init_with(
             repo.to_str().unwrap(),
