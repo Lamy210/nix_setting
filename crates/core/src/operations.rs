@@ -51,6 +51,25 @@ pub fn rolled_back_state(target: &ConfigurationTarget) -> State {
     }
 }
 
+/// apply / rollback 後に保存する source を現在の checkout/state から解決する。
+///
+/// managed source は persisted state が authoritative。checkout 表現は git が
+/// 利用できる場合に現在の repository 実態を再検出し、State.source が apply /
+/// rollback で失われないようにする。git が無い場合は既存 state を保持する。
+fn source_for_persistence(
+    repo: &str,
+    previous: Option<&State>,
+    tc: &ToolInventory,
+) -> Result<Option<crate::source::SourceState>> {
+    let stored = previous.and_then(|state| state.source.as_ref());
+    match tc.git.as_ref() {
+        Some(git) => crate::source::SourceResolver::new()
+            .resolve(repo, git, stored)
+            .map(Some),
+        None => Ok(stored.cloned()),
+    }
+}
+
 /// apply を実行し、成功後に State を core 内で保存する (CLI/GUI 共通)
 ///
 /// - `capture == true`: 出力をキャプチャして返す (GUI 用)
@@ -66,6 +85,7 @@ pub fn apply(
 ) -> Result<ApplyResult> {
     let _guard = acquire()?;
     let prev = store.load()?;
+    let source = source_for_persistence(repo, prev.as_ref(), tc)?;
 
     let repo_ref = crate::source::effective_ref(repo, store)?;
     let output = if capture {
@@ -77,11 +97,7 @@ pub fn apply(
 
     // managed source は revision 記録を、それ以外は checkout の git revision
     // を applied revision に記録する
-    let revision = match prev
-        .as_ref()
-        .and_then(|s| s.source.as_ref())
-        .filter(|src| src.is_managed_release())
-    {
+    let revision = match source.as_ref().filter(|src| src.is_managed_release()) {
         Some(src) => src.revision.clone(),
         None => tc
             .git
@@ -89,13 +105,9 @@ pub fn apply(
             .and_then(|g| current_git_revision(repo, &g.path)),
     };
     let mut state = applied_state(target, revision);
-    // profile 選択は user の恒久的な選択のため apply を跨いで保持する。
-    // managed source は checkout から再検出できないため保持する
+    // profile 選択と source の現在状態は applied 情報と独立して保持する。
     state.profile = prev.as_ref().and_then(|s| s.profile.clone());
-    state.source = prev
-        .as_ref()
-        .and_then(|s| s.source.clone())
-        .filter(|src| src.is_managed_release());
+    state.source = source;
     store.save(&state)?;
 
     Ok(ApplyResult { output, state })
@@ -114,6 +126,7 @@ pub fn rollback(
 ) -> Result<ApplyResult> {
     let _guard = acquire()?;
     let prev = store.load()?;
+    let source = source_for_persistence(repo, prev.as_ref(), tc)?;
 
     let repo_ref = crate::source::effective_ref(repo, store)?;
     let output = if capture {
@@ -124,12 +137,9 @@ pub fn rollback(
     };
 
     let mut state = rolled_back_state(target);
-    // profile 選択と managed source は rollback を跨いでも保持する
+    // profile 選択と source の現在状態は rollback を跨いでも保持する。
     state.profile = prev.as_ref().and_then(|s| s.profile.clone());
-    state.source = prev
-        .as_ref()
-        .and_then(|s| s.source.clone())
-        .filter(|src| src.is_managed_release());
+    state.source = source;
     store.save(&state)?;
 
     Ok(ApplyResult { output, state })
@@ -1088,6 +1098,69 @@ mod tests {
             remote: None,
             revision: None,
         }
+    }
+
+    #[test]
+    fn source_for_persistence_detects_preview_checkout_when_state_source_is_absent() {
+        let Some((repo, git_bin)) = git_repo_fixture("persist-preview-source") else {
+            eprintln!("skipping: git not available");
+            return;
+        };
+        let run = |args: &[&str]| -> bool {
+            std::process::Command::new(&git_bin)
+                .current_dir(&repo)
+                .args(args)
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false)
+        };
+        assert!(run(&["tag", "v0.2.0-rc.7"]));
+        assert!(run(&["checkout", "-q", "v0.2.0-rc.7"]));
+
+        let previous = State {
+            applied_revision: Some("abc123".to_string()),
+            source: None,
+            ..State::default()
+        };
+        let tc = ToolInventory {
+            git: Some(resolved_git(&git_bin)),
+            ..dummy_tc()
+        };
+
+        let source = source_for_persistence(repo.to_str().unwrap(), Some(&previous), &tc)
+            .unwrap()
+            .expect("checkout source");
+        assert_eq!(source.kind, crate::source::SourceKind::ReleasePreview);
+        assert_eq!(source.ref_, "v0.2.0-rc.7");
+        assert_eq!(source.channel.as_deref(), Some("preview"));
+        assert!(!source.managed);
+
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn source_for_persistence_preserves_checkout_state_without_git() {
+        let previous = State {
+            source: Some(crate::source::SourceState {
+                kind: crate::source::SourceKind::ReleasePreview,
+                ref_: "v0.2.0-rc.7".to_string(),
+                channel: Some("preview".to_string()),
+                managed: false,
+                remote: None,
+                revision: None,
+            }),
+            ..State::default()
+        };
+        let tc = ToolInventory {
+            git: None,
+            ..dummy_tc()
+        };
+
+        let source = source_for_persistence("/tmp/repo", Some(&previous), &tc)
+            .unwrap()
+            .expect("stored checkout source");
+        assert_eq!(source.kind, crate::source::SourceKind::ReleasePreview);
+        assert_eq!(source.channel.as_deref(), Some("preview"));
     }
 
     fn managed_release_state(tag: &str, channel: &str) -> crate::source::SourceState {
