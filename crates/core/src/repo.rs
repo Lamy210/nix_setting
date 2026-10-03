@@ -108,6 +108,14 @@ mod tests {
     }
 
     #[test]
+    fn empty_cli_repo_falls_back_to_env_dir() {
+        assert_eq!(
+            resolve_repo_with(Some(""), Some("/from/env"), Some("/home/u")),
+            "/from/env"
+        );
+    }
+
+    #[test]
     fn empty_env_dir_falls_back_to_home() {
         assert_eq!(
             resolve_repo_with(None, Some(""), Some("/home/u")),
