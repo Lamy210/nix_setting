@@ -57,7 +57,7 @@ pub fn resolve_repo_with(
     env_dir: Option<&str>,
     home: Option<&str>,
 ) -> String {
-    if let Some(r) = cli_repo {
+    if let Some(r) = cli_repo.filter(|r| !r.is_empty()) {
         return r.to_string();
     }
     if let Some(r) = env_dir.filter(|r| !r.is_empty()) {
@@ -104,6 +104,14 @@ mod tests {
         assert_eq!(
             resolve_repo_with(Some("/custom"), Some("/env"), Some("/home/u")),
             "/custom"
+        );
+    }
+
+    #[test]
+    fn empty_cli_repo_falls_back_to_env_dir() {
+        assert_eq!(
+            resolve_repo_with(Some(""), Some("/from/env"), Some("/home/u")),
+            "/from/env"
         );
     }
 
