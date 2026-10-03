@@ -47,6 +47,21 @@ EOF
   [ "$MYTOOL_RELATIVE_ENV_BIN" = "$TMPDIR_TEST/relative-env/bin/mytool_relative_env" ]
 }
 
+@test "resolve_tool propagates env override canonicalization failure" {
+  mkdir -p "$TMPDIR_TEST/canonicalize-env/bin"
+  cat >"$TMPDIR_TEST/canonicalize-env/bin/mytool_canonicalize_env" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$TMPDIR_TEST/canonicalize-env/bin/mytool_canonicalize_env"
+  export SCHNEEFORGE_MYTOOL_CANONICALIZE_ENV_BIN="$TMPDIR_TEST/canonicalize-env/bin/mytool_canonicalize_env"
+  canonicalize_executable() { return 1; }
+
+  run resolve_tool "mytool_canonicalize_env"
+
+  [ "$status" -ne 0 ]
+}
+
 @test "resolve_tool finds binary via PATH" {
   mkdir -p "$TMPDIR_TEST/pathdir"
   cat >"$TMPDIR_TEST/pathdir/mytool2" <<'EOF'
@@ -72,6 +87,21 @@ EOF
   resolve_tool "mytool_relative_path"
 
   [ "$MYTOOL_RELATIVE_PATH_BIN" = "$TMPDIR_TEST/relative-path/mytool_relative_path" ]
+}
+
+@test "resolve_tool propagates PATH canonicalization failure" {
+  mkdir -p "$TMPDIR_TEST/canonicalize-path/bin"
+  cat >"$TMPDIR_TEST/canonicalize-path/bin/mytool_canonicalize_path" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$TMPDIR_TEST/canonicalize-path/bin/mytool_canonicalize_path"
+  export PATH="$TMPDIR_TEST/canonicalize-path/bin:/usr/bin:/bin"
+  canonicalize_executable() { return 1; }
+
+  run resolve_tool "mytool_canonicalize_path"
+
+  [ "$status" -ne 0 ]
 }
 
 @test "resolve_tool canonicalizes symlink override like Rust resolver" {
@@ -116,6 +146,21 @@ EOF
   export PATH="/usr/bin:/bin"
   resolve_tool "mytool4"
   [ "$MYTOOL4_BIN" = "$TMPDIR_TEST/xdg/nix/profile/bin/mytool4" ]
+}
+
+@test "resolve_tool propagates known-path canonicalization failure" {
+  mkdir -p "$HOME/.nix-profile/bin"
+  cat >"$HOME/.nix-profile/bin/mytool_canonicalize_known" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$HOME/.nix-profile/bin/mytool_canonicalize_known"
+  export PATH="/usr/bin:/bin"
+  canonicalize_executable() { return 1; }
+
+  run resolve_tool "mytool_canonicalize_known"
+
+  [ "$status" -ne 0 ]
 }
 
 @test "resolve_tool finds binary in system profile" {
