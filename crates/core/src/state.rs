@@ -35,8 +35,12 @@ impl State {
 
 fn default_path_with(xdg_state_home: Option<&str>, home: Option<&str>) -> PathBuf {
     let base = xdg_state_home
+        .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .or_else(|| home.map(|h| PathBuf::from(h).join(".local/state")))
+        .or_else(|| {
+            home.filter(|value| !value.is_empty())
+                .map(|h| PathBuf::from(h).join(".local/state"))
+        })
         .unwrap_or_else(|| PathBuf::from("."));
     base.join("schneeforge").join("state.json")
 }
