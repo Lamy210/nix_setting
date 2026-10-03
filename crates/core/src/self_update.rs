@@ -57,6 +57,7 @@ pub fn current_platform_asset() -> Result<&'static str> {
 /// で path 付きで出力する)。install.sh の `^[0-9a-f]\{64\}  .*/<asset>$`
 /// 検証と同じ規則で、平坦 (`<64hex>  <asset>`) な形式も受け付ける。
 pub fn expected_sha256(checksums: &str, asset: &str) -> Result<String> {
+    let mut found = None;
     for line in checksums.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -71,11 +72,18 @@ pub fn expected_sha256(checksums: &str, asset: &str) -> Result<String> {
         if !matched || !is_sha256_hex(sha) {
             continue;
         }
-        return Ok(sha.to_lowercase());
+        if found.is_some() {
+            return Err(Error::SelfUpdate(format!(
+                "CHECKSUMS.txt に {asset} の有効な entry が複数あります (release asset の checksum が一意ではありません)"
+            )));
+        }
+        found = Some(sha.to_lowercase());
     }
-    Err(Error::SelfUpdate(format!(
-        "CHECKSUMS.txt に {asset} の entry がありません (release asset が不正か形式が変わりました)"
-    )))
+    found.ok_or_else(|| {
+        Error::SelfUpdate(format!(
+            "CHECKSUMS.txt に {asset} の entry がありません (release asset が不正か形式が変わりました)"
+        ))
+    })
 }
 
 fn is_sha256_hex(s: &str) -> bool {
