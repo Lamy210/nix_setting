@@ -26,12 +26,19 @@ pub struct State {
 impl State {
     /// 既定の state ファイルパス (~/.local/state/schneeforge/state.json)
     pub fn default_path() -> PathBuf {
-        let base = std::env::var("XDG_STATE_HOME")
-            .map(PathBuf::from)
-            .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".local/state")))
-            .unwrap_or_else(|_| PathBuf::from("."));
-        base.join("schneeforge").join("state.json")
+        default_path_with(
+            std::env::var("XDG_STATE_HOME").ok().as_deref(),
+            std::env::var("HOME").ok().as_deref(),
+        )
     }
+}
+
+fn default_path_with(xdg_state_home: Option<&str>, home: Option<&str>) -> PathBuf {
+    let base = xdg_state_home
+        .map(PathBuf::from)
+        .or_else(|| home.map(|h| PathBuf::from(h).join(".local/state")))
+        .unwrap_or_else(|| PathBuf::from("."));
+    base.join("schneeforge").join("state.json")
 }
 
 /// State の原子的な読み書き (temp → fsync → rename)
@@ -278,5 +285,21 @@ mod tests {
         assert!(s.applied_revision.is_none());
         assert!(s.applied_at.is_none());
         assert!(s.product_version.is_none());
+    }
+
+    #[test]
+    fn default_path_empty_xdg_state_home_falls_back_to_home() {
+        assert_eq!(
+            default_path_with(Some(""), Some("/home/u")),
+            PathBuf::from("/home/u/.local/state/schneeforge/state.json")
+        );
+    }
+
+    #[test]
+    fn default_path_empty_home_falls_back_to_current_directory() {
+        assert_eq!(
+            default_path_with(None, Some("")),
+            PathBuf::from(".").join("schneeforge").join("state.json")
+        );
     }
 }
