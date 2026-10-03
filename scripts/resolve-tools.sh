@@ -26,8 +26,8 @@ is_executable() {
 canonicalize_executable() {
   local path="$1"
   case "$path" in
-    /*) ;;
-    *) path="${PWD}/${path}" ;;
+  /*) ;;
+  *) path="${PWD}/${path}" ;;
   esac
 
   local hops=0
@@ -38,11 +38,11 @@ canonicalize_executable() {
     [ "$hops" -le 40 ] || return 1
     target="$(readlink "$path")" || return 1
     case "$target" in
-      /*) path="$target" ;;
-      *)
-        dir="$(dirname "$path")"
-        path="${dir}/${target}"
-        ;;
+    /*) path="$target" ;;
+    *)
+      dir="$(dirname "$path")"
+      path="${dir}/${target}"
+      ;;
     esac
   done
 
