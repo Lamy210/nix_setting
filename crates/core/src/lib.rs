@@ -42,15 +42,21 @@ pub mod operations {
 
     /// Public dependency-update boundary.
     ///
-    /// A Git checkout cannot be safely classified as local, tracking, or a
-    /// release checkout without Git. Require the resolved Git tool before any
-    /// flake mutation so release-integrity warnings cannot be silently skipped.
+    /// Persisted managed-source semantics must be handled before checkout
+    /// classification. For unmanaged Git checkouts, require Git before entering
+    /// the mutation path so release-integrity warnings cannot be silently skipped.
     pub fn deps_update(
         repo: &str,
         tc: &crate::tool::ToolInventory,
         capture: bool,
     ) -> crate::error::Result<Option<String>> {
-        if std::path::Path::new(repo).join(".git").exists() {
+        let state = crate::state::StateStore::default().load()?;
+        let managed = state
+            .as_ref()
+            .and_then(|state| state.source.as_ref())
+            .is_some_and(|source| source.managed);
+
+        if !managed && std::path::Path::new(repo).join(".git").exists() {
             tc.require_git()?;
         }
 
