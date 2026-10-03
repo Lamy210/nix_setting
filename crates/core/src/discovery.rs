@@ -150,8 +150,8 @@ pub fn detect_arch() -> Architecture {
 pub fn current_user() -> Option<String> {
     std::env::var("USER")
         .ok()
-        .or_else(|| std::env::var("LOGNAME").ok())
         .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("LOGNAME").ok().filter(|s| !s.is_empty()))
 }
 
 /// arch 文字列から Architecture を導出する純関数
