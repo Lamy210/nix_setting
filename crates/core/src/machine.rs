@@ -145,10 +145,18 @@ pub fn write_machine_input_at(path: &Path, facts: &MachineFacts) -> Result<PathB
     Ok(path.to_path_buf())
 }
 
-/// temp file (random suffix) + rename による atomic 置換。
+/// temp file (random suffix) + fsync + rename による atomic 置換。
 /// 固定の tmp 名だと同一 file への並列書き込みで rename が ENOENT になる
-/// ため、download.rs と同じ random suffix 方式を使う
+/// ため、download.rs と同じ random suffix 方式を使う。write / fsync /
+/// rename のどこで失敗しても destination は置換せず、temp は掃除する。
 pub(crate) fn atomic_write(path: &Path, content: &str) -> std::io::Result<()> {
+    atomic_write_with_sync(path, content, std::fs::File::sync_all)
+}
+
+fn atomic_write_with_sync<F>(path: &Path, content: &str, sync: F) -> std::io::Result<()>
+where
+    F: FnOnce(&std::fs::File) -> std::io::Result<()>,
+{
     use std::io::Write;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -158,20 +166,22 @@ pub(crate) fn atomic_write(path: &Path, content: &str) -> std::io::Result<()> {
         .map(|d| d.subsec_nanos())
         .unwrap_or(0);
     let tmp = path.with_extension(format!("nix.{rnd:08x}.tmp"));
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&tmp)?;
-    f.write_all(content.as_bytes())?;
-    f.sync_all().ok();
-    drop(f);
-    match std::fs::rename(&tmp, path) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            let _ = std::fs::remove_file(&tmp);
-            Err(e)
-        }
+
+    let result = (|| {
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)?;
+        f.write_all(content.as_bytes())?;
+        sync(&f)?;
+        drop(f);
+        std::fs::rename(&tmp, path)
+    })();
+
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
+    result
 }
 
 fn hostname() -> String {
