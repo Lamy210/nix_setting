@@ -120,6 +120,13 @@ impl SourceState {
                 self.kind, self.ref_
             )));
         }
+        if let Some(revision) = self.revision.as_deref() {
+            if !is_commit_revision(revision) {
+                return Err(Error::State(format!(
+                    "managed source revision {revision} is not a canonical 40-hex commit SHA"
+                )));
+            }
+        }
         let remote = self.remote_url();
         if github_slug(&remote).is_none() {
             return Err(Error::State(format!(
@@ -345,6 +352,15 @@ fn git_output(repo: &str, git: &ResolvedTool, args: &[&str]) -> Result<String> {
     run_capture(&git.path, &cmd_args)
 }
 
+/// ReleaseMetadata / persisted managed source で共有する commit SHA invariant。
+/// GitHub / release tooling が生成する canonical lower-case 40-hex SHA のみ許可する。
+pub(crate) fn is_commit_revision(revision: &str) -> bool {
+    revision.len() == 40
+        && revision
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 /// release tag 名を分類する。`v` prefix + SemVer なら
 /// prerelease suffix の有無で Stable/Preview を返す。
 /// managed source の設定時に tag から channel を導出するため public
@@ -467,6 +483,34 @@ mod tests {
         assert_eq!(SourceKind::GitTracking.release_channel(), None);
         assert_eq!(SourceKind::GitPinned.release_channel(), None);
         assert_eq!(SourceKind::Local.release_channel(), None);
+    }
+
+    #[test]
+    fn managed_source_revision_must_be_canonical_commit_sha() {
+        let mut source = SourceState {
+            kind: SourceKind::ReleaseStable,
+            ref_: "v1.2.3".to_string(),
+            channel: Some("stable".to_string()),
+            managed: true,
+            remote: Some("https://github.com/example/repo.git".to_string()),
+            revision: Some("0123456789abcdef0123456789abcdef01234567".to_string()),
+        };
+
+        assert!(source.validate_managed_release().is_ok());
+
+        source.revision = Some("0123456789abcdef0123456789abcdef0123456g".to_string());
+        let err = source.validate_managed_release().unwrap_err();
+        assert!(err.to_string().contains("40-hex commit SHA"), "{err}");
+
+        source.revision = Some("0123456789ABCDEF0123456789abcdef01234567".to_string());
+        let err = source.validate_managed_release().unwrap_err();
+        assert!(err.to_string().contains("40-hex commit SHA"), "{err}");
+
+        source.revision = None;
+        assert!(
+            source.validate_managed_release().is_ok(),
+            "legacy releases without metadata must remain valid"
+        );
     }
 
     #[test]
