@@ -1,0 +1,23 @@
+name: cancel closed PR checks
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main, develop]
+
+permissions: {}
+
+# The main check workflow groups PR runs as
+# `check-refs/pull/<number>/merge` (`name: check` + the PR merge ref).
+# Re-enter that repository-wide group on close so stale required/matrix work
+# is cancelled instead of consuming runners after the PR is no longer active.
+concurrency:
+  group: check-refs/pull/${{ github.event.pull_request.number }}/merge
+  cancel-in-progress: true
+
+jobs:
+  cancel-stale-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: close-event concurrency barrier
+        run: echo "closed PR check group superseded"
