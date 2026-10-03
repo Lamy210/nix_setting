@@ -237,6 +237,22 @@ pub fn verify(repo: &str, tc: &ToolInventory) -> VerifyReport {
     verify_with_store(repo, tc, &StateStore::default())
 }
 
+fn dotfile_checks(home: Option<&std::ffi::OsStr>) -> Vec<VerifyCheck> {
+    [
+        (".zshrc", ".zshrc"),
+        (".gitconfig", ".gitconfig"),
+        ("starship.toml", ".config/starship.toml"),
+    ]
+    .into_iter()
+    .map(|(name, relative)| VerifyCheck {
+        name: name.to_string(),
+        ok: home.is_some_and(|home| {
+            !home.is_empty() && std::path::Path::new(home).join(relative).exists()
+        }),
+    })
+    .collect()
+}
+
 /// [`verify`] の state store 注入版。diagnostics と同様に state failure を
 /// process-global env を変更せず hermetic に検証できるようにする。
 fn verify_with_store(repo: &str, tc: &ToolInventory, state_store: &StateStore) -> VerifyReport {
@@ -291,17 +307,8 @@ fn verify_with_store(repo: &str, tc: &ToolInventory, state_store: &StateStore) -
         ok: crate::discovery::which("zsh").is_some(),
     });
 
-    let home = std::env::var("HOME").unwrap_or_default();
-    for (name, path) in [
-        (".zshrc", format!("{home}/.zshrc")),
-        (".gitconfig", format!("{home}/.gitconfig")),
-        ("starship.toml", format!("{home}/.config/starship.toml")),
-    ] {
-        checks.push(VerifyCheck {
-            name: name.to_string(),
-            ok: std::path::Path::new(&path).exists(),
-        });
-    }
+    let home = std::env::var_os("HOME").filter(|value| !value.is_empty());
+    checks.extend(dotfile_checks(home.as_deref()));
 
     if let Err(e) = &state_result {
         checks.push(VerifyCheck {
@@ -998,6 +1005,15 @@ mod tests {
             )),
             homebrew: None,
             nh: None,
+        }
+    }
+
+    #[test]
+    fn dotfile_checks_fail_closed_without_home() {
+        for home in [None, Some(std::ffi::OsStr::new(""))] {
+            let checks = dotfile_checks(home);
+            assert_eq!(checks.len(), 3);
+            assert!(checks.iter().all(|check| !check.ok));
         }
     }
 
