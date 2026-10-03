@@ -108,6 +108,19 @@ mod tests {
     }
 
     #[test]
+    fn empty_env_dir_falls_back_to_home() {
+        assert_eq!(
+            resolve_repo_with(None, Some(""), Some("/home/u")),
+            "/home/u/nix_setting"
+        );
+    }
+
+    #[test]
+    fn empty_home_falls_back_to_current_directory() {
+        assert_eq!(resolve_repo_with(None, None, Some("")), ".");
+    }
+
+    #[test]
     fn repo_resolver_reports_missing_repo() {
         let resolver = RepoResolver::new();
         let repo = resolver.resolve(Some("/definitely/not/a/real/repo"));
