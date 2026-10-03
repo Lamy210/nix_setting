@@ -264,6 +264,33 @@ mod tests {
     }
 
     #[test]
+    fn atomic_write_propagates_sync_failure_without_replacing_destination() {
+        let dir = std::env::temp_dir().join(format!(
+            "sf-machine-fsync-failure-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("machine.nix");
+        std::fs::write(&path, "old-machine-input").unwrap();
+
+        let err = atomic_write_with_sync(&path, "new-machine-input", |_| {
+            Err(std::io::Error::other("forced fsync failure"))
+        })
+        .expect_err("fsync failure must abort atomic replacement");
+
+        assert_eq!(err.kind(), std::io::ErrorKind::Other);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "old-machine-input");
+        let temp_files = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+        assert_eq!(temp_files, 0, "failed writes must not leave temp files");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn default_machine_nix_path_is_in_state_dir() {
         let path = default_machine_nix_path();
         assert!(path.starts_with(crate::machine::state_dir()));
