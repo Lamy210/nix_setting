@@ -60,10 +60,10 @@ pub fn resolve_repo_with(
     if let Some(r) = cli_repo {
         return r.to_string();
     }
-    if let Some(r) = env_dir {
+    if let Some(r) = env_dir.filter(|r| !r.is_empty()) {
         return r.to_string();
     }
-    if let Some(h) = home {
+    if let Some(h) = home.filter(|h| !h.is_empty()) {
         return format!("{h}/nix_setting");
     }
     ".".to_string()
