@@ -95,17 +95,29 @@ pub fn save_selection(name: &str) -> Result<()> {
     save_selection_with(&store, name)
 }
 
+fn load_state_for_profile_mutation(store: &StateStore) -> Result<State> {
+    let state = store.load()?.unwrap_or_default();
+    if let Some(source) = state.source.as_ref().filter(|source| source.managed) {
+        source.validate_managed_release()?;
+    }
+    Ok(state)
+}
+
 /// [`save_selection`] の state store 注入版 (test 用)
 pub fn save_selection_with(store: &StateStore, name: &str) -> Result<()> {
-    let mut state: State = store.load()?.unwrap_or_default();
+    let mut state = load_state_for_profile_mutation(store)?;
     state.profile = Some(name.to_string());
     store.save(&state)
 }
 
 /// state の profile 選択を解除する (manifest default へ戻す)
 pub fn clear_selection() -> Result<()> {
-    let store = StateStore::default();
-    let mut state: State = store.load()?.unwrap_or_default();
+    clear_selection_with(&StateStore::default())
+}
+
+/// [`clear_selection`] の state store 注入版 (test 用)
+pub fn clear_selection_with(store: &StateStore) -> Result<()> {
+    let mut state = load_state_for_profile_mutation(store)?;
     state.profile = None;
     store.save(&state)
 }
@@ -221,9 +233,7 @@ x86_64-linux = true
             store.load().unwrap().unwrap().profile.as_deref(),
             Some("minimal")
         );
-        let mut state = store.load().unwrap().unwrap();
-        state.profile = None;
-        store.save(&state).unwrap();
+        clear_selection_with(&store).unwrap();
         assert_eq!(store.load().unwrap().unwrap().profile, None);
     }
 
