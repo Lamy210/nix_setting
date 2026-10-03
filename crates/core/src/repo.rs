@@ -60,10 +60,10 @@ pub fn resolve_repo_with(
     if let Some(r) = cli_repo {
         return r.to_string();
     }
-    if let Some(r) = env_dir {
+    if let Some(r) = env_dir.filter(|r| !r.is_empty()) {
         return r.to_string();
     }
-    if let Some(h) = home {
+    if let Some(h) = home.filter(|h| !h.is_empty()) {
         return format!("{h}/nix_setting");
     }
     ".".to_string()
@@ -105,6 +105,19 @@ mod tests {
             resolve_repo_with(Some("/custom"), Some("/env"), Some("/home/u")),
             "/custom"
         );
+    }
+
+    #[test]
+    fn empty_env_dir_falls_back_to_home() {
+        assert_eq!(
+            resolve_repo_with(None, Some(""), Some("/home/u")),
+            "/home/u/nix_setting"
+        );
+    }
+
+    #[test]
+    fn empty_home_falls_back_to_current_directory() {
+        assert_eq!(resolve_repo_with(None, None, Some("")), ".");
     }
 
     #[test]
