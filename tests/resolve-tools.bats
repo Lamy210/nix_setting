@@ -32,6 +32,21 @@ EOF
   [ "$MYTOOL_BIN" = "$TMPDIR_TEST/custom/bin/mytool" ]
 }
 
+@test "resolve_tool canonicalizes relative env override to absolute path" {
+  mkdir -p "$TMPDIR_TEST/relative-env/bin"
+  cat >"$TMPDIR_TEST/relative-env/bin/mytool_relative_env" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$TMPDIR_TEST/relative-env/bin/mytool_relative_env"
+  cd "$TMPDIR_TEST"
+  export SCHNEEFORGE_MYTOOL_RELATIVE_ENV_BIN="relative-env/bin/mytool_relative_env"
+
+  resolve_tool "mytool_relative_env"
+
+  [ "$MYTOOL_RELATIVE_ENV_BIN" = "$TMPDIR_TEST/relative-env/bin/mytool_relative_env" ]
+}
+
 @test "resolve_tool finds binary via PATH" {
   mkdir -p "$TMPDIR_TEST/pathdir"
   cat >"$TMPDIR_TEST/pathdir/mytool2" <<'EOF'
@@ -42,6 +57,36 @@ EOF
   export PATH="$TMPDIR_TEST/pathdir:/usr/bin:/bin"
   resolve_tool "mytool2"
   [ "$MYTOOL2_BIN" = "$TMPDIR_TEST/pathdir/mytool2" ]
+}
+
+@test "resolve_tool canonicalizes relative PATH result to absolute path" {
+  mkdir -p "$TMPDIR_TEST/relative-path"
+  cat >"$TMPDIR_TEST/relative-path/mytool_relative_path" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$TMPDIR_TEST/relative-path/mytool_relative_path"
+  cd "$TMPDIR_TEST"
+  export PATH="relative-path:/usr/bin:/bin"
+
+  resolve_tool "mytool_relative_path"
+
+  [ "$MYTOOL_RELATIVE_PATH_BIN" = "$TMPDIR_TEST/relative-path/mytool_relative_path" ]
+}
+
+@test "resolve_tool canonicalizes symlink override like Rust resolver" {
+  mkdir -p "$TMPDIR_TEST/real/bin" "$TMPDIR_TEST/link/bin"
+  cat >"$TMPDIR_TEST/real/bin/mytool_symlink" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$TMPDIR_TEST/real/bin/mytool_symlink"
+  ln -s "$TMPDIR_TEST/real/bin/mytool_symlink" "$TMPDIR_TEST/link/bin/mytool_symlink"
+  export SCHNEEFORGE_MYTOOL_SYMLINK_BIN="$TMPDIR_TEST/link/bin/mytool_symlink"
+
+  resolve_tool "mytool_symlink"
+
+  [ "$MYTOOL_SYMLINK_BIN" = "$TMPDIR_TEST/real/bin/mytool_symlink" ]
 }
 
 @test "env override beats PATH" {
