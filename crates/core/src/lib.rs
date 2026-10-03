@@ -39,6 +39,19 @@ pub mod operations {
 
         crate::operations_impl::source_init(repo, store, git, channel, tag)
     }
+
+    /// Deprecated compatibility alias for [`deps_update`].
+    ///
+    /// Keep the legacy entry point behind the same source-safety boundary as
+    /// `source deps update`: managed sources must be rejected and release
+    /// checkouts must receive the canonical warning before any flake mutation.
+    pub fn upgrade(
+        repo: &str,
+        tc: &crate::tool::ToolInventory,
+        capture: bool,
+    ) -> crate::error::Result<Option<String>> {
+        crate::operations_impl::deps_update(repo, tc, capture)
+    }
 }
 pub(crate) mod process;
 pub mod profile;
