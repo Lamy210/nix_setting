@@ -2,7 +2,7 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-09-30
+最終更新: 2026-10-03
 
 ## 完成済み
 
@@ -205,6 +205,32 @@ release/source/update 境界の重複実装と silent fallback を整理し、Ma
   - current branch の release CLI を Nix-less Apple Silicon runner 上で buildし、embedded manifestを使って install → receipt/ownership → store/local flake → doctor → `ExistingNixDetected` → uninstall → reinstall → final cleanup を自動検証
   - #132 の **2.35.2 branch binary** でも full lifecycle green を確認
   - published release tag を対象にする既存 manual lifecycle mode は維持
+
+### Bootstrap / source-state fail-closed follow-up（2026-10-01〜10-03）
+
+既存 OpenSpec の bootstrap / state / source safety 契約に対する audit を継続し、silent fallback と mutation 前検証漏れを修正した。
+
+- **missing-Nix / flakes bootstrap (#141-#147)**:
+  - missing Nix guidance を Managed Nix (`schneeforge nix install`) に統一し、legacy curl|sh guidance を除去
+  - setup は flakes enable 後に再診断し、`nix-command` + `flakes` の両方が実効設定として確認できるまで apply へ進まない
+  - Rust / install.sh / bootstrap.sh は実効 `nix config show experimental-features` を exact token で判定し、inspection failure は config mutation 前に fail-closed
+  - `extra-experimental-features` で既存 feature を破壊せず、安全に newline を補って追記
+- **read-only state/manifest surfaces (#142/#148/#150/#151)**:
+  - CLI scan / Desktop Dashboard / CLI status・doctor / core verify が corrupt・semantic-invalid managed state を missing/unset/local fallback に変換しない
+  - genuine missing local manifest の informational path は維持
+- **Git/source classification and release update (#149/#152-#160)**:
+  - Git branch/tag inspection error を detached/tagless 状態として扱わず、source init / sync / release update / deps warning まで error を伝播
+  - apply / rollback 後も checkout source を保持し、Preview 等の release channel semantic を消さない
+  - detached HEAD の複数 exact tags は ambiguous として拒否
+  - release tag fetch failure は stale local tags へ fallback せず停止
+  - release metadata は選択 repository に bind し、404 の legacy missing-asset 以外の fetch/validation error を fail-closed
+  - release page version / repository URL、managed source revision、existing source-init state を canonical boundary で検証
+- **state mutation / dependency update boundaries (#161-#163)**:
+  - profile selection/clear は semantic-invalid managed state を上書きしない
+  - deprecated `upgrade` は canonical `deps_update` safety boundary を経由
+  - unmanaged Git checkout では Git が解決できない状態で source classification を省略して `nix flake update` へ進まない。Git 管理外 Local source は従来どおり Git 無しで更新可能
+- `develop@42fcc900` で #163 を squash merge。run #801 は protected required 7 contexts、`ci-required`、`release-artifact-check`（DMG verify + mounted app `/nix/store` 非依存を含む）まで green。
+- 2026-10-03 時点で open PR / active OpenSpec change は 0。コード上の既知 release blocker は無し。
 
 ## 進行中
 
