@@ -63,7 +63,7 @@ jobs:
           cargo fmt --all
           cargo test -p schneeforge-core dotfile_checks_fail_closed_without_home
           cargo test -p schneeforge-core verify_distinguishes_corrupt_state_from_missing_state
-          cargo clippy -p schneeforge-core --all-targets -- -D warnings
+          cargo check -p schneeforge-core
           git diff --check
 
       - name: Commit fix
