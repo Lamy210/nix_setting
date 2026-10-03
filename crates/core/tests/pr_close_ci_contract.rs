@@ -8,8 +8,8 @@ fn repo_root() -> PathBuf {
 #[test]
 fn check_workflow_keeps_existing_ref_scoped_concurrency_contract() {
     let path = repo_root().join(".github/workflows/check.yml");
-    let workflow = fs::read_to_string(&path)
-        .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+    let workflow =
+        fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
 
     for required in [
         "name: check",
@@ -26,8 +26,8 @@ fn check_workflow_keeps_existing_ref_scoped_concurrency_contract() {
 #[test]
 fn closed_pr_workflow_cancels_the_shared_group_without_expensive_work() {
     let path = repo_root().join(".github/workflows/pr-close-cancel.yml");
-    let workflow = fs::read_to_string(&path)
-        .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+    let workflow =
+        fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
 
     for required in [
         "types: [closed]",
