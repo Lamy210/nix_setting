@@ -124,9 +124,15 @@ pub fn default_machine_nix_path() -> PathBuf {
 
 /// state dir (`XDG_STATE_HOME/schneeforge` or `~/.local/state/schneeforge`)
 pub fn state_dir() -> PathBuf {
-    let base = std::env::var_os("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))
+    state_dir_with(
+        std::env::var_os("XDG_STATE_HOME").map(PathBuf::from),
+        std::env::var_os("HOME").map(PathBuf::from),
+    )
+}
+
+fn state_dir_with(xdg_state_home: Option<PathBuf>, home: Option<PathBuf>) -> PathBuf {
+    let base = xdg_state_home
+        .or_else(|| home.map(|h| h.join(".local/state")))
         .unwrap_or_else(|| PathBuf::from("."));
     base.join("schneeforge")
 }
@@ -303,6 +309,22 @@ mod tests {
         let path = default_machine_nix_path();
         assert!(path.starts_with(crate::machine::state_dir()));
         assert!(path.ends_with("machine.nix"));
+    }
+
+    #[test]
+    fn state_dir_empty_xdg_state_home_falls_back_to_home() {
+        assert_eq!(
+            state_dir_with(Some(PathBuf::new()), Some(PathBuf::from("/home/u"))),
+            PathBuf::from("/home/u/.local/state/schneeforge")
+        );
+    }
+
+    #[test]
+    fn state_dir_empty_home_falls_back_to_current_directory() {
+        assert_eq!(
+            state_dir_with(None, Some(PathBuf::new())),
+            PathBuf::from(".").join("schneeforge")
+        );
     }
 
     #[test]
