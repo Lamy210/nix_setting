@@ -169,10 +169,8 @@ mod public_boundary_tests {
 
     #[test]
     fn deps_update_requires_git_when_repo_is_a_git_checkout() {
-        let dir = std::env::temp_dir().join(format!(
-            "schneeforge-deps-git-guard-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("schneeforge-deps-git-guard-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(".git")).unwrap();
 
