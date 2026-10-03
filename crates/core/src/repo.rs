@@ -57,7 +57,7 @@ pub fn resolve_repo_with(
     env_dir: Option<&str>,
     home: Option<&str>,
 ) -> String {
-    if let Some(r) = cli_repo {
+    if let Some(r) = cli_repo.filter(|r| !r.is_empty()) {
         return r.to_string();
     }
     if let Some(r) = env_dir.filter(|r| !r.is_empty()) {
