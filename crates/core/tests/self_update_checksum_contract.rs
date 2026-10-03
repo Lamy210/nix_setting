@@ -6,9 +6,7 @@ const SHA_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
 #[test]
 fn duplicate_checksum_entries_are_rejected_even_when_hashes_match() {
-    let checksums = format!(
-        "{SHA_A}  dist/linux/{ASSET}\n{SHA_A}  mirror/{ASSET}\n"
-    );
+    let checksums = format!("{SHA_A}  dist/linux/{ASSET}\n{SHA_A}  mirror/{ASSET}\n");
 
     let err = expected_sha256(&checksums, ASSET).unwrap_err();
     assert!(matches!(err, Error::SelfUpdate(_)), "{err}");
@@ -17,9 +15,7 @@ fn duplicate_checksum_entries_are_rejected_even_when_hashes_match() {
 
 #[test]
 fn conflicting_checksum_entries_are_rejected() {
-    let checksums = format!(
-        "{SHA_A}  dist/linux/{ASSET}\n{SHA_B}  mirror/{ASSET}\n"
-    );
+    let checksums = format!("{SHA_A}  dist/linux/{ASSET}\n{SHA_B}  mirror/{ASSET}\n");
 
     let err = expected_sha256(&checksums, ASSET).unwrap_err();
     assert!(matches!(err, Error::SelfUpdate(_)), "{err}");
