@@ -61,16 +61,31 @@ fn append_config_line(path: &Path, line: &str) -> Result<()> {
         .map_err(|e| Error::Io(format!("write {}: {e}", path.display())))
 }
 
+fn nix_config_path_from(
+    xdg_config_home: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+) -> Result<PathBuf> {
+    if let Some(xdg_config_home) = xdg_config_home.filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(xdg_config_home).join("nix").join("nix.conf"));
+    }
+
+    if let Some(home) = home.filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(home)
+            .join(".config")
+            .join("nix")
+            .join("nix.conf"));
+    }
+
+    Err(Error::Precondition(
+        "cannot enable flakes: XDG_CONFIG_HOME or HOME must be set".to_string(),
+    ))
+}
+
 /// nix.conf に experimental-features (nix-command flakes) を追記する
 ///
 /// flakes 有効化は Nix を必要とする操作 (run_capture で現在の設定を確認するため)。
 pub fn enable_flakes(tc: &ToolInventory) -> Result<()> {
     let nix = tc.require_nix()?;
-    let base = std::env::var("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".config")))
-        .unwrap_or_else(|_| PathBuf::from("."));
-    let conf = base.join("nix").join("nix.conf");
 
     // nix.conf の文字列ではなく、resolved Nix が実際に認識している設定を
     // authoritative source とする。コメント中の "flakes" や nix-command 欠落を
@@ -87,6 +102,10 @@ pub fn enable_flakes(tc: &ToolInventory) -> Result<()> {
         return Ok(());
     }
 
+    let conf = nix_config_path_from(
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("HOME"),
+    )?;
     if let Some(parent) = conf.parent() {
         std::fs::create_dir_all(parent).map_err(|e| Error::Io(format!("create_dir: {e}")))?;
     }
