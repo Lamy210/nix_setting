@@ -1,6 +1,6 @@
 use schneeforge_core::{
-    detect_target, release_page_url, resolve_repo, scan, Diagnostics, Error, Manifest,
-    PreflightReport, StateStore, ToolInventory, VerifyReport, DEFAULT_REPO_URL,
+    detect_target, release_page_url, repo_url, resolve_repo, scan, Diagnostics, Error, Manifest,
+    PreflightReport, StateStore, ToolInventory, VerifyReport,
 };
 use serde::Serialize;
 use std::sync::Mutex;
@@ -574,8 +574,7 @@ async fn get_dashboard(
         let repo_state = store.load().map_err(|e| e.to_string())?;
         validate_dashboard_state(repo_state.as_ref())?;
         let channel = schneeforge_core::channel_of(repo_state.as_ref());
-        let repo_url =
-            std::env::var("SCHNEEFORGE_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string());
+        let repo_url = repo_url();
         let available = match tc.git.as_ref() {
             Some(git) => schneeforge_core::fetch_available(&repo_url, &channel, git)
                 .map_err(|e| e.to_string()),
@@ -601,8 +600,7 @@ async fn get_dashboard(
 /// 同じ区分)。opener は起動のみで待機しないため sync のまま実行する。
 #[tauri::command]
 fn open_release(version: String) -> Result<CommandOutput, String> {
-    let repo_url =
-        std::env::var("SCHNEEFORGE_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string());
+    let repo_url = repo_url();
     let url = release_page_url(&repo_url, &version).map_err(|e| e.to_string())?;
     match tauri_plugin_opener::open_url(&url, None::<&str>) {
         Ok(()) => Ok(CommandOutput {

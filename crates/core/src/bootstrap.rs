@@ -233,7 +233,7 @@ pub const DEFAULT_REPO_URL: &str = "https://github.com/Lamy210/nix_setting.git";
 
 pub fn clone_repo(url: &str, dest: &str, tc: &ToolInventory) -> Result<String> {
     let effective_url = if url.trim().is_empty() {
-        std::env::var("SCHNEEFORGE_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string())
+        crate::source::repo_url()
     } else {
         url.to_string()
     };

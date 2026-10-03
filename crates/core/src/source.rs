@@ -152,7 +152,9 @@ impl SourceState {
 /// install.sh の `REPO_URL="${SCHNEEFORGE_REPO_URL:-...}"` と同じ規約
 pub fn repo_url() -> String {
     std::env::var("SCHNEEFORGE_REPO_URL")
-        .unwrap_or_else(|_| crate::bootstrap::DEFAULT_REPO_URL.to_string())
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| crate::bootstrap::DEFAULT_REPO_URL.to_string())
 }
 
 /// repository URL から github の owner / repo を解決する。
