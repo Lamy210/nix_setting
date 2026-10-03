@@ -145,10 +145,18 @@ pub fn write_machine_input_at(path: &Path, facts: &MachineFacts) -> Result<PathB
     Ok(path.to_path_buf())
 }
 
-/// temp file (random suffix) + rename による atomic 置換。
+/// temp file (random suffix) + fsync + rename による atomic 置換。
 /// 固定の tmp 名だと同一 file への並列書き込みで rename が ENOENT になる
-/// ため、download.rs と同じ random suffix 方式を使う
+/// ため、download.rs と同じ random suffix 方式を使う。write / fsync /
+/// rename のどこで失敗しても destination は置換せず、temp は掃除する。
 pub(crate) fn atomic_write(path: &Path, content: &str) -> std::io::Result<()> {
+    atomic_write_with_sync(path, content, std::fs::File::sync_all)
+}
+
+fn atomic_write_with_sync<F>(path: &Path, content: &str, sync: F) -> std::io::Result<()>
+where
+    F: FnOnce(&std::fs::File) -> std::io::Result<()>,
+{
     use std::io::Write;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -158,20 +166,22 @@ pub(crate) fn atomic_write(path: &Path, content: &str) -> std::io::Result<()> {
         .map(|d| d.subsec_nanos())
         .unwrap_or(0);
     let tmp = path.with_extension(format!("nix.{rnd:08x}.tmp"));
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&tmp)?;
-    f.write_all(content.as_bytes())?;
-    f.sync_all().ok();
-    drop(f);
-    match std::fs::rename(&tmp, path) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            let _ = std::fs::remove_file(&tmp);
-            Err(e)
-        }
+
+    let result = (|| {
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)?;
+        f.write_all(content.as_bytes())?;
+        sync(&f)?;
+        drop(f);
+        std::fs::rename(&tmp, path)
+    })();
+
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
+    result
 }
 
 fn hostname() -> String {
@@ -260,6 +270,31 @@ mod tests {
         assert!(path.starts_with(&dir));
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("username = \"alice\";"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn atomic_write_propagates_sync_failure_without_replacing_destination() {
+        let dir =
+            std::env::temp_dir().join(format!("sf-machine-fsync-failure-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("machine.nix");
+        std::fs::write(&path, "old-machine-input").unwrap();
+
+        let err = atomic_write_with_sync(&path, "new-machine-input", |_| {
+            Err(std::io::Error::other("forced fsync failure"))
+        })
+        .expect_err("fsync failure must abort atomic replacement");
+
+        assert_eq!(err.kind(), std::io::ErrorKind::Other);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "old-machine-input");
+        let temp_files = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+        assert_eq!(temp_files, 0, "failed writes must not leave temp files");
         std::fs::remove_dir_all(&dir).ok();
     }
 
