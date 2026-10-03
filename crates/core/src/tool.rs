@@ -240,7 +240,7 @@ impl ToolResolver {
         if let Ok(p) = env::var(&env_key) {
             let path = PathBuf::from(p);
             if is_executable(&path) {
-                return Some((canonicalize(path), ToolSource::EnvOverride));
+                return canonicalize(path).map(|path| (path, ToolSource::EnvOverride));
             }
         }
 
@@ -252,13 +252,13 @@ impl ToolResolver {
             })
             .unwrap_or_default();
         if let Some(dir) = find_in_dirs(tool, &path_dirs) {
-            return Some((canonicalize(dir), ToolSource::Path));
+            return canonicalize(dir).map(|path| (path, ToolSource::Path));
         }
 
         for (dir, source) in &self.known_paths {
             let candidate = dir.join(tool);
             if is_executable(&candidate) {
-                return Some((canonicalize(candidate), *source));
+                return canonicalize(candidate).map(|path| (path, *source));
             }
         }
         None
@@ -365,9 +365,9 @@ fn default_known_paths() -> Vec<(PathBuf, ToolSource)> {
     paths
 }
 
-/// symlink を解決して realpath を返す。解決失敗時はそのまま返す
-fn canonicalize(path: PathBuf) -> PathBuf {
-    std::fs::canonicalize(&path).unwrap_or(path)
+/// symlink を解決して realpath を返す。解決失敗時は `None`
+fn canonicalize(path: PathBuf) -> Option<PathBuf> {
+    std::fs::canonicalize(path).ok()
 }
 
 /// 実行可能ファイルか (存在 + 実行ビット)
