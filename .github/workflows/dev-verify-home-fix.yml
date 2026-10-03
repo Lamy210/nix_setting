@@ -1,0 +1,75 @@
+name: dev-verify-home-fix
+
+on:
+  push:
+    branches: [fix/verify-missing-home]
+    paths:
+      - .github/workflows/dev-verify-home-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/verify-missing-home
+
+      - name: Add regression test and confirm RED
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("crates/core/src/operations.rs")
+          text = path.read_text()
+          marker = '''    #[test]\n    fn applied_state_contains_host_and_revision() {\n'''
+          test = '''    #[test]\n    fn dotfile_checks_fail_closed_without_home() {\n        for home in [None, Some(std::ffi::OsStr::new(""))] {\n            let checks = dotfile_checks(home);\n            assert_eq!(checks.len(), 3);\n            assert!(checks.iter().all(|check| !check.ok));\n        }\n    }\n\n'''
+          if text.count(marker) != 1:
+              raise SystemExit("test insertion marker did not match exactly once")
+          path.write_text(text.replace(marker, test + marker, 1))
+          PY
+
+          if cargo test -p schneeforge-core dotfile_checks_fail_closed_without_home; then
+            echo "expected regression test to fail before implementation" >&2
+            exit 1
+          fi
+
+      - name: Implement fail-closed HOME verification
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("crates/core/src/operations.rs")
+          text = path.read_text()
+
+          old_block = '''    let home = std::env::var("HOME").unwrap_or_default();\n    for (name, path) in [\n        (".zshrc", format!("{home}/.zshrc")),\n        (".gitconfig", format!("{home}/.gitconfig")),\n        ("starship.toml", format!("{home}/.config/starship.toml")),\n    ] {\n        checks.push(VerifyCheck {\n            name: name.to_string(),\n            ok: std::path::Path::new(&path).exists(),\n        });\n    }\n'''
+          new_block = '''    let home = std::env::var_os("HOME").filter(|value| !value.is_empty());\n    checks.extend(dotfile_checks(home.as_deref()));\n'''
+          if text.count(old_block) != 1:
+              raise SystemExit("HOME verification block did not match exactly once")
+          text = text.replace(old_block, new_block, 1)
+
+          marker = '''/// [`verify`] の state store 注入版。diagnostics と同様に state failure を\n/// process-global env を変更せず hermetic に検証できるようにする。\nfn verify_with_store(repo: &str, tc: &ToolInventory, state_store: &StateStore) -> VerifyReport {\n'''
+          helper = '''fn dotfile_checks(home: Option<&std::ffi::OsStr>) -> Vec<VerifyCheck> {\n    [\n        (".zshrc", ".zshrc"),\n        (".gitconfig", ".gitconfig"),\n        ("starship.toml", ".config/starship.toml"),\n    ]\n    .into_iter()\n    .map(|(name, relative)| VerifyCheck {\n        name: name.to_string(),\n        ok: home.is_some_and(|home| {\n            !home.is_empty() && std::path::Path::new(home).join(relative).exists()\n        }),\n    })\n    .collect()\n}\n\n'''
+          if text.count(marker) != 1:
+              raise SystemExit("verify_with_store marker did not match exactly once")
+          text = text.replace(marker, helper + marker, 1)
+          path.write_text(text)
+          PY
+
+      - name: Verify GREEN
+        run: |
+          cargo fmt --all
+          cargo test -p schneeforge-core dotfile_checks_fail_closed_without_home
+          cargo test -p schneeforge-core verify_distinguishes_corrupt_state_from_missing_state
+          cargo clippy -p schneeforge-core --all-targets -- -D warnings
+          git diff --check
+
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/core/src/operations.rs
+          git commit -m "fix: fail verify dotfile checks without HOME"
+          git push origin HEAD:fix/verify-missing-home
