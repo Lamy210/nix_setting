@@ -125,8 +125,13 @@ pub fn default_machine_nix_path() -> PathBuf {
 /// state dir (`XDG_STATE_HOME/schneeforge` or `~/.local/state/schneeforge`)
 pub fn state_dir() -> PathBuf {
     let base = std::env::var_os("XDG_STATE_HOME")
+        .filter(|value| !value.as_os_str().is_empty())
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|value| !value.as_os_str().is_empty())
+                .map(|h| PathBuf::from(h).join(".local/state"))
+        })
         .unwrap_or_else(|| PathBuf::from("."));
     base.join("schneeforge")
 }
