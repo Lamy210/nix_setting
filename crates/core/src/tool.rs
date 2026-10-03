@@ -315,7 +315,7 @@ fn default_known_paths() -> Vec<(PathBuf, ToolSource)> {
         }
     }
 
-    let home = env::var("HOME").ok();
+    let home = env::var("HOME").ok().filter(|h| !h.is_empty());
 
     // XDG デフォルト (~/.local/state/nix/profile/bin)
     if let Some(h) = &home {
