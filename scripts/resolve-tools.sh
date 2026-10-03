@@ -88,7 +88,7 @@ resolve_tool() {
 
   # 1. env override
   if [ -n "${!env_var:-}" ] && is_executable "${!env_var}"; then
-    export_resolved_tool "$out_var" "${!env_var}"
+    export_resolved_tool "$out_var" "${!env_var}" || return 1
     return 0
   fi
 
@@ -97,7 +97,7 @@ resolve_tool() {
     local p
     p="$(command -v "$name")"
     if is_executable "$p"; then
-      export_resolved_tool "$out_var" "$p"
+      export_resolved_tool "$out_var" "$p" || return 1
       return 0
     fi
   fi
@@ -126,7 +126,7 @@ resolve_tool() {
   for dir in "${candidates[@]}"; do
     local candidate="${dir}/${name}"
     if is_executable "$candidate"; then
-      export_resolved_tool "$out_var" "$candidate"
+      export_resolved_tool "$out_var" "$candidate" || return 1
       return 0
     fi
   done
