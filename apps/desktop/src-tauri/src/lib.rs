@@ -55,10 +55,7 @@ fn resolve_updater_build_config(
         .filter(|value| !value.is_empty());
 
     let (enabled, reason) = if !target_supported {
-        (
-            false,
-            "app updater is supported only on macOS aarch64".to_string(),
-        )
+        (false, "app updater is supported only on macOS aarch64".to_string())
     } else if !activated {
         (
             false,
@@ -549,7 +546,9 @@ fn load_dashboard_manifest(repo: &str, store: &StateStore) -> Result<Option<Mani
     }
 }
 
-fn validate_dashboard_state(state: Option<&schneeforge_core::State>) -> Result<(), String> {
+fn validate_dashboard_state(
+    state: Option<&schneeforge_core::State>,
+) -> Result<(), String> {
     let Some(source) = state.and_then(|state| state.source.as_ref()) else {
         return Ok(());
     };
@@ -1316,8 +1315,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let store = StateStore::new(dir.join("state.json"));
 
-        let manifest =
-            load_dashboard_manifest(dir.join("missing-repo").to_str().unwrap(), &store).unwrap();
+        let manifest = load_dashboard_manifest(
+            dir.join("missing-repo").to_str().unwrap(),
+            &store,
+        )
+        .unwrap();
         assert!(manifest.is_none());
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -1894,7 +1896,8 @@ mod tests {
         assert!(!unsupported.enabled);
         assert!(unsupported.endpoint.is_none());
 
-        let inactive = resolve_updater_build_config(true, false, Some("trusted-key".to_string()));
+        let inactive =
+            resolve_updater_build_config(true, false, Some("trusted-key".to_string()));
         assert!(!inactive.enabled);
         assert!(inactive.endpoint.is_none());
 
@@ -1902,11 +1905,13 @@ mod tests {
         assert!(!missing_key.enabled);
         assert!(missing_key.endpoint.is_none());
 
-        let blank_key = resolve_updater_build_config(true, true, Some("   ".to_string()));
+        let blank_key =
+            resolve_updater_build_config(true, true, Some("   ".to_string()));
         assert!(!blank_key.enabled);
         assert!(blank_key.endpoint.is_none());
 
-        let active = resolve_updater_build_config(true, true, Some("  trusted-key  ".to_string()));
+        let active =
+            resolve_updater_build_config(true, true, Some("  trusted-key  ".to_string()));
         assert!(active.enabled);
         assert_eq!(active.pubkey.as_deref(), Some("trusted-key"));
         assert_eq!(active.endpoint.as_deref(), Some(APP_UPDATER_ENDPOINT));
