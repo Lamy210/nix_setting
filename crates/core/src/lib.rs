@@ -126,3 +126,35 @@ pub use tool::{
     find_executable, version_of, ResolvedTool, ToolInventory, ToolRequirementError, ToolResolver,
     ToolSource, ToolStatus,
 };
+
+#[cfg(test)]
+mod public_boundary_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn deps_update_requires_git_when_repo_is_a_git_checkout() {
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-deps-git-guard-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+
+        let tc = ToolInventory {
+            nix: Some(ResolvedTool::new(
+                PathBuf::from("/usr/bin/true"),
+                ToolSource::Path,
+            )),
+            git: None,
+            homebrew: None,
+            nh: None,
+        };
+
+        let err = deps_update(dir.to_str().unwrap(), &tc, true).unwrap_err();
+        assert!(matches!(err, Error::Precondition(_)), "{err}");
+        assert!(err.to_string().contains("Git"), "{err}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
