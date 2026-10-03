@@ -1,0 +1,79 @@
+name: dev-clean-repo-url-diff
+
+on:
+  push:
+    branches: [fix/empty-repo-url-fallback]
+    paths:
+      - .github/workflows/dev-clean-repo-url-diff.yml
+
+permissions:
+  contents: write
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/empty-repo-url-fallback
+          fetch-depth: 0
+
+      - name: Restore Desktop baseline and apply only repository URL edits
+        run: |
+          git checkout origin/develop -- apps/desktop/src-tauri/src/lib.rs
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("apps/desktop/src-tauri/src/lib.rs")
+          text = path.read_text()
+
+          replacements = [
+              (
+                  '''    detect_target, release_page_url, resolve_repo, scan, Diagnostics, Error, Manifest,
+              PreflightReport, StateStore, ToolInventory, VerifyReport, DEFAULT_REPO_URL,
+          ''',
+                  '''    detect_target, release_page_url, repo_url, resolve_repo, scan, Diagnostics, Error, Manifest,
+              PreflightReport, StateStore, ToolInventory, VerifyReport,
+          ''',
+                  1,
+              ),
+              (
+                  '''        let repo_url =
+                      std::env::var("SCHNEEFORGE_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string());
+          ''',
+                  '''        let repo_url = repo_url();
+          ''',
+                  1,
+              ),
+              (
+                  '''    let repo_url =
+                  std::env::var("SCHNEEFORGE_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string());
+          ''',
+                  '''    let repo_url = repo_url();
+          ''',
+                  1,
+              ),
+          ]
+
+          for old, new, expected in replacements:
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f"expected {expected} match, found {count}: {old!r}")
+              text = text.replace(old, new)
+
+          path.write_text(text)
+          PY
+
+      - name: Verify focused diff and regression
+        run: |
+          cargo test -p schneeforge-core --test repo_url_contract empty_repository_url_override_falls_back_to_default
+          cargo fmt --all -- --check
+          git diff --check
+
+      - name: Commit focused Desktop diff
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/desktop/src-tauri/src/lib.rs
+          git commit -m "refactor: keep repository URL fix focused"
+          git push origin HEAD:fix/empty-repo-url-fallback
