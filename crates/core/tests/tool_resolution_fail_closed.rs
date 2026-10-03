@@ -12,7 +12,10 @@ fn unique_temp_dir(label: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("clock should be after unix epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!("schneeforge-{label}-{}-{nonce}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "schneeforge-{label}-{}-{nonce}",
+        std::process::id()
+    ))
 }
 
 fn create_executable(dir: &Path, name: &str) -> PathBuf {
@@ -39,7 +42,10 @@ fn env_override_canonicalization_failure_is_fail_closed() {
     // realpath/canonicalize fails because the symlink target is marked "(deleted)".
     // This gives us a deterministic TOCTOU-like candidate without a timing race.
     let uncanonicalizable = PathBuf::from(format!("/proc/self/fd/{}", held_file.as_raw_fd()));
-    assert!(uncanonicalizable.is_file(), "fd path should still be a file");
+    assert!(
+        uncanonicalizable.is_file(),
+        "fd path should still be a file"
+    );
     assert!(
         fs::canonicalize(&uncanonicalizable).is_err(),
         "test precondition: fd path must not have a canonical real path"
@@ -49,10 +55,8 @@ fn env_override_canonicalization_failure_is_fail_closed() {
     // resolution instead of silently falling through to another installation.
     let fallback_dir = unique_temp_dir("canonicalize-fallback");
     let _fallback = create_executable(&fallback_dir, tool);
-    let resolver = ToolResolver::with_known_paths(vec![(
-        fallback_dir.clone(),
-        ToolSource::SystemProfile,
-    )]);
+    let resolver =
+        ToolResolver::with_known_paths(vec![(fallback_dir.clone(), ToolSource::SystemProfile)]);
 
     std::env::set_var(env_key, &uncanonicalizable);
     let resolved = resolver.resolve_tool(tool);
