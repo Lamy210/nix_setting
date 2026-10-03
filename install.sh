@@ -23,6 +23,46 @@ is_executable() {
   [ -f "$1" ] && [ -x "$1" ]
 }
 
+# executable candidate を absolute real path へ正規化する。
+# fresh install では realpath/readlink -f を前提にできないため、POSIX-ish な
+# readlink + pwd -P だけで scripts/resolve-tools.sh と同じ contract を守る。
+canonicalize_executable() {
+  local path="$1"
+  case "$path" in
+  /*) ;;
+  *) path="${PWD}/${path}" ;;
+  esac
+
+  local hops=0 target dir
+  while [ -L "$path" ]; do
+    hops=$((hops + 1))
+    [ "$hops" -le 40 ] || return 1
+    target="$(readlink "$path")" || return 1
+    case "$target" in
+    /*) path="$target" ;;
+    *)
+      dir="$(dirname "$path")"
+      path="${dir}/${target}"
+      ;;
+    esac
+  done
+
+  local base
+  dir="$(dirname "$path")"
+  base="$(basename "$path")"
+  (
+    cd -P "$dir" >/dev/null 2>&1 || exit 1
+    printf '%s/%s\n' "$(pwd -P)" "$base"
+  )
+}
+
+export_resolved_tool() {
+  local out_var="$1" candidate="$2" resolved
+  resolved="$(canonicalize_executable "$candidate")" || return 1
+  is_executable "$resolved" || return 1
+  export "${out_var}=${resolved}"
+}
+
 # resolve_tool NAME -- <NAME>_BIN 絶対パスを export。見つからなければ 1
 resolve_tool() {
   local name="$1"
@@ -33,7 +73,7 @@ resolve_tool() {
 
   # 1. env override
   if [ -n "${!env_var:-}" ] && is_executable "${!env_var}"; then
-    export "${out_var}=${!env_var}"
+    export_resolved_tool "$out_var" "${!env_var}" || return 1
     return 0
   fi
 
@@ -42,7 +82,7 @@ resolve_tool() {
     local p
     p="$(command -v "$name")"
     if is_executable "$p"; then
-      export "${out_var}=$p"
+      export_resolved_tool "$out_var" "$p" || return 1
       return 0
     fi
   fi
@@ -71,7 +111,7 @@ resolve_tool() {
   for dir in "${candidates[@]}"; do
     local candidate="${dir}/${name}"
     if is_executable "$candidate"; then
-      export "${out_var}=$candidate"
+      export_resolved_tool "$out_var" "$candidate" || return 1
       return 0
     fi
   done

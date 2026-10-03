@@ -20,6 +20,12 @@ teardown() {
   rm -rf "$TMPDIR_TEST"
 }
 
+load_install_inline_resolver() {
+  local install_functions
+  install_functions="$(sed -n '1,/^# --- end inline resolver ---$/p' "$BATS_TEST_DIRNAME/../install.sh")"
+  eval "$install_functions"
+}
+
 @test "resolve_tool finds binary via env override" {
   mkdir -p "$TMPDIR_TEST/custom/bin"
   cat >"$TMPDIR_TEST/custom/bin/mytool" <<'EOF'
@@ -117,6 +123,86 @@ EOF
   resolve_tool "mytool_symlink"
 
   [ "$MYTOOL_SYMLINK_BIN" = "$TMPDIR_TEST/real/bin/mytool_symlink" ]
+}
+
+@test "install inline resolver canonicalizes relative env override" {
+  mkdir -p "$TMPDIR_TEST/install-relative/bin"
+  cat >"$TMPDIR_TEST/install-relative/bin/nix" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$TMPDIR_TEST/install-relative/bin/nix"
+  cd "$TMPDIR_TEST"
+  export SCHNEEFORGE_NIX_BIN="install-relative/bin/nix"
+  load_install_inline_resolver
+
+  resolve_nix
+
+  [ "$NIX_BIN" = "$TMPDIR_TEST/install-relative/bin/nix" ]
+}
+
+@test "install inline resolver canonicalizes symlink override" {
+  mkdir -p "$TMPDIR_TEST/install-real/bin" "$TMPDIR_TEST/install-link/bin"
+  cat >"$TMPDIR_TEST/install-real/bin/nix" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$TMPDIR_TEST/install-real/bin/nix"
+  ln -s "$TMPDIR_TEST/install-real/bin/nix" "$TMPDIR_TEST/install-link/bin/nix"
+  export SCHNEEFORGE_NIX_BIN="$TMPDIR_TEST/install-link/bin/nix"
+  load_install_inline_resolver
+
+  resolve_nix
+
+  [ "$NIX_BIN" = "$TMPDIR_TEST/install-real/bin/nix" ]
+}
+
+@test "install inline resolver propagates env canonicalization failure" {
+  mkdir -p "$TMPDIR_TEST/install-fail-env/bin"
+  cat >"$TMPDIR_TEST/install-fail-env/bin/nix" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$TMPDIR_TEST/install-fail-env/bin/nix"
+  export SCHNEEFORGE_NIX_BIN="$TMPDIR_TEST/install-fail-env/bin/nix"
+  load_install_inline_resolver
+  canonicalize_executable() { return 1; }
+
+  run resolve_nix
+
+  [ "$status" -ne 0 ]
+}
+
+@test "install inline resolver propagates PATH canonicalization failure" {
+  mkdir -p "$TMPDIR_TEST/install-fail-path/bin"
+  cat >"$TMPDIR_TEST/install-fail-path/bin/nix" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$TMPDIR_TEST/install-fail-path/bin/nix"
+  export PATH="$TMPDIR_TEST/install-fail-path/bin:/usr/bin:/bin"
+  load_install_inline_resolver
+  canonicalize_executable() { return 1; }
+
+  run resolve_nix
+
+  [ "$status" -ne 0 ]
+}
+
+@test "install inline resolver propagates known-path canonicalization failure" {
+  mkdir -p "$HOME/.nix-profile/bin"
+  cat >"$HOME/.nix-profile/bin/nix" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$HOME/.nix-profile/bin/nix"
+  export PATH="/usr/bin:/bin"
+  load_install_inline_resolver
+  canonicalize_executable() { return 1; }
+
+  run resolve_nix
+
+  [ "$status" -ne 0 ]
 }
 
 @test "env override beats PATH" {
