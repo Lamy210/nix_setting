@@ -40,6 +40,29 @@ pub mod operations {
         crate::operations_impl::source_init(repo, store, git, channel, tag)
     }
 
+    /// Public dependency-update boundary.
+    ///
+    /// Persisted managed-source semantics must be handled before checkout
+    /// classification. For unmanaged Git checkouts, require Git before entering
+    /// the mutation path so release-integrity warnings cannot be silently skipped.
+    pub fn deps_update(
+        repo: &str,
+        tc: &crate::tool::ToolInventory,
+        capture: bool,
+    ) -> crate::error::Result<Option<String>> {
+        let state = crate::state::StateStore::default().load()?;
+        let managed = state
+            .as_ref()
+            .and_then(|state| state.source.as_ref())
+            .is_some_and(|source| source.managed);
+
+        if !managed && std::path::Path::new(repo).join(".git").exists() {
+            tc.require_git()?;
+        }
+
+        crate::operations_impl::deps_update(repo, tc, capture)
+    }
+
     /// Deprecated compatibility alias for [`deps_update`].
     ///
     /// Keep the legacy entry point behind the same source-safety boundary as
@@ -50,7 +73,7 @@ pub mod operations {
         tc: &crate::tool::ToolInventory,
         capture: bool,
     ) -> crate::error::Result<Option<String>> {
-        crate::operations_impl::deps_update(repo, tc, capture)
+        deps_update(repo, tc, capture)
     }
 }
 pub(crate) mod process;
@@ -126,3 +149,50 @@ pub use tool::{
     find_executable, version_of, ResolvedTool, ToolInventory, ToolRequirementError, ToolResolver,
     ToolSource, ToolStatus,
 };
+
+#[cfg(test)]
+mod public_boundary_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn inventory_without_git() -> ToolInventory {
+        ToolInventory {
+            nix: Some(ResolvedTool::new(
+                PathBuf::from("/usr/bin/true"),
+                ToolSource::Path,
+            )),
+            git: None,
+            homebrew: None,
+            nh: None,
+        }
+    }
+
+    #[test]
+    fn deps_update_requires_git_when_repo_is_a_git_checkout() {
+        let dir =
+            std::env::temp_dir().join(format!("schneeforge-deps-git-guard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+
+        let err = deps_update(dir.to_str().unwrap(), &inventory_without_git(), true).unwrap_err();
+        assert!(matches!(err, Error::Precondition(_)), "{err}");
+        assert!(err.to_string().contains("git not found"), "{err}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn deps_update_keeps_non_git_local_source_usable_without_git() {
+        let dir = std::env::temp_dir().join(format!(
+            "schneeforge-deps-local-no-git-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let output = deps_update(dir.to_str().unwrap(), &inventory_without_git(), true).unwrap();
+        assert_eq!(output.as_deref(), Some(""));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
