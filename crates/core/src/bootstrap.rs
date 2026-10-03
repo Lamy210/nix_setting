@@ -274,6 +274,41 @@ mod tests {
     }
 
     #[test]
+    fn nix_config_path_prefers_nonempty_xdg_config_home() {
+        let path = nix_config_path_from(
+            Some(std::ffi::OsString::from("/tmp/xdg-config")),
+            Some(std::ffi::OsString::from("/home/alice")),
+        )
+        .unwrap();
+
+        assert_eq!(path, PathBuf::from("/tmp/xdg-config/nix/nix.conf"));
+    }
+
+    #[test]
+    fn nix_config_path_treats_empty_xdg_as_unset_and_uses_home() {
+        let path = nix_config_path_from(
+            Some(std::ffi::OsString::new()),
+            Some(std::ffi::OsString::from("/home/alice")),
+        )
+        .unwrap();
+
+        assert_eq!(path, PathBuf::from("/home/alice/.config/nix/nix.conf"));
+    }
+
+    #[test]
+    fn nix_config_path_rejects_missing_or_empty_home_instead_of_using_cwd() {
+        for (xdg, home) in [
+            (None, None),
+            (Some(std::ffi::OsString::new()), None),
+            (None, Some(std::ffi::OsString::new())),
+        ] {
+            let err = nix_config_path_from(xdg, home).unwrap_err();
+            assert!(matches!(err, Error::Precondition(_)), "{err}");
+            assert!(err.to_string().contains("HOME"), "{err}");
+        }
+    }
+
+    #[test]
     fn append_config_line_separates_unterminated_existing_content() {
         let dir = std::env::temp_dir().join(format!(
             "schneeforge-nix-config-append-{}",
