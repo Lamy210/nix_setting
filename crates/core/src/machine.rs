@@ -275,10 +275,8 @@ mod tests {
 
     #[test]
     fn atomic_write_propagates_sync_failure_without_replacing_destination() {
-        let dir = std::env::temp_dir().join(format!(
-            "sf-machine-fsync-failure-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sf-machine-fsync-failure-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("machine.nix");
