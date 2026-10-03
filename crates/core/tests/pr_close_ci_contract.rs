@@ -6,17 +6,21 @@ fn repo_root() -> PathBuf {
 }
 
 #[test]
-fn check_workflow_groups_pr_runs_by_pull_request_number() {
+fn check_workflow_keeps_existing_ref_scoped_concurrency_contract() {
     let path = repo_root().join(".github/workflows/check.yml");
     let workflow = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
 
-    assert!(
-        workflow.contains(
-            r#"group: check-pr-${{ github.event.pull_request.number || github.ref }}"#,
-        ),
-        "check workflow must use a PR-number-stable concurrency group so a close event can cancel the same group"
-    );
+    for required in [
+        "name: check",
+        r#"group: ${{ github.workflow }}-${{ github.ref }}"#,
+        "cancel-in-progress: true",
+    ] {
+        assert!(
+            workflow.contains(required),
+            "check workflow concurrency contract must contain {required:?}"
+        );
+    }
 }
 
 #[test]
@@ -28,7 +32,7 @@ fn closed_pr_workflow_cancels_the_shared_group_without_expensive_work() {
     for required in [
         "types: [closed]",
         "branches: [main, develop]",
-        r#"group: check-pr-${{ github.event.pull_request.number }}"#,
+        r#"group: check-refs/pull/${{ github.event.pull_request.number }}/merge"#,
         "cancel-in-progress: true",
         "runs-on: ubuntu-latest",
     ] {
