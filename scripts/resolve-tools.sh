@@ -21,6 +21,51 @@ is_executable() {
   [ -f "$1" ] && [ -x "$1" ]
 }
 
+# canonicalize_executable PATH -- macOS/Linux 両方で使える方法で executable の
+# 絶対 real path を返す。GNU readlink -f には依存しない。
+canonicalize_executable() {
+  local path="$1"
+  case "$path" in
+  /*) ;;
+  *) path="${PWD}/${path}" ;;
+  esac
+
+  local hops=0
+  local target
+  local dir
+  while [ -L "$path" ]; do
+    hops=$((hops + 1))
+    [ "$hops" -le 40 ] || return 1
+    target="$(readlink "$path")" || return 1
+    case "$target" in
+    /*) path="$target" ;;
+    *)
+      dir="$(dirname "$path")"
+      path="${dir}/${target}"
+      ;;
+    esac
+  done
+
+  local base
+  dir="$(dirname "$path")"
+  base="$(basename "$path")"
+  (
+    cd -P "$dir" >/dev/null 2>&1 || exit 1
+    printf '%s/%s\n' "$(pwd -P)" "$base"
+  )
+}
+
+# export_resolved_tool OUT_VAR CANDIDATE -- Rust resolver と同様、成功した候補を
+# canonical absolute path に正規化してから export する。
+export_resolved_tool() {
+  local out_var="$1"
+  local candidate="$2"
+  local resolved
+  resolved="$(canonicalize_executable "$candidate")" || return 1
+  is_executable "$resolved" || return 1
+  export "${out_var}=${resolved}"
+}
+
 # resolve_tool NAME -- ツールを解決し、<NAME>_BIN 環境変数へ絶対パスを export
 #
 # 探索順（Rust 側 tool.rs と一致）:
@@ -43,7 +88,7 @@ resolve_tool() {
 
   # 1. env override
   if [ -n "${!env_var:-}" ] && is_executable "${!env_var}"; then
-    export "${out_var}=${!env_var}"
+    export_resolved_tool "$out_var" "${!env_var}"
     return 0
   fi
 
@@ -52,7 +97,7 @@ resolve_tool() {
     local p
     p="$(command -v "$name")"
     if is_executable "$p"; then
-      export "${out_var}=$p"
+      export_resolved_tool "$out_var" "$p"
       return 0
     fi
   fi
@@ -81,7 +126,7 @@ resolve_tool() {
   for dir in "${candidates[@]}"; do
     local candidate="${dir}/${name}"
     if is_executable "$candidate"; then
-      export "${out_var}=$candidate"
+      export_resolved_tool "$out_var" "$candidate"
       return 0
     fi
   done
