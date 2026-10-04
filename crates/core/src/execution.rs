@@ -92,7 +92,6 @@ pub fn validate_backend_info(info: &BackendInfo, expected_app_version: &str) -> 
 
 /// Validate an explicit Windows-launcher `--repo` value without translating it.
 pub fn validate_wsl_repo_path(repo: &str) -> Result<()> {
-    let repo = repo.trim();
     let bytes = repo.as_bytes();
     let drive_letter = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
     let unc_path = repo.starts_with("\\\\") || repo.starts_with("//");
