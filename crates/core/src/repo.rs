@@ -134,10 +134,8 @@ mod tests {
     fn current_git_revision_rejects_blank_success_output() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = std::env::temp_dir().join(format!(
-            "sf-repo-empty-revision-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sf-repo-empty-revision-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let fake_git = dir.join("fake-git");
