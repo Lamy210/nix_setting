@@ -36,6 +36,7 @@ pub fn current_git_revision(repo: &str, git_bin: &std::path::Path) -> Option<Str
         String::from_utf8(out.stdout)
             .ok()
             .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
     } else {
         None
     }
