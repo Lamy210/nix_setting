@@ -167,6 +167,7 @@ fn diagnose_with_store(
     let target = detect_target();
     let repo_path = resolve_repo(cli_repo);
     let repo_exists = std::path::Path::new(&repo_path).is_dir();
+
     let (manifest_found, manifest_error, manifest_default, validation) =
         manifest_diagnostics(&repo_path, target.name(), store);
 
