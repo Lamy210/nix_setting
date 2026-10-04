@@ -17,7 +17,7 @@ fn cached_installer_restores_owner_execute_permission() {
     }
 
     if std::env::var(CHILD_CASE).as_deref() == Ok("non-executable-cache") {
-        let version = "9.9.9-test-cache-exec";
+        let version = "9.9.9";
         let cache = cache_path(version).expect("resolve isolated cache path");
         std::fs::create_dir_all(cache.parent().expect("cache parent"))
             .expect("create isolated cache directory");
