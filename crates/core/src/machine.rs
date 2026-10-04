@@ -7,9 +7,14 @@
 
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::discovery::{detect_arch_for, detect_platform_for, Architecture, Platform};
 use crate::error::{Error, Result};
+
+/// atomic input write の一時ファイル名をユニーク化するプロセス内シーケンス。
+/// PID と組み合わせることでスレッド間・プロセス間の衝突を避ける。
+static ATOMIC_WRITE_TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// 実行環境から検出した machine 固有情報
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,9 +155,9 @@ pub fn write_machine_input_at(path: &Path, facts: &MachineFacts) -> Result<PathB
     Ok(path.to_path_buf())
 }
 
-/// temp file (random suffix) + fsync + rename による atomic 置換。
-/// 固定の tmp 名だと同一 file への並列書き込みで rename が ENOENT になる
-/// ため、download.rs と同じ random suffix 方式を使う。write / fsync /
+/// temp file (PID + process-local sequence) + fsync + rename による atomic 置換。
+/// 時刻由来の suffix は同一 file への並列書き込みで衝突し得るため、
+/// StateStore と同様に PID と単調 sequence で一意化する。write / fsync /
 /// rename のどこで失敗しても destination は置換せず、temp は掃除する。
 pub(crate) fn atomic_write(path: &Path, content: &str) -> std::io::Result<()> {
     atomic_write_with_sync(path, content, std::fs::File::sync_all)
@@ -166,11 +171,8 @@ where
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let rnd = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    let tmp = path.with_extension(format!("nix.{rnd:08x}.tmp"));
+    let seq = ATOMIC_WRITE_TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp = path.with_extension(format!("nix.{}.{seq}.tmp", std::process::id()));
 
     let result = (|| {
         let mut f = std::fs::OpenOptions::new()
@@ -300,6 +302,46 @@ mod tests {
             .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
             .count();
         assert_eq!(temp_files, 0, "failed writes must not leave temp files");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn atomic_write_parallel_writers_do_not_collide() {
+        const WRITERS: usize = 16;
+        const WRITES_PER_WRITER: usize = 16;
+
+        let dir =
+            std::env::temp_dir().join(format!("sf-machine-parallel-write-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = std::sync::Arc::new(dir.join("machine.nix"));
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(WRITERS));
+
+        let handles: Vec<_> = (0..WRITERS)
+            .map(|writer| {
+                let path = std::sync::Arc::clone(&path);
+                let barrier = std::sync::Arc::clone(&barrier);
+                std::thread::spawn(move || -> std::io::Result<()> {
+                    barrier.wait();
+                    for write in 0..WRITES_PER_WRITER {
+                        atomic_write(&path, &format!("writer-{writer}-write-{write}"))?;
+                    }
+                    Ok(())
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap().unwrap();
+        }
+
+        assert!(path.is_file());
+        let temp_files = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+        assert_eq!(temp_files, 0, "parallel writes must not leak temp files");
         std::fs::remove_dir_all(&dir).ok();
     }
 
