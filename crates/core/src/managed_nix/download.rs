@@ -109,10 +109,13 @@ pub fn download(url: &str, dest: &Path) -> Result<(), ManagedNixError> {
         return Err(e);
     }
 
-    fs::rename(&tmp, dest).map_err(|e| ManagedNixError::Io {
-        context: format!("rename {} -> {}", tmp.display(), dest.display()),
-        source: e.to_string(),
-    })?;
+    if let Err(e) = fs::rename(&tmp, dest) {
+        let _ = fs::remove_file(&tmp);
+        return Err(ManagedNixError::Io {
+            context: format!("rename {} -> {}", tmp.display(), dest.display()),
+            source: e.to_string(),
+        });
+    }
 
     set_executable(dest)?;
     Ok(())
