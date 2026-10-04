@@ -117,11 +117,15 @@ pub fn download(url: &str, dest: &Path) -> Result<(), ManagedNixError> {
         });
     }
 
-    set_executable(dest)?;
+    if let Err(e) = set_executable(dest) {
+        // rename 後の chmod failure で「完成済み」に見える unusable cache を残さない。
+        let _ = fs::remove_file(dest);
+        return Err(e);
+    }
     Ok(())
 }
 
-fn set_executable(path: &Path) -> Result<(), ManagedNixError> {
+pub(crate) fn set_executable(path: &Path) -> Result<(), ManagedNixError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
