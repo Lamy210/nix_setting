@@ -51,7 +51,10 @@ fn download_removes_temp_file_when_rename_fails() {
     let result = download(&url, &dest);
     server.join().expect("test HTTP server should complete");
 
-    assert!(result.is_err(), "rename into an existing directory must fail");
+    assert!(
+        result.is_err(),
+        "rename into an existing directory must fail"
+    );
 
     let leftovers: Vec<_> = fs::read_dir(&root)
         .expect("list test root")
