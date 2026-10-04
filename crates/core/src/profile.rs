@@ -32,6 +32,11 @@ pub fn resolve_with(repo: &str, store: &StateStore) -> Result<(String, bool)> {
         .default
         .clone()
         .ok_or_else(|| Error::Manifest("profiles.default is not set".to_string()))?;
+    if !manifest.profiles.available.contains(&default) {
+        return Err(Error::Manifest(format!(
+            "default profile '{default}' is not in manifest profiles.available"
+        )));
+    }
     let selected = store.load()?.and_then(|s| s.profile);
     match selected {
         Some(name) => {
