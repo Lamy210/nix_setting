@@ -345,7 +345,15 @@ pub(crate) fn exact_tag(repo: &str, git: &ResolvedTool) -> Result<Option<String>
 /// HEAD の commit hash
 fn head_revision(repo: &str, git: &ResolvedTool) -> Result<String> {
     let out = git_output(repo, git, &["rev-parse", "HEAD"])?;
-    Ok(out.trim().to_string())
+    let revision = out.trim();
+    if revision.is_empty() {
+        Err(Error::Command {
+            command: git.path.display().to_string(),
+            detail: "rev-parse HEAD returned empty output".to_string(),
+        })
+    } else {
+        Ok(revision.to_string())
+    }
 }
 
 fn git_output(repo: &str, git: &ResolvedTool, args: &[&str]) -> Result<String> {
