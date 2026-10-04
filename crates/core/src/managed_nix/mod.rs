@@ -711,7 +711,7 @@ x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111
                 std::fs::write(&target, include_str!("../../../../bootstrap-manifest.toml"))
                     .unwrap();
             }
-            std::os::unix::fs::symlink(&target, dir.join("bootstrap-manifest.toml")).unwrap();
+            symlink(&target, dir.join("bootstrap-manifest.toml")).unwrap();
 
             let err = match ManagedNix::load_prefer_repo(Some(&dir)) {
                 Ok(_) => panic!("repo manifest symlink must not be followed"),
