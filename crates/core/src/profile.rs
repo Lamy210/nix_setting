@@ -122,11 +122,19 @@ pub fn clear_selection_with(store: &StateStore) -> Result<()> {
     store.save(&state)
 }
 
+fn escape_nix_string_literal(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace("${", "\\${")
+}
+
 /// profile input (`profile.nix`) を生成する。常に上書き。
 /// atomic write により truncate 中の読み取りで空の file が観測されない
 pub fn write_profile_input(name: &str) -> Result<std::path::PathBuf> {
     let path = default_profile_nix_path();
-    crate::machine::atomic_write(&path, &format!("{{ profile = \"{name}\"; }}\n"))
+    let escaped = escape_nix_string_literal(name);
+    crate::machine::atomic_write(&path, &format!("{{ profile = \"{escaped}\"; }}\n"))
         .map_err(|e| Error::Io(format!("write profile input ({e})")))?;
     Ok(path)
 }
