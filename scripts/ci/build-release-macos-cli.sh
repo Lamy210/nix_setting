@@ -10,9 +10,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Temporary TDD RED hook for the macOS-only empty-HOME regression.
-cargo test -p schneeforge --test nix_uninstall_empty_home
-
 cargo build --release -p schneeforge
 
 BIN="target/release/schneeforge"
