@@ -69,11 +69,7 @@ pub(crate) fn classify_dispatch(host: HostPlatform, args: &[String]) -> Dispatch
         return DispatchKind::Native;
     }
 
-    if args
-        .iter()
-        .take_while(|arg| arg.as_str() != "--")
-        .any(|arg| matches!(arg.as_str(), "--help" | "-h" | "--version" | "-V"))
-    {
+    if has_local_help_or_version(args) {
         return DispatchKind::LocalHelpOrVersion;
     }
 
@@ -84,6 +80,27 @@ pub(crate) fn classify_dispatch(host: HostPlatform, args: &[String]) -> Dispatch
         Some(_) => DispatchKind::Delegate,
         None => DispatchKind::LocalHelpOrVersion,
     }
+}
+
+fn has_local_help_or_version(args: &[String]) -> bool {
+    let mut index = 0;
+
+    while index < args.len() {
+        let arg = &args[index];
+        if arg == "--" {
+            return false;
+        }
+        if matches!(arg.as_str(), "--wsl-distro" | "--repo") {
+            index += 2;
+            continue;
+        }
+        if matches!(arg.as_str(), "--help" | "-h" | "--version" | "-V") {
+            return true;
+        }
+        index += 1;
+    }
+
+    false
 }
 
 pub(crate) fn parse_launcher_args(args: &[String]) -> Result<LauncherArgs, String> {
