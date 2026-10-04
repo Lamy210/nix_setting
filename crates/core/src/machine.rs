@@ -220,9 +220,11 @@ fn hostname_via_command() -> Option<String> {
     None
 }
 
-/// Nix string literal 内の escape (`"` と `\` のみ。改行等は入らない想定)
+/// Nix string literal 内の escape (`"`, `\`, `${`)。改行等は入らない想定。
 fn escape_nix_string(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace("${", "\\${")
 }
 
 #[cfg(test)]
