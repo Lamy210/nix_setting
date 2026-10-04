@@ -24,4 +24,17 @@ mod passthrough_dispatch {
             );
         }
     }
+
+    #[test]
+    fn help_like_launcher_option_values_are_not_local_help_flags() {
+        for option in ["--repo", "--wsl-distro"] {
+            for value in ["--help", "-h", "--version", "-V"] {
+                assert_eq!(
+                    classify_dispatch(HostPlatform::Windows, &args(&[option, value, "apply"])),
+                    DispatchKind::Delegate,
+                    "{value} consumed as the value of {option} must not be classified as local help"
+                );
+            }
+        }
+    }
 }
