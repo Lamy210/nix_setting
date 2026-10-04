@@ -36,6 +36,7 @@ pub fn current_git_revision(repo: &str, git_bin: &std::path::Path) -> Option<Str
         String::from_utf8(out.stdout)
             .ok()
             .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
     } else {
         None
     }
@@ -126,6 +127,30 @@ mod tests {
     #[test]
     fn empty_home_falls_back_to_current_directory() {
         assert_eq!(resolve_repo_with(None, None, Some("")), ".");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn current_git_revision_rejects_blank_success_output() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir =
+            std::env::temp_dir().join(format!("sf-repo-empty-revision-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake_git = dir.join("fake-git");
+        std::fs::write(&fake_git, "#!/bin/sh\nexit 0\n").unwrap();
+        let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&fake_git, permissions).unwrap();
+
+        assert_eq!(
+            current_git_revision(dir.to_str().unwrap(), &fake_git),
+            None,
+            "successful git inspection without a usable revision must not produce Some(\"\")"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
