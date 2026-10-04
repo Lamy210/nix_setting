@@ -416,7 +416,15 @@ impl ManagedNix {
         if cache.exists() {
             // キャッシュがあっても SHA256 を再検証する (manifest 更新で古い版が残るのを防ぐ)
             match verify_file(&cache, &expected) {
-                Ok(()) => return Ok((cache, expected)),
+                Ok(()) => {
+                    // checksum-valid でも execute bit を失った cache は installer として unusable。
+                    // fresh download と同じ permission を復旧してから再利用する。
+                    if let Err(e) = download::set_executable(&cache) {
+                        let _ = std::fs::remove_file(&cache);
+                        return Err(e);
+                    }
+                    return Ok((cache, expected));
+                }
                 Err(ManagedNixError::ChecksumMismatch { .. }) => {
                     // キャッシュが壊れているので削除して再取得
                     let _ = std::fs::remove_file(&cache);
@@ -703,7 +711,7 @@ x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111
                 std::fs::write(&target, include_str!("../../../../bootstrap-manifest.toml"))
                     .unwrap();
             }
-            symlink(&target, dir.join("bootstrap-manifest.toml")).unwrap();
+            std::os::unix::fs::symlink(&target, dir.join("bootstrap-manifest.toml")).unwrap();
 
             let err = match ManagedNix::load_prefer_repo(Some(&dir)) {
                 Ok(_) => panic!("repo manifest symlink must not be followed"),
