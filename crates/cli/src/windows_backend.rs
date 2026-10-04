@@ -71,6 +71,7 @@ pub(crate) fn classify_dispatch(host: HostPlatform, args: &[String]) -> Dispatch
 
     if args
         .iter()
+        .take_while(|arg| arg.as_str() != "--")
         .any(|arg| matches!(arg.as_str(), "--help" | "-h" | "--version" | "-V"))
     {
         return DispatchKind::LocalHelpOrVersion;
