@@ -15,8 +15,7 @@ fn profile_input_escapes_nix_string_metacharacters() {
     let content = std::fs::read_to_string(&path).unwrap();
 
     assert_eq!(
-        content,
-        "{ profile = \"dev\\\"\\${builtins.abort \\\"boom\\\"}\\\\ops\"; }\n",
+        content, "{ profile = \"dev\\\"\\${builtins.abort \\\"boom\\\"}\\\\ops\"; }\n",
         "generated profile.nix must encode the profile name as a literal Nix string"
     );
     assert_eq!(
