@@ -82,8 +82,7 @@ fn nix_config_path_from(
     }
 
     Err(Error::Precondition(
-        "cannot enable flakes: XDG_CONFIG_HOME or HOME must be set to an absolute path"
-            .to_string(),
+        "cannot enable flakes: XDG_CONFIG_HOME or HOME must be set to an absolute path".to_string(),
     ))
 }
 
