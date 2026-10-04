@@ -645,7 +645,7 @@ impl ProgressSink for ShellProgress {
 
 fn has_nix_darwin_markers() -> bool {
     if cfg!(target_os = "macos") {
-        if let Ok(home) = std::env::var("HOME") {
+        if let Some(home) = std::env::var("HOME").ok().filter(|home| !home.is_empty()) {
             let marker = PathBuf::from(home).join(".nix-darwin");
             if marker.exists() {
                 return true;
