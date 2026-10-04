@@ -65,19 +65,25 @@ fn nix_config_path_from(
     xdg_config_home: Option<std::ffi::OsString>,
     home: Option<std::ffi::OsString>,
 ) -> Result<PathBuf> {
-    if let Some(xdg_config_home) = xdg_config_home.filter(|value| !value.is_empty()) {
-        return Ok(PathBuf::from(xdg_config_home).join("nix").join("nix.conf"));
+    if let Some(xdg_config_home) = xdg_config_home
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+    {
+        return Ok(xdg_config_home.join("nix").join("nix.conf"));
     }
 
-    if let Some(home) = home.filter(|value| !value.is_empty()) {
-        return Ok(PathBuf::from(home)
-            .join(".config")
-            .join("nix")
-            .join("nix.conf"));
+    if let Some(home) = home
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+    {
+        return Ok(home.join(".config").join("nix").join("nix.conf"));
     }
 
     Err(Error::Precondition(
-        "cannot enable flakes: XDG_CONFIG_HOME or HOME must be set".to_string(),
+        "cannot enable flakes: XDG_CONFIG_HOME or HOME must be set to an absolute path"
+            .to_string(),
     ))
 }
 
