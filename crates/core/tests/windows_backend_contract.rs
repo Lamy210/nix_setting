@@ -52,6 +52,8 @@ fn backend_info_is_machine_readable_json() {
 #[test]
 fn repo_accepts_absolute_linux_path_only() {
     assert!(validate_wsl_repo_path("/home/alice/nix_setting").is_ok());
+    assert!(validate_wsl_repo_path("/home/alice/My Project").is_ok());
+    assert!(validate_wsl_repo_path(" /home/alice/nix_setting").is_err());
     assert!(validate_wsl_repo_path(r"C:\src\nix_setting").is_err());
     assert!(validate_wsl_repo_path(r"\\server\share").is_err());
     assert!(validate_wsl_repo_path("relative/path").is_err());
