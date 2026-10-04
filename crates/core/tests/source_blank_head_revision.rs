@@ -50,7 +50,8 @@ exit 1
     let err = result.unwrap_err();
     assert!(matches!(err, Error::Command { .. }), "{err}");
     assert!(
-        err.to_string().contains("rev-parse HEAD returned empty output"),
+        err.to_string()
+            .contains("rev-parse HEAD returned empty output"),
         "{err}"
     );
 
