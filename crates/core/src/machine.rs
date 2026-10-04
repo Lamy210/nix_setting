@@ -310,10 +310,8 @@ mod tests {
         const WRITERS: usize = 16;
         const WRITES_PER_WRITER: usize = 16;
 
-        let dir = std::env::temp_dir().join(format!(
-            "sf-machine-parallel-write-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sf-machine-parallel-write-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = std::sync::Arc::new(dir.join("machine.nix"));
