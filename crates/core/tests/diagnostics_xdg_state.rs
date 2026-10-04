@@ -42,8 +42,14 @@ fn assert_child_health_has_no_state_path_warning() {
     let nix = PathBuf::from(std::env::var(CHILD_NIX).expect("child fake nix path"));
     let health = nix_health(&inventory(nix));
     assert!(health.installed, "fake nix should be detected");
-    assert!(health.store_accessible, "fake nix store ping should succeed");
-    assert!(health.flakes_available, "fake nix should report required features");
+    assert!(
+        health.store_accessible,
+        "fake nix store ping should succeed"
+    );
+    assert!(
+        health.flakes_available,
+        "fake nix should report required features"
+    );
     assert_eq!(
         health.warning, None,
         "unusable empty state-path environment values must not redirect diagnostics into the process CWD"
