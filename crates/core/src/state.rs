@@ -300,6 +300,14 @@ mod tests {
     }
 
     #[test]
+    fn default_path_relative_xdg_state_home_falls_back_to_home() {
+        assert_eq!(
+            default_path_with(Some("relative-state"), Some("/home/u")),
+            PathBuf::from("/home/u/.local/state/schneeforge/state.json")
+        );
+    }
+
+    #[test]
     fn default_path_empty_home_falls_back_to_current_directory() {
         assert_eq!(
             default_path_with(None, Some("")),
