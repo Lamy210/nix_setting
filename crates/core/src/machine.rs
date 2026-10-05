@@ -132,6 +132,7 @@ pub fn state_dir() -> PathBuf {
     let base = std::env::var_os("XDG_STATE_HOME")
         .filter(|value| !value.as_os_str().is_empty())
         .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
         .or_else(|| {
             std::env::var_os("HOME")
                 .filter(|value| !value.as_os_str().is_empty())
