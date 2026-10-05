@@ -44,6 +44,11 @@ fn state_dir_empty_xdg_state_home_falls_back_to_home() {
 }
 
 #[test]
+fn state_dir_relative_xdg_state_home_falls_back_to_home() {
+    run_isolated("relative-xdg", Some("relative-state"), Some("/home/u"));
+}
+
+#[test]
 fn state_dir_empty_home_falls_back_to_current_directory() {
     run_isolated("empty-home", None, Some(""));
 }
@@ -55,7 +60,7 @@ fn isolated_state_dir_child() {
     };
 
     let expected = match case.as_str() {
-        "empty-xdg" => PathBuf::from("/home/u/.local/state/schneeforge"),
+        "empty-xdg" | "relative-xdg" => PathBuf::from("/home/u/.local/state/schneeforge"),
         "empty-home" => PathBuf::from(".").join("schneeforge"),
         other => panic!("unexpected child case: {other}"),
     };
