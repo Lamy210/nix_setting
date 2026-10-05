@@ -37,6 +37,7 @@ fn default_path_with(xdg_state_home: Option<&str>, home: Option<&str>) -> PathBu
     let base = xdg_state_home
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
         .or_else(|| {
             home.filter(|value| !value.is_empty())
                 .map(|h| PathBuf::from(h).join(".local/state"))
