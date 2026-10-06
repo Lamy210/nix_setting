@@ -40,7 +40,9 @@ fn default_path_with(xdg_state_home: Option<&str>, home: Option<&str>) -> PathBu
         .filter(|path| path.is_absolute())
         .or_else(|| {
             home.filter(|value| !value.is_empty())
-                .map(|h| PathBuf::from(h).join(".local/state"))
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .map(|home| home.join(".local/state"))
         })
         .unwrap_or_else(|| PathBuf::from("."));
     base.join("schneeforge").join("state.json")
