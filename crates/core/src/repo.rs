@@ -96,6 +96,11 @@ mod tests {
     }
 
     #[test]
+    fn relative_home_falls_back_to_current_directory() {
+        assert_eq!(resolve_repo_with(None, None, Some("relative-home")), ".");
+    }
+
+    #[test]
     fn default_dot() {
         assert_eq!(resolve_repo_with(None, None, None), ".");
     }
