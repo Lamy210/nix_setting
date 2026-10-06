@@ -175,3 +175,41 @@ fn empty_home_without_xdg_state_home_disables_state_path_warning() {
         "empty HOME without XDG_STATE_HOME should not derive a relative diagnostics path"
     );
 }
+
+#[test]
+fn relative_home_without_xdg_state_home_disables_state_path_warning() {
+    if std::env::var(CHILD_CASE).as_deref() == Ok("relative-home") {
+        assert_child_health_has_no_state_path_warning();
+        return;
+    }
+
+    let root = std::env::temp_dir().join(format!(
+        "schneeforge-diagnostics-relative-home-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    let cwd = root.join("cwd");
+    fs::create_dir_all(&cwd).expect("create isolated cwd");
+    let fake_nix = root.join("nix");
+    write_fake_nix(&fake_nix);
+
+    let status = Command::new(std::env::current_exe().expect("current test executable"))
+        .args([
+            "--exact",
+            "relative_home_without_xdg_state_home_disables_state_path_warning",
+            "--nocapture",
+        ])
+        .current_dir(&cwd)
+        .env(CHILD_CASE, "relative-home")
+        .env(CHILD_NIX, &fake_nix)
+        .env_remove("XDG_STATE_HOME")
+        .env("HOME", "relative-home")
+        .status()
+        .expect("spawn isolated diagnostics regression test");
+
+    let _ = fs::remove_dir_all(&root);
+    assert!(
+        status.success(),
+        "relative HOME without XDG_STATE_HOME should not derive a diagnostics path from the process CWD"
+    );
+}
