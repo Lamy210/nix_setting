@@ -92,13 +92,13 @@ resolve_tool() {
   if [ -n "${XDG_STATE_HOME:-}" ] && [ "${XDG_STATE_HOME#/}" != "$XDG_STATE_HOME" ]; then
     candidates+=("${XDG_STATE_HOME}/nix/profile/bin")
   fi
-  if [ -n "${HOME:-}" ]; then
+  if [ -n "${HOME:-}" ] && [ "${HOME#/}" != "$HOME" ]; then
     candidates+=("${HOME}/.local/state/nix/profile/bin")
   fi
   if [ -n "${NIX_PROFILE:-}" ]; then
     candidates+=("${NIX_PROFILE}/bin")
   fi
-  if [ -n "${HOME:-}" ]; then
+  if [ -n "${HOME:-}" ] && [ "${HOME#/}" != "$HOME" ]; then
     candidates+=("${HOME}/.nix-profile/bin")
   fi
   if [ -n "${USER:-}" ]; then

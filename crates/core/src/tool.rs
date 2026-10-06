@@ -316,7 +316,11 @@ fn default_known_paths() -> Vec<(PathBuf, ToolSource)> {
         }
     }
 
-    let home = env::var("HOME").ok().filter(|h| !h.is_empty());
+    // HOME-derived known paths must never become CWD-relative.
+    let home = env::var("HOME")
+        .ok()
+        .filter(|h| !h.is_empty())
+        .filter(|h| Path::new(h).is_absolute());
 
     // XDG デフォルト (~/.local/state/nix/profile/bin)
     if let Some(h) = &home {
