@@ -8,6 +8,7 @@ setup() {
   TMPDIR_TEST="$(mktemp -d)"
   # PATH と既知 env を固定
   unset SCHNEEFORGE_NIX_BIN || true
+  unset XDG_STATE_HOME || true
   export PATH="/usr/bin:/bin"
   export HOME="$TMPDIR_TEST/home"
   export USER="testuser"
@@ -232,6 +233,53 @@ EOF
   export PATH="/usr/bin:/bin"
   resolve_tool "mytool4"
   [ "$MYTOOL4_BIN" = "$TMPDIR_TEST/xdg/nix/profile/bin/mytool4" ]
+}
+
+@test "shared resolver ignores relative XDG_STATE_HOME and falls back to HOME" {
+  local old_pwd="$PWD"
+  mkdir -p "$TMPDIR_TEST/work/relative-state/nix/profile/bin" "$HOME/.local/state/nix/profile/bin"
+  cat >"$TMPDIR_TEST/work/relative-state/nix/profile/bin/mytool_relative_xdg" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  cat >"$HOME/.local/state/nix/profile/bin/mytool_relative_xdg" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$TMPDIR_TEST/work/relative-state/nix/profile/bin/mytool_relative_xdg"
+  chmod +x "$HOME/.local/state/nix/profile/bin/mytool_relative_xdg"
+  export XDG_STATE_HOME="relative-state"
+  export PATH="/usr/bin:/bin"
+  cd "$TMPDIR_TEST/work"
+
+  resolve_tool "mytool_relative_xdg"
+
+  cd "$old_pwd"
+  [ "$MYTOOL_RELATIVE_XDG_BIN" = "$HOME/.local/state/nix/profile/bin/mytool_relative_xdg" ]
+}
+
+@test "install inline resolver ignores relative XDG_STATE_HOME and falls back to HOME" {
+  local old_pwd="$PWD"
+  mkdir -p "$TMPDIR_TEST/work-inline/relative-state/nix/profile/bin" "$HOME/.local/state/nix/profile/bin"
+  cat >"$TMPDIR_TEST/work-inline/relative-state/nix/profile/bin/nix" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  cat >"$HOME/.local/state/nix/profile/bin/nix" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$TMPDIR_TEST/work-inline/relative-state/nix/profile/bin/nix"
+  chmod +x "$HOME/.local/state/nix/profile/bin/nix"
+  export XDG_STATE_HOME="relative-state"
+  export PATH="/usr/bin:/bin"
+  cd "$TMPDIR_TEST/work-inline"
+  load_install_inline_resolver
+
+  resolve_nix
+
+  cd "$old_pwd"
+  [ "$NIX_BIN" = "$HOME/.local/state/nix/profile/bin/nix" ]
 }
 
 @test "resolve_tool propagates known-path canonicalization failure" {
