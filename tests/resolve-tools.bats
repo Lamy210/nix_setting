@@ -234,6 +234,49 @@ EOF
   [ "$MYTOOL4_BIN" = "$TMPDIR_TEST/xdg/nix/profile/bin/mytool4" ]
 }
 
+@test "resolve_tool ignores relative XDG_STATE_HOME and falls back to HOME" {
+  mkdir -p "$TMPDIR_TEST/cwd/relative-state/nix/profile/bin" "$HOME/.local/state/nix/profile/bin"
+  cat >"$TMPDIR_TEST/cwd/relative-state/nix/profile/bin/mytool_relative_xdg" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  cat >"$HOME/.local/state/nix/profile/bin/mytool_relative_xdg" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$TMPDIR_TEST/cwd/relative-state/nix/profile/bin/mytool_relative_xdg"
+  chmod +x "$HOME/.local/state/nix/profile/bin/mytool_relative_xdg"
+  cd "$TMPDIR_TEST/cwd"
+  export XDG_STATE_HOME="relative-state"
+  export PATH="/usr/bin:/bin"
+
+  resolve_tool "mytool_relative_xdg"
+
+  [ "$MYTOOL_RELATIVE_XDG_BIN" = "$HOME/.local/state/nix/profile/bin/mytool_relative_xdg" ]
+}
+
+@test "install inline resolver ignores relative XDG_STATE_HOME and falls back to HOME" {
+  mkdir -p "$TMPDIR_TEST/cwd/relative-state/nix/profile/bin" "$HOME/.local/state/nix/profile/bin"
+  cat >"$TMPDIR_TEST/cwd/relative-state/nix/profile/bin/nix" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  cat >"$HOME/.local/state/nix/profile/bin/nix" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$TMPDIR_TEST/cwd/relative-state/nix/profile/bin/nix"
+  chmod +x "$HOME/.local/state/nix/profile/bin/nix"
+  cd "$TMPDIR_TEST/cwd"
+  export XDG_STATE_HOME="relative-state"
+  export PATH="/usr/bin:/bin"
+  load_install_inline_resolver
+
+  resolve_nix
+
+  [ "$NIX_BIN" = "$HOME/.local/state/nix/profile/bin/nix" ]
+}
+
 @test "resolve_tool propagates known-path canonicalization failure" {
   mkdir -p "$HOME/.nix-profile/bin"
   cat >"$HOME/.nix-profile/bin/mytool_canonicalize_known" <<'EOF'
