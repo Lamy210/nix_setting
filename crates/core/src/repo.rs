@@ -64,7 +64,10 @@ pub fn resolve_repo_with(
     if let Some(r) = env_dir.filter(|r| !r.is_empty()) {
         return r.to_string();
     }
-    if let Some(h) = home.filter(|h| !h.is_empty()) {
+    if let Some(h) = home
+        .filter(|h| !h.is_empty())
+        .filter(|h| std::path::Path::new(h).is_absolute())
+    {
         return format!("{h}/nix_setting");
     }
     ".".to_string()
@@ -73,6 +76,17 @@ pub fn resolve_repo_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn absolute_home() -> &'static str {
+        #[cfg(windows)]
+        {
+            r"C:\Users\u"
+        }
+        #[cfg(not(windows))]
+        {
+            "/home/u"
+        }
+    }
 
     #[test]
     fn cli_repo_wins() {
@@ -89,10 +103,16 @@ mod tests {
 
     #[test]
     fn home_fallback() {
+        let home = absolute_home();
         assert_eq!(
-            resolve_repo_with(None, None, Some("/home/u")),
-            "/home/u/nix_setting"
+            resolve_repo_with(None, None, Some(home)),
+            format!("{home}/nix_setting")
         );
+    }
+
+    #[test]
+    fn relative_home_falls_back_to_current_directory() {
+        assert_eq!(resolve_repo_with(None, None, Some("relative-home")), ".");
     }
 
     #[test]
@@ -118,9 +138,10 @@ mod tests {
 
     #[test]
     fn empty_env_dir_falls_back_to_home() {
+        let home = absolute_home();
         assert_eq!(
-            resolve_repo_with(None, Some(""), Some("/home/u")),
-            "/home/u/nix_setting"
+            resolve_repo_with(None, Some(""), Some(home)),
+            format!("{home}/nix_setting")
         );
     }
 
