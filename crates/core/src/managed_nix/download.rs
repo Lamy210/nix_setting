@@ -30,11 +30,12 @@ pub fn cache_path(version: &str) -> Result<PathBuf, ManagedNixError> {
             .join("cache")
     } else {
         dirs::data_dir()
+            .filter(|path| path.is_absolute())
             .ok_or_else(|| ManagedNixError::Io {
-                context: "resolve XDG data dir".to_string(),
+                context: "resolve absolute XDG data dir".to_string(),
                 source: std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    "XDG data dir unavailable",
+                    "XDG data dir unavailable or relative",
                 )
                 .to_string(),
             })?
