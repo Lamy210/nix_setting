@@ -357,6 +357,7 @@ fn xdg_state_profile_dir() -> Option<std::path::PathBuf> {
         .ok()
         .filter(|value| !value.is_empty())
         .map(std::path::PathBuf::from)
+        .filter(|path| path.is_absolute())
         .or_else(|| {
             std::env::var("HOME")
                 .ok()
