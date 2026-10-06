@@ -67,6 +67,16 @@ resolve_machine_home() {
   printf '%s\n' "$HOME"
 }
 
+# Environment-derived machine facts are emitted inside Nix double-quoted strings.
+# Keep shell bootstrap escaping in parity with core MachineFacts::to_machine_nix.
+escape_nix_string() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//\$\{/\\\$\{}"
+  printf '%s\n' "$value"
+}
+
 # nix.conf の存在や文字列ではなく、resolved Nix が実際に認識している
 # experimental-features を確認する。
 nix_has_required_flake_features() {
@@ -149,12 +159,15 @@ if [ -z "$USERNAME" ]; then
   exit 1
 fi
 USER_HOME="$(resolve_machine_home)"
+MACHINE_USERNAME="$(escape_nix_string "$USERNAME")"
+MACHINE_HOME="$(escape_nix_string "$USER_HOME")"
+MACHINE_HOSTNAME="$(escape_nix_string "$(hostname)")"
 MACHINE_INPUT="$STATE_DIR/machine.nix"
 cat >"$MACHINE_INPUT" <<EOF
 {
-  username = "$USERNAME";
-  homeDirectory = "$USER_HOME";
-  hostname = "$(hostname)";
+  username = "$MACHINE_USERNAME";
+  homeDirectory = "$MACHINE_HOME";
+  hostname = "$MACHINE_HOSTNAME";
 }
 EOF
 echo "Generated machine input: $MACHINE_INPUT"
