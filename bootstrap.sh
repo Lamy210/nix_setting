@@ -59,6 +59,14 @@ resolve_schneeforge_state_dir() {
   printf '%s/schneeforge\n' "$state_home"
 }
 
+resolve_machine_home() {
+  if [ -z "${HOME:-}" ]; then
+    echo "Could not determine home directory" >&2
+    return 1
+  fi
+  printf '%s\n' "$HOME"
+}
+
 # nix.conf の存在や文字列ではなく、resolved Nix が実際に認識している
 # experimental-features を確認する。
 nix_has_required_flake_features() {
@@ -140,10 +148,7 @@ if [ -z "$USERNAME" ]; then
   echo "Could not determine username" >&2
   exit 1
 fi
-case "$(uname -s)" in
-Darwin) USER_HOME="/Users/$USERNAME" ;;
-*) USER_HOME="/home/$USERNAME" ;;
-esac
+USER_HOME="$(resolve_machine_home)"
 MACHINE_INPUT="$STATE_DIR/machine.nix"
 cat >"$MACHINE_INPUT" <<EOF
 {
