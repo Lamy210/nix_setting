@@ -179,11 +179,10 @@ pub fn secure_plan_dir() -> Result<PathBuf, ManagedNixError> {
         privileged_state_dir()
     } else {
         dirs::state_dir()
-            .filter(|path| path.is_absolute())
-            .or_else(|| dirs::data_dir().filter(|path| path.is_absolute()))
+            .or_else(dirs::data_dir)
             .ok_or_else(|| ManagedNixError::Io {
-                context: "resolve absolute XDG state/data dir".to_string(),
-                source: "absolute XDG state/data dir unavailable".to_string(),
+                context: "resolve XDG state/data dir".to_string(),
+                source: "XDG state/data dir unavailable".to_string(),
             })?
             .join("schneeforge")
     }
@@ -197,6 +196,13 @@ pub fn secure_plan_dir() -> Result<PathBuf, ManagedNixError> {
 
 /// world-writable な parent 配下を避けた 0700 directory を作る。
 fn create_secure_dir(dir: &Path) -> Result<(), ManagedNixError> {
+    if !dir.is_absolute() {
+        return Err(ManagedNixError::Io {
+            context: format!("refuse relative secure dir {}", dir.display()),
+            source: "secure directories must use absolute paths".to_string(),
+        });
+    }
+
     std::fs::create_dir_all(dir).map_err(|e| ManagedNixError::Io {
         context: format!("create dir {}", dir.display()),
         source: e.to_string(),
