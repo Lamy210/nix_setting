@@ -179,10 +179,11 @@ pub fn secure_plan_dir() -> Result<PathBuf, ManagedNixError> {
         privileged_state_dir()
     } else {
         dirs::state_dir()
-            .or_else(dirs::data_dir)
+            .filter(|path| path.is_absolute())
+            .or_else(|| dirs::data_dir().filter(|path| path.is_absolute()))
             .ok_or_else(|| ManagedNixError::Io {
-                context: "resolve XDG state/data dir".to_string(),
-                source: "XDG state/data dir unavailable".to_string(),
+                context: "resolve absolute XDG state/data dir".to_string(),
+                source: "absolute XDG state/data dir unavailable".to_string(),
             })?
             .join("schneeforge")
     }
