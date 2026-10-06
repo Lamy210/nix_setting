@@ -104,7 +104,7 @@ resolve_tool() {
 
   # 候補ディレクトリ（3-10）
   local candidates=()
-  if [ -n "${XDG_STATE_HOME:-}" ]; then
+  if [ -n "${XDG_STATE_HOME:-}" ] && [ "${XDG_STATE_HOME#/}" != "$XDG_STATE_HOME" ]; then
     candidates+=("${XDG_STATE_HOME}/nix/profile/bin")
   fi
   if [ -n "${HOME:-}" ]; then
