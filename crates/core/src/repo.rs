@@ -64,7 +64,10 @@ pub fn resolve_repo_with(
     if let Some(r) = env_dir.filter(|r| !r.is_empty()) {
         return r.to_string();
     }
-    if let Some(h) = home.filter(|h| !h.is_empty()) {
+    if let Some(h) = home
+        .filter(|h| !h.is_empty())
+        .filter(|h| std::path::Path::new(h).is_absolute())
+    {
         return format!("{h}/nix_setting");
     }
     ".".to_string()
