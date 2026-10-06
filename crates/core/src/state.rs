@@ -40,7 +40,9 @@ fn default_path_with(xdg_state_home: Option<&str>, home: Option<&str>) -> PathBu
         .filter(|path| path.is_absolute())
         .or_else(|| {
             home.filter(|value| !value.is_empty())
-                .map(|h| PathBuf::from(h).join(".local/state"))
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .map(|home| home.join(".local/state"))
         })
         .unwrap_or_else(|| PathBuf::from("."));
     base.join("schneeforge").join("state.json")
@@ -80,7 +82,7 @@ impl StateStore {
             .map_err(|e| Error::State(format!("parse {}: {e}", self.path.display())))
     }
 
-    /// 原子的に保存する (temp 書き込み → fsync → rename)。失敗時はエラーを返す
+    /// 原子的に保存する (temp → fsync → rename)。失敗時はエラーを返す
     pub fn save(&self, state: &State) -> Result<()> {
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| Error::Io(format!("create_dir: {e}")))?;
