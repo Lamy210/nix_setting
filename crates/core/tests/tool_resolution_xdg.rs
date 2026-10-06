@@ -15,10 +15,7 @@ fn make_executable(path: &Path) {
 
 #[test]
 fn relative_xdg_state_home_is_ignored_for_tool_resolution() {
-    let root = env::temp_dir().join(format!(
-        "schneeforge-tool-relative-xdg-{}",
-        process::id()
-    ));
+    let root = env::temp_dir().join(format!("schneeforge-tool-relative-xdg-{}", process::id()));
     let _ = fs::remove_dir_all(&root);
 
     let work = root.join("work");
@@ -28,9 +25,7 @@ fn relative_xdg_state_home_is_ignored_for_tool_resolution() {
         .join("relative-state")
         .join("nix/profile/bin")
         .join(tool_name);
-    let home_tool = home
-        .join(".local/state/nix/profile/bin")
-        .join(tool_name);
+    let home_tool = home.join(".local/state/nix/profile/bin").join(tool_name);
     make_executable(&relative_tool);
     make_executable(&home_tool);
 
