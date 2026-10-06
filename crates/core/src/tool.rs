@@ -305,11 +305,12 @@ fn find_in_dirs(tool: &str, dirs: &[String]) -> Option<PathBuf> {
 fn default_known_paths() -> Vec<(PathBuf, ToolSource)> {
     let mut paths: Vec<(PathBuf, ToolSource)> = Vec::new();
 
-    // XDG_STATE_HOME（設定時）
+    // XDG_STATE_HOME（設定時。相対パスは XDG Base Directory 契約外なので無視）
     if let Ok(p) = env::var("XDG_STATE_HOME") {
-        if !p.is_empty() {
+        let state_home = PathBuf::from(&p);
+        if !p.is_empty() && state_home.is_absolute() {
             paths.push((
-                PathBuf::from(&p).join("nix/profile/bin"),
+                state_home.join("nix/profile/bin"),
                 ToolSource::XdgStateProfile,
             ));
         }
