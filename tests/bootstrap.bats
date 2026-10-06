@@ -251,3 +251,27 @@ EOF
   ! grep -Fq 'USER_HOME="/Users/$USERNAME"' "$BATS_TEST_DIRNAME/../bootstrap.sh"
   ! grep -Fq 'USER_HOME="/home/$USERNAME"' "$BATS_TEST_DIRNAME/../bootstrap.sh"
 }
+
+@test "bootstrap Nix string escaping protects interpolation and delimiters" {
+  local escape_function input
+  escape_function="$(sed -n '/^escape_nix_string()/,/^}/p' "$BATS_TEST_DIRNAME/../bootstrap.sh")"
+  [ -n "$escape_function" ]
+  eval "$escape_function"
+
+  input='user${builtins.abort "boom"}\tail'
+  run escape_nix_string "$input"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = 'user\${builtins.abort \"boom\"}\\tail' ]
+}
+
+@test "bootstrap machine input escapes all environment-derived strings" {
+  local script="$BATS_TEST_DIRNAME/../bootstrap.sh"
+
+  grep -Fq 'MACHINE_USERNAME="$(escape_nix_string "$USERNAME")"' "$script"
+  grep -Fq 'MACHINE_HOME="$(escape_nix_string "$USER_HOME")"' "$script"
+  grep -Fq 'MACHINE_HOSTNAME="$(escape_nix_string "$(hostname)")"' "$script"
+  grep -Fq 'username = "$MACHINE_USERNAME";' "$script"
+  grep -Fq 'homeDirectory = "$MACHINE_HOME";' "$script"
+  grep -Fq 'hostname = "$MACHINE_HOSTNAME";' "$script"
+}
