@@ -138,7 +138,7 @@ sha256_file() {
 # Nix installer が作らないことがある state dir を保証
 ensure_nix_state_dir() {
   local state_dir
-  if [ -n "${XDG_STATE_HOME:-}" ]; then
+  if [ -n "${XDG_STATE_HOME:-}" ] && [ "${XDG_STATE_HOME#/}" != "$XDG_STATE_HOME" ]; then
     state_dir="${XDG_STATE_HOME}/nix/profiles"
   else
     state_dir="${HOME:?HOME must be set}/.local/state/nix/profiles"

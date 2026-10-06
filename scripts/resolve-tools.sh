@@ -150,7 +150,7 @@ resolve_brew() {
 # （Nix installer が自動作成しない有名な罠への対応）
 ensure_nix_state_dir() {
   local state_dir
-  if [ -n "${XDG_STATE_HOME:-}" ]; then
+  if [ -n "${XDG_STATE_HOME:-}" ] && [ "${XDG_STATE_HOME#/}" != "$XDG_STATE_HOME" ]; then
     state_dir="${XDG_STATE_HOME}/nix/profiles"
   else
     # HOME が未設定の場合は getent 等で passwd から home を取る方が確実だが、

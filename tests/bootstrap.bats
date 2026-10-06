@@ -9,9 +9,14 @@ extract_flake_functions() {
   sed -n '/^ensure_flakes_enabled()/,/^}/p' "$BATS_TEST_DIRNAME/../bootstrap.sh"
 }
 
+extract_state_dir_function() {
+  sed -n '/^resolve_schneeforge_state_dir()/,/^}/p' "$BATS_TEST_DIRNAME/../bootstrap.sh"
+}
+
 setup() {
   detect_host_body="$(extract_detect_host)"
   flake_functions="$(extract_flake_functions)"
+  state_dir_function="$(extract_state_dir_function)"
 }
 
 @test "detect_host returns darwin-aarch64 on macOS arm64" {
@@ -88,7 +93,6 @@ setup() {
     grep -Fq "schneeforge nix install" "$file"
   done
 }
-
 
 @test "shell bootstrap paths verify effective flakes config instead of grepping nix.conf" {
   local files=(
@@ -192,4 +196,27 @@ EOF
     [ ! -e "$root/work/relative-config/nix/nix.conf" ]
     [ ! -e "$root/work/relative-home/.config/nix/nix.conf" ]
   done
+}
+
+@test "bootstrap state dir ignores relative XDG_STATE_HOME" {
+  export XDG_STATE_HOME="relative-state"
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME"
+  eval "$state_dir_function"
+
+  run resolve_schneeforge_state_dir
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "$HOME/.local/state/schneeforge" ]
+}
+
+@test "bootstrap state dir honors absolute XDG_STATE_HOME" {
+  export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
+  export HOME="$BATS_TEST_TMPDIR/home"
+  eval "$state_dir_function"
+
+  run resolve_schneeforge_state_dir
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "$XDG_STATE_HOME/schneeforge" ]
 }

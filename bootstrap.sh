@@ -49,6 +49,16 @@ detect_host() {
   esac
 }
 
+resolve_schneeforge_state_dir() {
+  local state_home
+  if [ -n "${XDG_STATE_HOME:-}" ] && [ "${XDG_STATE_HOME#/}" != "$XDG_STATE_HOME" ]; then
+    state_home="$XDG_STATE_HOME"
+  else
+    state_home="${HOME:?HOME must be set}/.local/state"
+  fi
+  printf '%s/schneeforge\n' "$state_home"
+}
+
 # nix.conf の存在や文字列ではなく、resolved Nix が実際に認識している
 # experimental-features を確認する。
 nix_has_required_flake_features() {
@@ -123,7 +133,7 @@ darwin-aarch64 | linux | linux-arm)
 esac
 
 echo
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/schneeforge"
+STATE_DIR="$(resolve_schneeforge_state_dir)"
 mkdir -p "$STATE_DIR"
 USERNAME="$(whoami)"
 if [ -z "$USERNAME" ]; then
