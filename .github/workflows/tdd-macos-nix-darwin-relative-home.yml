@@ -17,6 +17,6 @@ jobs:
     runs-on: macos-26-intel
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+      - uses: dtolnay/rust-toolchain@stable
       - name: run relative HOME nix-darwin marker regression
-        run: nix develop -c cargo test -p schneeforge --test nix_uninstall_empty_home -- --nocapture
+        run: cargo test -p schneeforge --test nix_uninstall_empty_home -- --nocapture
