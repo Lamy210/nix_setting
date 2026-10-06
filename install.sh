@@ -81,7 +81,7 @@ resolve_tool() {
   if command -v "$name" >/dev/null 2>&1; then
     local p
     p="$(command -v "$name")"
-    if is_executable "$p" ]; then
+    if is_executable "$p"; then
       export_resolved_tool "$out_var" "$p" || return 1
       return 0
     fi
