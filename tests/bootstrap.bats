@@ -13,10 +13,15 @@ extract_state_dir_function() {
   sed -n '/^resolve_schneeforge_state_dir()/,/^}/p' "$BATS_TEST_DIRNAME/../bootstrap.sh"
 }
 
+extract_machine_home_function() {
+  sed -n '/^resolve_machine_home()/,/^}/p' "$BATS_TEST_DIRNAME/../bootstrap.sh"
+}
+
 setup() {
   detect_host_body="$(extract_detect_host)"
   flake_functions="$(extract_flake_functions)"
   state_dir_function="$(extract_state_dir_function)"
+  machine_home_function="$(extract_machine_home_function)"
 }
 
 @test "detect_host returns darwin-aarch64 on macOS arm64" {
@@ -219,4 +224,30 @@ EOF
 
   [ "$status" -eq 0 ]
   [ "$output" = "$XDG_STATE_HOME/schneeforge" ]
+}
+
+@test "bootstrap machine home uses effective HOME" {
+  export HOME="$BATS_TEST_TMPDIR/custom-home"
+  eval "$machine_home_function"
+
+  run resolve_machine_home
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "$HOME" ]
+}
+
+@test "bootstrap machine home fails when HOME is unavailable" {
+  unset HOME
+  eval "$machine_home_function"
+
+  run resolve_machine_home
+
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "Could not determine home directory"
+}
+
+@test "bootstrap machine input is wired to effective HOME resolver" {
+  grep -Fq 'USER_HOME="$(resolve_machine_home)"' "$BATS_TEST_DIRNAME/../bootstrap.sh"
+  ! grep -Fq 'USER_HOME="/Users/$USERNAME"' "$BATS_TEST_DIRNAME/../bootstrap.sh"
+  ! grep -Fq 'USER_HOME="/home/$USERNAME"' "$BATS_TEST_DIRNAME/../bootstrap.sh"
 }
