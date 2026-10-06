@@ -77,6 +77,17 @@ pub fn resolve_repo_with(
 mod tests {
     use super::*;
 
+    fn absolute_home() -> &'static str {
+        #[cfg(windows)]
+        {
+            r"C:\Users\u"
+        }
+        #[cfg(not(windows))]
+        {
+            "/home/u"
+        }
+    }
+
     #[test]
     fn cli_repo_wins() {
         assert_eq!(resolve_repo_with(Some("/custom"), None, None), "/custom");
@@ -92,9 +103,10 @@ mod tests {
 
     #[test]
     fn home_fallback() {
+        let home = absolute_home();
         assert_eq!(
-            resolve_repo_with(None, None, Some("/home/u")),
-            "/home/u/nix_setting"
+            resolve_repo_with(None, None, Some(home)),
+            format!("{home}/nix_setting")
         );
     }
 
@@ -126,9 +138,10 @@ mod tests {
 
     #[test]
     fn empty_env_dir_falls_back_to_home() {
+        let home = absolute_home();
         assert_eq!(
-            resolve_repo_with(None, Some(""), Some("/home/u")),
-            "/home/u/nix_setting"
+            resolve_repo_with(None, Some(""), Some(home)),
+            format!("{home}/nix_setting")
         );
     }
 
