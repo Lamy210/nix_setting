@@ -122,3 +122,74 @@ EOF
   echo "$output" | grep -q "refusing to modify"
   cmp -s "$BATS_TEST_TMPDIR/nix.conf.before" "$XDG_CONFIG_HOME/nix/nix.conf"
 }
+
+@test "shell flakes config ignores relative XDG_CONFIG_HOME in favor of absolute HOME" {
+  local scripts=(
+    "$BATS_TEST_DIRNAME/../bootstrap.sh"
+    "$BATS_TEST_DIRNAME/../install.sh"
+  )
+  local script label root functions old_pwd
+
+  for script in "${scripts[@]}"; do
+    label="$(basename "$script" .sh)"
+    root="$BATS_TEST_TMPDIR/$label-relative-xdg"
+    mkdir -p "$root/bin" "$root/home/.config/nix" "$root/work"
+    export XDG_CONFIG_HOME="relative-config"
+    export HOME="$root/home"
+    export NIX_BIN="$root/bin/fake-nix"
+    cat >"$NIX_BIN" <<'EOF'
+#!/usr/bin/env bash
+conf="${HOME}/.config/nix/nix.conf"
+if grep -Fxq 'extra-experimental-features = nix-command flakes' "$conf" 2>/dev/null; then
+  echo 'experimental-features = nix-command flakes'
+else
+  echo 'experimental-features = nix-command'
+fi
+EOF
+    chmod +x "$NIX_BIN"
+    functions="$(sed -n '/^nix_has_required_flake_features()/,/^}/p' "$script"; sed -n '/^ensure_flakes_enabled()/,/^}/p' "$script")"
+    eval "$functions"
+
+    old_pwd="$PWD"
+    cd "$root/work"
+    run ensure_flakes_enabled
+    cd "$old_pwd"
+
+    [ "$status" -eq 0 ]
+    grep -Fxq 'extra-experimental-features = nix-command flakes' "$root/home/.config/nix/nix.conf"
+    [ ! -e "$root/work/relative-config/nix/nix.conf" ]
+  done
+}
+
+@test "shell flakes config fails closed when no absolute config root exists" {
+  local scripts=(
+    "$BATS_TEST_DIRNAME/../bootstrap.sh"
+    "$BATS_TEST_DIRNAME/../install.sh"
+  )
+  local script label root functions old_pwd
+
+  for script in "${scripts[@]}"; do
+    label="$(basename "$script" .sh)"
+    root="$BATS_TEST_TMPDIR/$label-relative-roots"
+    mkdir -p "$root/bin" "$root/work"
+    export XDG_CONFIG_HOME="relative-config"
+    export HOME="relative-home"
+    export NIX_BIN="$root/bin/fake-nix"
+    cat >"$NIX_BIN" <<'EOF'
+#!/usr/bin/env bash
+echo 'experimental-features = nix-command'
+EOF
+    chmod +x "$NIX_BIN"
+    functions="$(sed -n '/^nix_has_required_flake_features()/,/^}/p' "$script"; sed -n '/^ensure_flakes_enabled()/,/^}/p' "$script")"
+    eval "$functions"
+
+    old_pwd="$PWD"
+    cd "$root/work"
+    run ensure_flakes_enabled
+    cd "$old_pwd"
+
+    [ "$status" -ne 0 ]
+    [ ! -e "$root/work/relative-config/nix/nix.conf" ]
+    [ ! -e "$root/work/relative-home/.config/nix/nix.conf" ]
+  done
+}
