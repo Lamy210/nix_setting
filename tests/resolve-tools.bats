@@ -355,3 +355,30 @@ EOF
   ensure_nix_state_dir
   [ -d "$HOME/.local/state/nix/profiles" ]
 }
+
+@test "shared ensure_nix_state_dir ignores relative XDG_STATE_HOME" {
+  local old_pwd="$PWD"
+  mkdir -p "$TMPDIR_TEST/work-state"
+  export XDG_STATE_HOME="relative-state"
+  cd "$TMPDIR_TEST/work-state"
+
+  ensure_nix_state_dir
+
+  cd "$old_pwd"
+  [ ! -d "$TMPDIR_TEST/work-state/relative-state/nix/profiles" ]
+  [ -d "$HOME/.local/state/nix/profiles" ]
+}
+
+@test "install inline ensure_nix_state_dir ignores relative XDG_STATE_HOME" {
+  local old_pwd="$PWD"
+  mkdir -p "$TMPDIR_TEST/work-inline-state"
+  export XDG_STATE_HOME="relative-state"
+  cd "$TMPDIR_TEST/work-inline-state"
+  load_install_inline_resolver
+
+  ensure_nix_state_dir
+
+  cd "$old_pwd"
+  [ ! -d "$TMPDIR_TEST/work-inline-state/relative-state/nix/profiles" ]
+  [ -d "$HOME/.local/state/nix/profiles" ]
+}
