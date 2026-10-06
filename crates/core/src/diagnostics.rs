@@ -362,7 +362,9 @@ fn xdg_state_profile_dir() -> Option<std::path::PathBuf> {
             std::env::var("HOME")
                 .ok()
                 .filter(|value| !value.is_empty())
-                .map(|h| std::path::PathBuf::from(h).join(".local/state"))
+                .map(std::path::PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .map(|home| home.join(".local/state"))
         })?;
     Some(base.join("nix/profiles"))
 }
