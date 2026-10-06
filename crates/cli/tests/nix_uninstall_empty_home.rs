@@ -39,3 +39,28 @@ fn empty_home_does_not_treat_cwd_nix_darwin_marker_as_home_marker() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn relative_home_does_not_treat_cwd_relative_nix_darwin_marker_as_home_marker() {
+    let dir = isolated_dir("relative-home-nix-darwin-marker");
+    let relative_home = "relative-home";
+    std::fs::create_dir_all(dir.join(relative_home).join(".nix-darwin")).unwrap();
+    let receipt = dir.join("receipt.json");
+    std::fs::write(&receipt, "{}").unwrap();
+
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.current_dir(&dir)
+        .arg("nix")
+        .arg("uninstall")
+        .arg("--receipt")
+        .arg(&receipt)
+        .arg("--force")
+        .env("HOME", relative_home)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not running as root"))
+        .stderr(predicate::str::contains("nix-darwin detected").not());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
