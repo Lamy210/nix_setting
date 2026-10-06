@@ -53,8 +53,11 @@ resolve_schneeforge_state_dir() {
   local state_home
   if [ -n "${XDG_STATE_HOME:-}" ] && [ "${XDG_STATE_HOME#/}" != "$XDG_STATE_HOME" ]; then
     state_home="$XDG_STATE_HOME"
+  elif [ -n "${HOME:-}" ] && [ "${HOME#/}" != "$HOME" ]; then
+    state_home="$HOME/.local/state"
   else
-    state_home="${HOME:?HOME must be set}/.local/state"
+    echo "Could not determine absolute state directory: XDG_STATE_HOME or HOME must be absolute" >&2
+    return 1
   fi
   printf '%s/schneeforge\n' "$state_home"
 }
@@ -62,6 +65,10 @@ resolve_schneeforge_state_dir() {
 resolve_machine_home() {
   if [ -z "${HOME:-}" ]; then
     echo "Could not determine home directory" >&2
+    return 1
+  fi
+  if [ "${HOME#/}" = "$HOME" ]; then
+    echo "Could not determine absolute home directory" >&2
     return 1
   fi
   printf '%s\n' "$HOME"
