@@ -52,7 +52,7 @@ fn assert_child_health_has_no_state_path_warning() {
     );
     assert_eq!(
         health.warning, None,
-        "unusable empty state-path environment values must not redirect diagnostics into the process CWD"
+        "unusable state-path environment values must not redirect diagnostics into the process CWD"
     );
 }
 
@@ -94,6 +94,47 @@ fn empty_xdg_state_home_falls_back_to_non_empty_home() {
     assert!(
         status.success(),
         "empty XDG_STATE_HOME should fall back to non-empty HOME"
+    );
+}
+
+#[test]
+fn relative_xdg_state_home_falls_back_to_absolute_home() {
+    if std::env::var(CHILD_CASE).as_deref() == Ok("relative-xdg") {
+        assert_child_health_has_no_state_path_warning();
+        return;
+    }
+
+    let root = std::env::temp_dir().join(format!(
+        "schneeforge-diagnostics-relative-xdg-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    let cwd = root.join("cwd");
+    let home = root.join("home");
+    fs::create_dir_all(&cwd).expect("create isolated cwd");
+    fs::create_dir_all(home.join(".local/state/nix/profiles"))
+        .expect("create HOME state profile dir");
+    let fake_nix = root.join("nix");
+    write_fake_nix(&fake_nix);
+
+    let status = Command::new(std::env::current_exe().expect("current test executable"))
+        .args([
+            "--exact",
+            "relative_xdg_state_home_falls_back_to_absolute_home",
+            "--nocapture",
+        ])
+        .current_dir(&cwd)
+        .env(CHILD_CASE, "relative-xdg")
+        .env(CHILD_NIX, &fake_nix)
+        .env("XDG_STATE_HOME", "relative-state")
+        .env("HOME", &home)
+        .status()
+        .expect("spawn isolated diagnostics regression test");
+
+    let _ = fs::remove_dir_all(&root);
+    assert!(
+        status.success(),
+        "relative XDG_STATE_HOME should fall back to absolute HOME"
     );
 }
 
