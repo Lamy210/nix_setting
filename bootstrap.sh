@@ -69,9 +69,6 @@ nix_has_required_flake_features() {
 
 ensure_flakes_enabled() {
   local config_home conf
-  config_home="${XDG_CONFIG_HOME:-${HOME:?HOME must be set}/.config}"
-  conf="$config_home/nix/nix.conf"
-
   local feature_status=0
   if nix_has_required_flake_features; then
     return 0
@@ -79,9 +76,19 @@ ensure_flakes_enabled() {
     feature_status=$?
   fi
   if [ "$feature_status" -eq 2 ]; then
-    echo "Failed to inspect effective Nix settings; refusing to modify $conf" >&2
+    echo "Failed to inspect effective Nix settings; refusing to modify Nix config" >&2
     return 1
   fi
+
+  if [ -n "${XDG_CONFIG_HOME:-}" ] && [ "${XDG_CONFIG_HOME#/}" != "$XDG_CONFIG_HOME" ]; then
+    config_home="$XDG_CONFIG_HOME"
+  elif [ -n "${HOME:-}" ] && [ "${HOME#/}" != "$HOME" ]; then
+    config_home="$HOME/.config"
+  else
+    echo "Cannot enable flakes: XDG_CONFIG_HOME or HOME must be set to an absolute path" >&2
+    return 1
+  fi
+  conf="$config_home/nix/nix.conf"
 
   mkdir -p "$(dirname "$conf")"
   # 既存 nix.conf が末尾改行なしでも設定行を連結しない。

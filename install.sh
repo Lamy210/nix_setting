@@ -167,9 +167,6 @@ nix_has_required_flake_features() {
 
 ensure_flakes_enabled() {
   local config_home conf
-  config_home="${XDG_CONFIG_HOME:-${HOME:?HOME must be set}/.config}"
-  conf="$config_home/nix/nix.conf"
-
   local feature_status=0
   if nix_has_required_flake_features; then
     return 0
@@ -177,9 +174,19 @@ ensure_flakes_enabled() {
     feature_status=$?
   fi
   if [ "$feature_status" -eq 2 ]; then
-    echo "[error] Nix の実効設定確認に失敗したため $conf を変更しません: $NIX_BIN config show experimental-features" >&2
+    echo "[error] Nix の実効設定確認に失敗したため Nix config を変更しません: $NIX_BIN config show experimental-features" >&2
     return 1
   fi
+
+  if [ -n "${XDG_CONFIG_HOME:-}" ] && [ "${XDG_CONFIG_HOME#/}" != "$XDG_CONFIG_HOME" ]; then
+    config_home="$XDG_CONFIG_HOME"
+  elif [ -n "${HOME:-}" ] && [ "${HOME#/}" != "$HOME" ]; then
+    config_home="$HOME/.config"
+  else
+    echo "[error] flakes を有効化できません: XDG_CONFIG_HOME または HOME に絶対パスが必要です" >&2
+    return 1
+  fi
+  conf="$config_home/nix/nix.conf"
 
   echo "[3/4] Enabling flakes..."
   mkdir -p "$(dirname "$conf")"
