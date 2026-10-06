@@ -43,7 +43,10 @@ fn relative_home_is_rejected_without_creating_cwd_relative_plan_dir() {
         let cwd = std::env::current_dir().unwrap();
         let result = secure_plan_dir();
 
-        assert!(result.is_err(), "relative HOME must fail closed: {result:?}");
+        assert!(
+            result.is_err(),
+            "relative HOME must fail closed: {result:?}"
+        );
         assert!(
             !cwd.join("relative-home/.local/state/schneeforge/managed-nix/plans")
                 .exists(),
