@@ -126,21 +126,13 @@ fn relative_home_is_ignored_for_legacy_nix_profile_tool_path() {
 
 #[test]
 fn shared_shell_resolver_ignores_relative_home_tool_paths() {
-    assert_shell_ignores_relative_home(
-        "shared-xdg-default",
-        ".local/state/nix/profile/bin",
-        false,
-    );
+    assert_shell_ignores_relative_home("shared-xdg-default", ".local/state/nix/profile/bin", false);
     assert_shell_ignores_relative_home("shared-legacy-profile", ".nix-profile/bin", false);
 }
 
 #[test]
 fn install_inline_resolver_ignores_relative_home_tool_paths() {
-    assert_shell_ignores_relative_home(
-        "inline-xdg-default",
-        ".local/state/nix/profile/bin",
-        true,
-    );
+    assert_shell_ignores_relative_home("inline-xdg-default", ".local/state/nix/profile/bin", true);
     assert_shell_ignores_relative_home("inline-legacy-profile", ".nix-profile/bin", true);
 }
 
