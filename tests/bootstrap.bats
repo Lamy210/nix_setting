@@ -226,6 +226,18 @@ EOF
   [ "$output" = "$XDG_STATE_HOME/schneeforge" ]
 }
 
+@test "bootstrap state dir rejects relative HOME fallback" {
+  unset XDG_STATE_HOME
+  export HOME="relative-home"
+  eval "$state_dir_function"
+
+  run resolve_schneeforge_state_dir
+
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "absolute"
+  [ "$output" != "relative-home/.local/state/schneeforge" ]
+}
+
 @test "bootstrap machine home uses effective HOME" {
   export HOME="$BATS_TEST_TMPDIR/custom-home"
   eval "$machine_home_function"
@@ -244,6 +256,17 @@ EOF
 
   [ "$status" -ne 0 ]
   echo "$output" | grep -q "Could not determine home directory"
+}
+
+@test "bootstrap machine home rejects relative HOME" {
+  export HOME="relative-home"
+  eval "$machine_home_function"
+
+  run resolve_machine_home
+
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "absolute"
+  [ "$output" != "relative-home" ]
 }
 
 @test "bootstrap machine input is wired to effective HOME resolver" {
