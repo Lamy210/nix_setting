@@ -52,7 +52,7 @@ fn assert_child_health_has_no_state_path_warning() {
     );
     assert_eq!(
         health.warning, None,
-        "unusable state-path environment values must not redirect diagnostics into the process CWD"
+        "empty or relative state-path environment values must not redirect diagnostics into the process CWD"
     );
 }
 
