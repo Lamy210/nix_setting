@@ -75,6 +75,36 @@ pub mod operations {
     ) -> crate::error::Result<Option<String>> {
         deps_update(repo, tc, capture)
     }
+
+    /// Public verification boundary.
+    ///
+    /// `HOME` is an implicit filesystem root, so it is usable only when the
+    /// process can represent it as a non-empty absolute path. The internal
+    /// verifier is intentionally infallible; mask HOME-derived dotfile results
+    /// when that precondition is not met so verification cannot depend on CWD.
+    pub fn verify(
+        repo: &str,
+        tc: &crate::tool::ToolInventory,
+    ) -> crate::operations_impl::VerifyReport {
+        let mut report = crate::operations_impl::verify(repo, tc);
+        let valid_home = std::env::var("HOME")
+            .ok()
+            .filter(|home| !home.is_empty())
+            .is_some_and(|home| std::path::Path::new(&home).is_absolute());
+
+        if !valid_home {
+            for check in &mut report.checks {
+                if matches!(
+                    check.name.as_str(),
+                    ".zshrc" | ".gitconfig" | "starship.toml"
+                ) {
+                    check.ok = false;
+                }
+            }
+        }
+
+        report
+    }
 }
 pub(crate) mod process;
 pub mod profile;
