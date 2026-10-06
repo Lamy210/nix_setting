@@ -37,6 +37,7 @@ fn default_path_with(xdg_state_home: Option<&str>, home: Option<&str>) -> PathBu
     let base = xdg_state_home
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
         .or_else(|| {
             home.filter(|value| !value.is_empty())
                 .map(|h| PathBuf::from(h).join(".local/state"))
@@ -295,6 +296,14 @@ mod tests {
     fn default_path_empty_xdg_state_home_falls_back_to_home() {
         assert_eq!(
             default_path_with(Some(""), Some("/home/u")),
+            PathBuf::from("/home/u/.local/state/schneeforge/state.json")
+        );
+    }
+
+    #[test]
+    fn default_path_relative_xdg_state_home_falls_back_to_home() {
+        assert_eq!(
+            default_path_with(Some("relative-state"), Some("/home/u")),
             PathBuf::from("/home/u/.local/state/schneeforge/state.json")
         );
     }
