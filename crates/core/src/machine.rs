@@ -136,7 +136,9 @@ pub fn state_dir() -> PathBuf {
         .or_else(|| {
             std::env::var_os("HOME")
                 .filter(|value| !value.as_os_str().is_empty())
-                .map(|h| PathBuf::from(h).join(".local/state"))
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .map(|home| home.join(".local/state"))
         })
         .unwrap_or_else(|| PathBuf::from("."));
     base.join("schneeforge")
