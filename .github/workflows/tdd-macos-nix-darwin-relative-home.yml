@@ -8,9 +8,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: tdd-macos-nix-darwin-relative-home
+  cancel-in-progress: true
+
 jobs:
   regression:
-    runs-on: macos-14
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
