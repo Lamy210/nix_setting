@@ -94,7 +94,10 @@ pub mod operations {
 
         if !valid_home {
             for check in &mut report.checks {
-                if matches!(check.name.as_str(), ".zshrc" | ".gitconfig" | "starship.toml") {
+                if matches!(
+                    check.name.as_str(),
+                    ".zshrc" | ".gitconfig" | "starship.toml"
+                ) {
                     check.ok = false;
                 }
             }
