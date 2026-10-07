@@ -29,10 +29,7 @@ fn fixture(case: &str) -> (PathBuf, PathBuf, String) {
         "schneeforge-relative-nix-profile-tool-{}-{case}",
         process::id()
     );
-    let candidate = work
-        .join("relative-profile")
-        .join("bin")
-        .join(&tool_name);
+    let candidate = work.join("relative-profile").join("bin").join(&tool_name);
     make_executable(&candidate);
     (root, work, tool_name)
 }
