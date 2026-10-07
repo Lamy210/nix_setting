@@ -67,6 +67,9 @@ impl MachineFacts {
         if home.as_os_str().is_empty() {
             return Err(Error::Precondition("HOME is empty".to_string()));
         }
+        if !home.is_absolute() {
+            return Err(Error::Precondition("HOME must be absolute".to_string()));
+        }
 
         let platform = detect_platform_for(std::env::consts::OS);
         let architecture = detect_arch_for(std::env::consts::ARCH);
