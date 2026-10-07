@@ -1,0 +1,22 @@
+name: tdd-machine-facts-relative-home
+
+on:
+  push:
+    branches:
+      - test/machine-facts-relative-home-red
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tdd-machine-facts-relative-home
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: dtolnay/rust-toolchain@stable
+      - name: run relative HOME machine facts regression
+        run: cargo test -p schneeforge-core --test machine_facts_home -- --nocapture
