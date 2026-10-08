@@ -247,7 +247,7 @@ impl ToolResolver {
         let path_dirs: Vec<String> = env::var_os("PATH")
             .map(|path| {
                 env::split_paths(&path)
-                    .map(|entry| entry.to_string_lossy().into_owned())
+                    .filter_map(|entry| entry.into_os_string().into_string().ok())
                     .collect()
             })
             .unwrap_or_default();
