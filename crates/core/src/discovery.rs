@@ -274,6 +274,15 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn path_dirs_from_os_rejects_non_utf8_entries() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let path = std::ffi::OsString::from_vec(b"/tmp/schneeforge-\xff:/usr/bin".to_vec());
+        assert_eq!(path_dirs_from_os(&path), vec!["/usr/bin".to_string()]);
+    }
+
     #[test]
     fn which_finds_existing_command() {
         assert!(which("sh").is_some() || which("ls").is_some());
