@@ -165,7 +165,7 @@ pub fn detect_arch_for(arch: &str) -> Architecture {
 
 fn path_dirs_from_os(path: &std::ffi::OsStr) -> Vec<String> {
     std::env::split_paths(path)
-        .map(|entry| entry.to_string_lossy().into_owned())
+        .filter_map(|entry| entry.into_os_string().into_string().ok())
         .collect()
 }
 
@@ -272,6 +272,15 @@ mod tests {
                 "/tmp/schneeforge-b".to_string()
             ]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_dirs_from_os_rejects_non_utf8_entries() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let path = std::ffi::OsString::from_vec(b"/tmp/schneeforge-\xff:/usr/bin".to_vec());
+        assert_eq!(path_dirs_from_os(&path), vec!["/usr/bin".to_string()]);
     }
 
     #[test]
