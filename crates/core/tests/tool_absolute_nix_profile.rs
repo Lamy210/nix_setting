@@ -73,14 +73,18 @@ fn run_shell_resolver(case: &str, inline_install: bool) -> (Output, PathBuf, Pat
     let shell = if inline_install {
         r#"
 eval "$(sed -n '1,/^# --- end inline resolver ---$/p' "$INSTALL_SCRIPT")"
-resolved="$(resolve_tool "$TOOL_NAME")" || exit $?
-printf '%s' "$resolved"
+resolve_tool "$TOOL_NAME" || exit $?
+upper="$(printf '%s' "$TOOL_NAME" | tr '[:lower:]-' '[:upper:]_')"
+out_var="${upper}_BIN"
+printf '%s' "${!out_var}"
 "#
     } else {
         r#"
 . "$RESOLVER_SCRIPT"
-resolved="$(resolve_tool "$TOOL_NAME")" || exit $?
-printf '%s' "$resolved"
+resolve_tool "$TOOL_NAME" || exit $?
+upper="$(printf '%s' "$TOOL_NAME" | tr '[:lower:]-' '[:upper:]_')"
+out_var="${upper}_BIN"
+printf '%s' "${!out_var}"
 "#
     };
 
