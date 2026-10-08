@@ -43,8 +43,5 @@ fn profile_override_rejects_non_utf8_state_paths() {
     let err = result.expect_err(
         "non-UTF8 state paths must be rejected instead of rewritten in Nix path: overrides",
     );
-    assert!(
-        err.to_string().contains("UTF-8"),
-        "unexpected error: {err}"
-    );
+    assert!(err.to_string().contains("UTF-8"), "unexpected error: {err}");
 }
