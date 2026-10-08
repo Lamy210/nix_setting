@@ -70,6 +70,9 @@ impl MachineFacts {
         if !home.is_absolute() {
             return Err(Error::Precondition("HOME must be absolute".to_string()));
         }
+        if home.to_str().is_none() {
+            return Err(Error::Precondition("HOME must be valid UTF-8".to_string()));
+        }
 
         let platform = detect_platform_for(std::env::consts::OS);
         let architecture = detect_arch_for(std::env::consts::ARCH);
