@@ -134,6 +134,15 @@ fn escape_nix_string_literal(value: &str) -> String {
         .replace("${", "\\${")
 }
 
+fn nix_path_input(path: &std::path::Path, label: &str) -> Result<String> {
+    let path = path.to_str().ok_or_else(|| {
+        Error::Precondition(format!(
+            "{label} path must be valid UTF-8 for Nix flake input"
+        ))
+    })?;
+    Ok(format!("path:{path}"))
+}
+
 /// profile input (`profile.nix`) を生成する。常に上書き。
 /// atomic write により truncate 中の読み取りで空の file が観測されない
 pub fn write_profile_input(name: &str) -> Result<std::path::PathBuf> {
@@ -160,13 +169,15 @@ pub fn override_args_with(repo: &str, store: &StateStore) -> Result<Vec<String>>
     let machine_path = crate::machine::write_machine_input(&facts)?;
     let (profile, _) = resolve_with(repo, store)?;
     let profile_path = write_profile_input(&profile)?;
+    let machine_input = nix_path_input(&machine_path, "machine input")?;
+    let profile_input = nix_path_input(&profile_path, "profile input")?;
     Ok(vec![
         "--override-input".to_string(),
         "machine".to_string(),
-        format!("path:{}", machine_path.to_string_lossy()),
+        machine_input,
         "--override-input".to_string(),
         "profile".to_string(),
-        format!("path:{}", profile_path.to_string_lossy()),
+        profile_input,
     ])
 }
 
