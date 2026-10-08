@@ -165,7 +165,7 @@ pub fn detect_arch_for(arch: &str) -> Architecture {
 
 fn path_dirs_from_os(path: &std::ffi::OsStr) -> Vec<String> {
     std::env::split_paths(path)
-        .map(|entry| entry.to_string_lossy().into_owned())
+        .filter_map(|entry| entry.into_os_string().into_string().ok())
         .collect()
 }
 
