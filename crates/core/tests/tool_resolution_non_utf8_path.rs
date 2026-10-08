@@ -36,7 +36,10 @@ fn tool_resolver_rejects_non_utf8_path_entries() {
     let mut raw_dir = root.as_os_str().as_bytes().to_vec();
     raw_dir.extend_from_slice(b"-\xff");
     let non_utf8_dir = PathBuf::from(OsString::from_vec(raw_dir));
-    assert!(non_utf8_dir.to_str().is_none(), "test path must be non-UTF8");
+    assert!(
+        non_utf8_dir.to_str().is_none(),
+        "test path must be non-UTF8"
+    );
 
     let lossy_dir = PathBuf::from(non_utf8_dir.to_string_lossy().into_owned());
     create_executable(&lossy_dir, tool);
