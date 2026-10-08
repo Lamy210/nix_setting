@@ -7,6 +7,7 @@ pub mod download;
 pub mod error;
 pub mod escalate;
 pub mod installer;
+mod installer_os;
 pub mod manifest;
 pub mod ownership;
 pub mod provider;
@@ -494,8 +495,8 @@ impl ManagedNix {
         progress: &mut dyn ProgressSink,
     ) -> Result<(), ManagedNixError> {
         progress.on_phase(InstallPhase::Install);
-        let args = install_args(plan_file);
-        run_with_json_logs(binary, &args, |line| progress.on_log(line))
+        let args = installer_os::install_args(plan_file);
+        installer_os::run_with_json_logs(binary, &args, |line| progress.on_log(line))
     }
 
     /// download → verify → plan 生成までを実行し、plan file path を返す。
@@ -585,9 +586,9 @@ impl ManagedNix {
         binary: &Path,
         receipt: Option<&Path>,
     ) -> Result<(), ManagedNixError> {
-        let args = uninstall_args(receipt);
+        let args = installer_os::uninstall_args(receipt);
         let mut noop = NoProgress;
-        run_with_json_logs(binary, &args, |line| noop.on_log(line))
+        installer_os::run_with_json_logs(binary, &args, |line| noop.on_log(line))
     }
 }
 
@@ -623,8 +624,6 @@ aarch64-darwin = "33333333333333333333333333333333333333333333333333333333333333
 
     #[test]
     fn embedded_manifest_parses_repo_file() {
-        // build 時 embed した manifest が実際の repo file と同じ schema で
-        // parse できること (include_str! 先が壊れていてもこの test が検出する)
         let mn = ManagedNix::embedded().unwrap();
         assert!(!mn.version().is_empty());
         for (platform, arch) in [
@@ -755,7 +754,6 @@ x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111
     #[test]
     fn resolve_asset_unsupported_arch() {
         let mn = ManagedNix::from_manifest(sample_manifest());
-        // x86_64-darwin は provider 側で弾かれる
         let res = mn.resolve_asset(Platform::MacOS, Architecture::X86_64);
         assert!(matches!(res, Err(ManagedNixError::UnsupportedArch { .. })));
     }
@@ -800,9 +798,6 @@ x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111
         assert!(joined.contains("既存の Nix"));
     }
 
-    /// macOS は `/var` が `/private/var` への symlink のため、privileged state dir
-    /// に `/var/...` を使うと component 毎 symlink 検査で self-abort する。
-    /// platform 別の実 path であることを検証する。
     #[test]
     fn privileged_state_dir_uses_real_path_per_platform() {
         let dir = privileged_state_dir();
@@ -812,8 +807,6 @@ x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111
         } else {
             assert!(s.starts_with("/var/lib/"), "got: {s}");
         }
-        // 実在する全 component が symlink でないこと
-        // (macOS で /var 問題が再発しない保証。未作成の末端は skip)
         let mut current = PathBuf::from("/");
         for comp in dir.components().skip(1) {
             current.push(comp);
@@ -836,10 +829,6 @@ x86_64-linux = "1111111111111111111111111111111111111111111111111111111111111111
         assert!(!is_supported(Platform::Unsupported, Architecture::X86_64));
     }
 
-    /// upstream 2.35.1 の `InstallPlan` 直列化 shape (src/plan.rs + src/action/mod.rs
-    /// `#[typetag::serde(tag = "action_name")]` + src/action/stateful.rs
-    /// `StatefulAction { action, state }`) に基づく fixture。
-    /// この shape が変わったら summarize_plan が壊れるので、この test が検知する。
     #[test]
     fn summarize_plan_reads_upstream_shape() {
         let plan = serde_json::json!({
