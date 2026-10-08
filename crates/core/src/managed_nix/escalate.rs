@@ -164,10 +164,22 @@ pub fn escalate_command(
             source: "empty binary path".to_string(),
         });
     }
+    if !cli_bin.is_absolute() {
+        return Err(ManagedNixError::Io {
+            context: "resolve schneeforge CLI binary for escalation".to_string(),
+            source: "CLI binary path must be absolute".to_string(),
+        });
+    }
     if repo_dir.as_os_str().is_empty() {
         return Err(ManagedNixError::Io {
             context: "resolve repo dir for escalation".to_string(),
             source: "empty repo dir".to_string(),
+        });
+    }
+    if !repo_dir.is_absolute() {
+        return Err(ManagedNixError::Io {
+            context: "resolve repo dir for escalation".to_string(),
+            source: "repo dir must be absolute".to_string(),
         });
     }
     let mut env = base_env(repo_dir);
