@@ -110,7 +110,7 @@ resolve_tool() {
   if [ -n "${HOME:-}" ] && [ "${HOME#/}" != "$HOME" ]; then
     candidates+=("${HOME}/.local/state/nix/profile/bin")
   fi
-  if [ -n "${NIX_PROFILE:-}" ]; then
+  if [ -n "${NIX_PROFILE:-}" ] && [ "${NIX_PROFILE#/}" != "$NIX_PROFILE" ]; then
     candidates+=("${NIX_PROFILE}/bin")
   fi
   if [ -n "${HOME:-}" ] && [ "${HOME#/}" != "$HOME" ]; then

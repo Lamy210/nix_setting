@@ -332,8 +332,9 @@ fn default_known_paths() -> Vec<(PathBuf, ToolSource)> {
 
     // NIX_PROFILE env
     if let Ok(p) = env::var("NIX_PROFILE") {
-        if !p.is_empty() {
-            paths.push((PathBuf::from(p).join("bin"), ToolSource::NixProfileEnv));
+        let profile = PathBuf::from(&p);
+        if !p.is_empty() && profile.is_absolute() {
+            paths.push((profile.join("bin"), ToolSource::NixProfileEnv));
         }
     }
 
