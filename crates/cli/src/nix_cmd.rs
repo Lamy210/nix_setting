@@ -7,8 +7,9 @@ use clap::Args;
 use schneeforge_core::{
     cache_path, classify_current, default_ownership_path, default_receipt_path, detect_arch,
     detect_platform, existing_nix_detected, installed_binary_path, nix_health,
-    repair_action_current, repair_args, secure_plan_dir, JsonLogLine, ManagedNix, ManagedNixError,
-    OwnershipRecord, ProgressSink, Receipt, RepairAction, ToolInventory, UpstreamRepair,
+    repair_action_current, repair_args, run_with_json_logs, secure_plan_dir, JsonLogLine, ManagedNix,
+    ManagedNixError, NoProgress, OwnershipRecord, ProgressSink, Receipt, RepairAction, ToolInventory,
+    UpstreamRepair,
 };
 
 /// `schneeforge nix` サブコマンド
