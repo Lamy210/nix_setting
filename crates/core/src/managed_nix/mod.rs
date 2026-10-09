@@ -7,6 +7,7 @@ pub mod download;
 pub mod error;
 pub mod escalate;
 pub mod installer;
+mod installer_os;
 pub mod manifest;
 pub mod ownership;
 pub mod provider;
@@ -494,8 +495,8 @@ impl ManagedNix {
         progress: &mut dyn ProgressSink,
     ) -> Result<(), ManagedNixError> {
         progress.on_phase(InstallPhase::Install);
-        let args = install_args(plan_file);
-        run_with_json_logs(binary, &args, |line| progress.on_log(line))
+        let args = installer_os::install_args(plan_file);
+        installer_os::run_with_json_logs(binary, &args, |line| progress.on_log(line))
     }
 
     /// download → verify → plan 生成までを実行し、plan file path を返す。
@@ -585,9 +586,9 @@ impl ManagedNix {
         binary: &Path,
         receipt: Option<&Path>,
     ) -> Result<(), ManagedNixError> {
-        let args = uninstall_args(receipt);
+        let args = installer_os::uninstall_args(receipt);
         let mut noop = NoProgress;
-        run_with_json_logs(binary, &args, |line| noop.on_log(line))
+        installer_os::run_with_json_logs(binary, &args, |line| noop.on_log(line))
     }
 }
 
