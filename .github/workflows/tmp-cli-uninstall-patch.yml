@@ -1,0 +1,42 @@
+name: temporary cli uninstall patch
+
+on:
+  push:
+    branches: [fix/cli-uninstall-non-utf8-receipt]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/cli-uninstall-non-utf8-receipt
+      - name: Patch CLI uninstall execution
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('crates/cli/src/nix_cmd.rs')
+          s = p.read_text()
+          old_import = '''    repair_action_current, repair_args, run_with_json_logs, secure_plan_dir,\n    uninstall_args as build_uninstall_args, JsonLogLine, ManagedNix, ManagedNixError, NoProgress,\n    OwnershipRecord, ProgressSink, Receipt, RepairAction, ToolInventory, UpstreamRepair,\n'''
+          new_import = '''    repair_action_current, repair_args, secure_plan_dir, JsonLogLine, ManagedNix, ManagedNixError,\n    OwnershipRecord, ProgressSink, Receipt, RepairAction, ToolInventory, UpstreamRepair,\n'''
+          old_block = '''    eprintln!("invoking upstream uninstall...");\n    let uninstall_args = build_uninstall_args(Some(&receipt_path));\n    let mut noop = NoProgress;\n    run_with_json_logs(&binary, &uninstall_args, |line| noop.on_log(line))\n        .map_err(|e| format!("uninstall: {e}"))?;\n'''
+          new_block = '''    eprintln!("invoking upstream uninstall...");\n    let mn = ManagedNix::embedded().map_err(|e| format!("load embedded bootstrap manifest: {e}"))?;\n    mn.run_uninstall(&binary, Some(&receipt_path))\n        .map_err(|e| format!("uninstall: {e}"))?;\n'''
+          if old_import not in s:
+              raise SystemExit('expected import block not found')
+          if old_block not in s:
+              raise SystemExit('expected uninstall block not found')
+          s = s.replace(old_import, new_import, 1).replace(old_block, new_block, 1)
+          p.write_text(s)
+          PY
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/cli/src/nix_cmd.rs
+          git commit -m "fix: delegate cli uninstall execution to core"
+          git push origin HEAD:fix/cli-uninstall-non-utf8-receipt
