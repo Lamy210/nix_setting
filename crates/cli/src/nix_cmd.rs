@@ -7,8 +7,7 @@ use clap::Args;
 use schneeforge_core::{
     cache_path, classify_current, default_ownership_path, default_receipt_path, detect_arch,
     detect_platform, existing_nix_detected, installed_binary_path, nix_health,
-    repair_action_current, repair_args, run_with_json_logs, secure_plan_dir,
-    uninstall_args as build_uninstall_args, JsonLogLine, ManagedNix, ManagedNixError, NoProgress,
+    repair_action_current, repair_args, secure_plan_dir, JsonLogLine, ManagedNix, ManagedNixError,
     OwnershipRecord, ProgressSink, Receipt, RepairAction, ToolInventory, UpstreamRepair,
 };
 
@@ -475,9 +474,8 @@ pub fn run_uninstall(args: UninstallArgs) -> Result {
     };
 
     eprintln!("invoking upstream uninstall...");
-    let uninstall_args = build_uninstall_args(Some(&receipt_path));
-    let mut noop = NoProgress;
-    run_with_json_logs(&binary, &uninstall_args, |line| noop.on_log(line))
+    let mn = ManagedNix::embedded().map_err(|e| format!("load embedded bootstrap manifest: {e}"))?;
+    mn.run_uninstall(&binary, Some(&receipt_path))
         .map_err(|e| format!("uninstall: {e}"))?;
 
     // ownership record も削除 (Nix が無くなったので管理対象でも無くなる)
