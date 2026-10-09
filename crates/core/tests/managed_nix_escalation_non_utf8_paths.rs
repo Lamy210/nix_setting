@@ -21,7 +21,8 @@ fn escalation_rejects_non_utf8_cli_binary_path() {
         .expect_err("non-UTF8 CLI path must be rejected before privilege escalation");
 
     assert!(
-        err.to_string().contains("CLI binary path must be valid UTF-8"),
+        err.to_string()
+            .contains("CLI binary path must be valid UTF-8"),
         "unexpected error: {err}"
     );
 }
