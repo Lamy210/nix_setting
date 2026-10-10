@@ -170,6 +170,12 @@ pub fn escalate_command(
             source: "CLI binary path must be absolute".to_string(),
         });
     }
+    if cli_bin.to_str().is_none() {
+        return Err(ManagedNixError::Io {
+            context: "resolve schneeforge CLI binary for escalation".to_string(),
+            source: "CLI binary path must be valid UTF-8".to_string(),
+        });
+    }
     if repo_dir.as_os_str().is_empty() {
         return Err(ManagedNixError::Io {
             context: "resolve repo dir for escalation".to_string(),
@@ -180,6 +186,12 @@ pub fn escalate_command(
         return Err(ManagedNixError::Io {
             context: "resolve repo dir for escalation".to_string(),
             source: "repo dir must be absolute".to_string(),
+        });
+    }
+    if repo_dir.to_str().is_none() {
+        return Err(ManagedNixError::Io {
+            context: "resolve repo dir for escalation".to_string(),
+            source: "repo dir must be valid UTF-8".to_string(),
         });
     }
     let mut env = base_env(repo_dir);
