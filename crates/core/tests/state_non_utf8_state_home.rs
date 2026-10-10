@@ -32,7 +32,10 @@ fn state_default_path_preserves_non_utf8_xdg_state_home() {
     .into_bytes();
     bytes.push(0xff);
     let state_home = PathBuf::from(OsString::from_vec(bytes));
-    let fallback_home = format!("/tmp/schneeforge-state-fallback-home-{}", std::process::id());
+    let fallback_home = format!(
+        "/tmp/schneeforge-state-fallback-home-{}",
+        std::process::id()
+    );
 
     let status = Command::new(std::env::current_exe().expect("current test executable"))
         .args([
