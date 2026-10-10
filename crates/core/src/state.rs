@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -26,14 +27,13 @@ pub struct State {
 impl State {
     /// 既定の state ファイルパス (~/.local/state/schneeforge/state.json)
     pub fn default_path() -> PathBuf {
-        default_path_with(
-            std::env::var("XDG_STATE_HOME").ok().as_deref(),
-            std::env::var("HOME").ok().as_deref(),
-        )
+        let xdg_state_home = std::env::var_os("XDG_STATE_HOME");
+        let home = std::env::var_os("HOME");
+        default_path_with(xdg_state_home.as_deref(), home.as_deref())
     }
 }
 
-fn default_path_with(xdg_state_home: Option<&str>, home: Option<&str>) -> PathBuf {
+fn default_path_with(xdg_state_home: Option<&OsStr>, home: Option<&OsStr>) -> PathBuf {
     let base = xdg_state_home
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
@@ -297,7 +297,7 @@ mod tests {
     #[test]
     fn default_path_empty_xdg_state_home_falls_back_to_home() {
         assert_eq!(
-            default_path_with(Some(""), Some("/home/u")),
+            default_path_with(Some(OsStr::new("")), Some(OsStr::new("/home/u"))),
             PathBuf::from("/home/u/.local/state/schneeforge/state.json")
         );
     }
@@ -305,7 +305,10 @@ mod tests {
     #[test]
     fn default_path_relative_xdg_state_home_falls_back_to_home() {
         assert_eq!(
-            default_path_with(Some("relative-state"), Some("/home/u")),
+            default_path_with(
+                Some(OsStr::new("relative-state")),
+                Some(OsStr::new("/home/u"))
+            ),
             PathBuf::from("/home/u/.local/state/schneeforge/state.json")
         );
     }
@@ -313,7 +316,7 @@ mod tests {
     #[test]
     fn default_path_empty_home_falls_back_to_current_directory() {
         assert_eq!(
-            default_path_with(None, Some("")),
+            default_path_with(None, Some(OsStr::new(""))),
             PathBuf::from(".").join("schneeforge").join("state.json")
         );
     }
