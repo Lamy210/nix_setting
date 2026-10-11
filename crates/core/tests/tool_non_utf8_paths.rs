@@ -58,7 +58,10 @@ fn resolver_preserves_non_utf8_env_override_path() {
             .resolve_tool("mytool-non-utf8-env")
             .expect("non-UTF-8 env override must remain a usable OS path");
         assert_eq!(resolved.source, ToolSource::EnvOverride);
-        assert_eq!(resolved.path, std::fs::canonicalize(expected_path()).unwrap());
+        assert_eq!(
+            resolved.path,
+            std::fs::canonicalize(expected_path()).unwrap()
+        );
         return;
     }
 
@@ -82,7 +85,10 @@ fn resolver_preserves_non_utf8_path_directory() {
             .resolve_tool("mytool-non-utf8-path")
             .expect("non-UTF-8 PATH directory must remain searchable");
         assert_eq!(resolved.source, ToolSource::Path);
-        assert_eq!(resolved.path, std::fs::canonicalize(expected_path()).unwrap());
+        assert_eq!(
+            resolved.path,
+            std::fs::canonicalize(expected_path()).unwrap()
+        );
         return;
     }
 
