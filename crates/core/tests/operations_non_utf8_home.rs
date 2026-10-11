@@ -50,10 +50,8 @@ fn verify_preserves_non_utf8_home_for_dotfile_checks() {
     std::fs::create_dir_all(home.join(".config")).expect("create non-UTF-8 HOME");
     std::fs::create_dir_all(&state_root).expect("create isolated state root");
     std::fs::write(home.join(".zshrc"), "# non-UTF-8 HOME\n").expect("write .zshrc");
-    std::fs::write(home.join(".gitconfig"), "[user]\n\tname = test\n")
-        .expect("write .gitconfig");
-    std::fs::write(home.join(".config/starship.toml"), "# test\n")
-        .expect("write starship.toml");
+    std::fs::write(home.join(".gitconfig"), "[user]\n\tname = test\n").expect("write .gitconfig");
+    std::fs::write(home.join(".config/starship.toml"), "# test\n").expect("write starship.toml");
 
     let status = Command::new(std::env::current_exe().expect("current test executable"))
         .args([
