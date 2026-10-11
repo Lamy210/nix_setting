@@ -78,28 +78,31 @@ pub mod operations {
 
     /// Public verification boundary.
     ///
-    /// `HOME` is an implicit filesystem root, so it is usable only when the
-    /// process can represent it as a non-empty absolute path. The internal
-    /// verifier is intentionally infallible; mask HOME-derived dotfile results
-    /// when that precondition is not met so verification cannot depend on CWD.
+    /// `HOME` is an implicit filesystem root, so it is usable only when it is a
+    /// non-empty absolute OS path. Re-evaluate HOME-derived dotfile checks here in
+    /// `PathBuf` space so valid non-UTF-8 filesystem identities are preserved while
+    /// empty or relative HOME values remain fail-closed and CWD-independent.
     pub fn verify(
         repo: &str,
         tc: &crate::tool::ToolInventory,
     ) -> crate::operations_impl::VerifyReport {
         let mut report = crate::operations_impl::verify(repo, tc);
-        let valid_home = std::env::var("HOME")
-            .ok()
+        let home = std::env::var_os("HOME")
             .filter(|home| !home.is_empty())
-            .is_some_and(|home| std::path::Path::new(&home).is_absolute());
+            .map(std::path::PathBuf::from)
+            .filter(|home| home.is_absolute());
 
-        if !valid_home {
-            for check in &mut report.checks {
-                if matches!(
-                    check.name.as_str(),
-                    ".zshrc" | ".gitconfig" | "starship.toml"
-                ) {
-                    check.ok = false;
-                }
+        for check in &mut report.checks {
+            let relative = match check.name.as_str() {
+                ".zshrc" => Some(".zshrc"),
+                ".gitconfig" => Some(".gitconfig"),
+                "starship.toml" => Some(".config/starship.toml"),
+                _ => None,
+            };
+            if let Some(relative) = relative {
+                check.ok = home
+                    .as_ref()
+                    .is_some_and(|home| home.join(relative).exists());
             }
         }
 
