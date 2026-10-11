@@ -237,21 +237,17 @@ impl ToolResolver {
     pub fn resolve_tool_with_source(&self, tool: &str) -> Option<(PathBuf, ToolSource)> {
         let upper = tool.to_ascii_uppercase().replace('-', "_");
         let env_key = format!("SCHNEEFORGE_{upper}_BIN");
-        if let Ok(p) = env::var(&env_key) {
+        if let Some(p) = env::var_os(&env_key) {
             let path = PathBuf::from(p);
             if is_executable(&path) {
                 return canonicalize(path).map(|path| (path, ToolSource::EnvOverride));
             }
         }
 
-        let path_dirs: Vec<String> = env::var_os("PATH")
-            .map(|path| {
-                env::split_paths(&path)
-                    .filter_map(|entry| entry.into_os_string().into_string().ok())
-                    .collect()
-            })
+        let path_dirs: Vec<PathBuf> = env::var_os("PATH")
+            .map(|path| env::split_paths(&path).collect())
             .unwrap_or_default();
-        if let Some(dir) = find_in_dirs(tool, &path_dirs) {
+        if let Some(dir) = find_in_os_dirs(tool, &path_dirs) {
             return canonicalize(dir).map(|path| (path, ToolSource::Path));
         }
 
@@ -290,6 +286,17 @@ pub fn find_executable(tool: &str, path_dirs: &[String], known_dirs: &[PathBuf])
 fn find_in_dirs(tool: &str, dirs: &[String]) -> Option<PathBuf> {
     for dir in dirs {
         let candidate = PathBuf::from(dir).join(tool);
+        if is_executable(&candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// OS path の各ディレクトリを UTF-8 変換せず実行可能ファイル探索に使う。
+fn find_in_os_dirs(tool: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
+    for dir in dirs {
+        let candidate = dir.join(tool);
         if is_executable(&candidate) {
             return Some(candidate);
         }
