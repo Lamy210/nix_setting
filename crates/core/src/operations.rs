@@ -291,15 +291,20 @@ fn verify_with_store(repo: &str, tc: &ToolInventory, state_store: &StateStore) -
         ok: crate::discovery::which("zsh").is_some(),
     });
 
-    let home = std::env::var("HOME").unwrap_or_default();
-    for (name, path) in [
-        (".zshrc", format!("{home}/.zshrc")),
-        (".gitconfig", format!("{home}/.gitconfig")),
-        ("starship.toml", format!("{home}/.config/starship.toml")),
+    let home = std::env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .map(std::path::PathBuf::from)
+        .filter(|home| home.is_absolute());
+    for (name, relative) in [
+        (".zshrc", ".zshrc"),
+        (".gitconfig", ".gitconfig"),
+        ("starship.toml", ".config/starship.toml"),
     ] {
         checks.push(VerifyCheck {
             name: name.to_string(),
-            ok: std::path::Path::new(&path).exists(),
+            ok: home
+                .as_ref()
+                .is_some_and(|home| home.join(relative).exists()),
         });
     }
 
