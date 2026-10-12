@@ -54,7 +54,10 @@ fn non_utf8_xdg_state_home_uses_existing_profile_dir_without_warning() {
             .expect("child fake nix path");
         let health = nix_health(&inventory(nix));
         assert!(health.installed, "fake nix should be detected");
-        assert!(health.store_accessible, "fake nix store ping should succeed");
+        assert!(
+            health.store_accessible,
+            "fake nix store ping should succeed"
+        );
         assert!(
             health.flakes_available,
             "fake nix should report required features"
