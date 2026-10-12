@@ -78,7 +78,7 @@ pub mod operations {
 
     /// Public verification boundary.
     ///
-    /// HOME-derived filesystem checks live in the core operation so every caller
+    /// The core operation owns HOME-derived filesystem checks so every caller
     /// shares the same OS-native path identity and fail-closed semantics.
     pub fn verify(
         repo: &str,
