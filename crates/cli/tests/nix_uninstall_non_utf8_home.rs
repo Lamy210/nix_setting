@@ -7,11 +7,7 @@ use std::os::unix::ffi::OsStringExt;
 
 #[test]
 fn non_utf8_absolute_home_still_blocks_uninstall_when_nix_darwin_marker_exists() {
-    let mut name = format!(
-        "schneeforge-non-utf8-home-{}-",
-        std::process::id()
-    )
-    .into_bytes();
+    let mut name = format!("schneeforge-non-utf8-home-{}-", std::process::id()).into_bytes();
     name.push(0xff);
     let home = std::env::temp_dir().join(OsString::from_vec(name));
     let _ = std::fs::remove_dir_all(&home);
