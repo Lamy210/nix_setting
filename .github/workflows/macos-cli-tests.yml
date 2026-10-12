@@ -1,0 +1,35 @@
+name: macos-cli-tests
+
+on:
+  push:
+    branches: [main, develop, "release/**"]
+    paths:
+      - "crates/cli/**"
+      - ".github/workflows/macos-cli-tests.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "crates/cli/**"
+      - ".github/workflows/macos-cli-tests.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cli-contracts:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-cli-tests
+
+      - name: macOS CLI tests
+        run: cargo test -p schneeforge
