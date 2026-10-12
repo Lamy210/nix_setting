@@ -8,10 +8,10 @@ fn main() {
 // を要求するため、cargo で build 済みの workspace CLI binary を
 // target triple suffix 付きで copy する (tauri CLI が要する形式)。
 fn stage_cli_sidecar() {
-    let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR set by cargo");
+    let out_dir = std::env::var_os("OUT_DIR").expect("OUT_DIR set by cargo");
     // OUT_DIR = <target>/<profile>/build/<pkg>-<hash>/out
     // 3 つ上ると <target>/<profile>、その親が target dir
-    let mut build_pkg_dir = std::path::PathBuf::from(&out_dir);
+    let mut build_pkg_dir = std::path::PathBuf::from(out_dir);
     for _ in 0..3 {
         build_pkg_dir.pop();
     }
@@ -36,8 +36,9 @@ fn stage_cli_sidecar() {
         }
     };
 
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
-    let dest_dir = std::path::Path::new(&manifest_dir).join("binaries");
+    let manifest_dir =
+        std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let dest_dir = manifest_dir.join("binaries");
     std::fs::create_dir_all(&dest_dir).expect("create binaries dir");
 
     let triple = std::env::var("TARGET").expect("TARGET set by cargo");
@@ -72,8 +73,8 @@ fn find_cli_binary(profile_dir: &std::path::Path, profile: &str) -> Option<std::
     if own.is_file() {
         return Some(own);
     }
-    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let root_target = std::path::Path::new(&manifest_dir)
+    if let Some(manifest_dir) = std::env::var_os("CARGO_MANIFEST_DIR") {
+        let root_target = std::path::PathBuf::from(manifest_dir)
             .join("../../../target")
             .join(profile)
             .join("schneeforge");
