@@ -356,14 +356,12 @@ pub fn nix_health(tc: &ToolInventory) -> NixHealth {
 
 /// XDG state の Nix profile ディレクトリ（フォルダ欠如検出用）
 fn xdg_state_profile_dir() -> Option<std::path::PathBuf> {
-    let base = std::env::var("XDG_STATE_HOME")
-        .ok()
+    let base = std::env::var_os("XDG_STATE_HOME")
         .filter(|value| !value.is_empty())
         .map(std::path::PathBuf::from)
         .filter(|path| path.is_absolute())
         .or_else(|| {
-            std::env::var("HOME")
-                .ok()
+            std::env::var_os("HOME")
                 .filter(|value| !value.is_empty())
                 .map(std::path::PathBuf::from)
                 .filter(|path| path.is_absolute())
