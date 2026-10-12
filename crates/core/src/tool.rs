@@ -349,10 +349,7 @@ fn default_known_paths() -> Vec<(PathBuf, ToolSource)> {
 
     // ~/.nix-profile/bin
     if let Some(h) = &home {
-        paths.push((
-            h.join(".nix-profile/bin"),
-            ToolSource::NixProfileHome,
-        ));
+        paths.push((h.join(".nix-profile/bin"), ToolSource::NixProfileHome));
     }
 
     // /etc/profiles/per-user/$USER/bin
