@@ -313,44 +313,43 @@ fn default_known_paths() -> Vec<(PathBuf, ToolSource)> {
     let mut paths: Vec<(PathBuf, ToolSource)> = Vec::new();
 
     // XDG_STATE_HOME（設定時。相対パスは XDG Base Directory 契約外なので無視）
-    if let Ok(p) = env::var("XDG_STATE_HOME") {
-        let state_home = PathBuf::from(&p);
-        if !p.is_empty() && state_home.is_absolute() {
-            paths.push((
-                state_home.join("nix/profile/bin"),
-                ToolSource::XdgStateProfile,
-            ));
-        }
+    if let Some(state_home) = env::var_os("XDG_STATE_HOME")
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+    {
+        paths.push((
+            state_home.join("nix/profile/bin"),
+            ToolSource::XdgStateProfile,
+        ));
     }
 
     // HOME-derived known paths must never become CWD-relative.
-    let home = env::var("HOME")
-        .ok()
+    let home = env::var_os("HOME")
         .filter(|h| !h.is_empty())
-        .filter(|h| Path::new(h).is_absolute());
+        .map(PathBuf::from)
+        .filter(|h| h.is_absolute());
 
     // XDG デフォルト (~/.local/state/nix/profile/bin)
     if let Some(h) = &home {
         paths.push((
-            PathBuf::from(h).join(".local/state/nix/profile/bin"),
+            h.join(".local/state/nix/profile/bin"),
             ToolSource::XdgStateProfile,
         ));
     }
 
     // NIX_PROFILE env
-    if let Ok(p) = env::var("NIX_PROFILE") {
-        let profile = PathBuf::from(&p);
-        if !p.is_empty() && profile.is_absolute() {
-            paths.push((profile.join("bin"), ToolSource::NixProfileEnv));
-        }
+    if let Some(profile) = env::var_os("NIX_PROFILE")
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+    {
+        paths.push((profile.join("bin"), ToolSource::NixProfileEnv));
     }
 
     // ~/.nix-profile/bin
     if let Some(h) = &home {
-        paths.push((
-            PathBuf::from(h).join(".nix-profile/bin"),
-            ToolSource::NixProfileHome,
-        ));
+        paths.push((h.join(".nix-profile/bin"), ToolSource::NixProfileHome));
     }
 
     // /etc/profiles/per-user/$USER/bin
