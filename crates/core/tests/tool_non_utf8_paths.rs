@@ -121,10 +121,7 @@ fn resolver_preserves_non_utf8_xdg_state_home_known_path() {
     }
 
     let state_home = non_utf8_temp_dir("tool-xdg-state-home");
-    let tool = write_executable(
-        &state_home.join("nix/profile/bin"),
-        "mytool-non-utf8-xdg",
-    );
+    let tool = write_executable(&state_home.join("nix/profile/bin"), "mytool-non-utf8-xdg");
     run_child(
         "resolver_preserves_non_utf8_xdg_state_home_known_path",
         "xdg-state-home",
