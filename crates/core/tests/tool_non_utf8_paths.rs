@@ -1,4 +1,4 @@
-#![cfg(unix)]
+#![cfg(all(unix, not(target_os = "macos")))]
 
 use schneeforge_core::{ToolResolver, ToolSource};
 use std::ffi::OsString;
@@ -104,4 +104,90 @@ fn resolver_preserves_non_utf8_path_directory() {
         },
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn resolver_preserves_non_utf8_xdg_state_home_known_path() {
+    if std::env::var(CASE_ENV).as_deref() == Ok("xdg-state-home") {
+        let resolved = ToolResolver::new()
+            .resolve_tool("mytool-non-utf8-xdg")
+            .expect("non-UTF-8 XDG_STATE_HOME known path must remain searchable");
+        assert_eq!(resolved.source, ToolSource::XdgStateProfile);
+        assert_eq!(
+            resolved.path,
+            std::fs::canonicalize(expected_path()).unwrap()
+        );
+        return;
+    }
+
+    let state_home = non_utf8_temp_dir("tool-xdg-state-home");
+    let tool = write_executable(
+        &state_home.join("nix/profile/bin"),
+        "mytool-non-utf8-xdg",
+    );
+    run_child(
+        "resolver_preserves_non_utf8_xdg_state_home_known_path",
+        "xdg-state-home",
+        &tool,
+        |command| {
+            command.env("XDG_STATE_HOME", &state_home);
+        },
+    );
+    let _ = std::fs::remove_dir_all(&state_home);
+}
+
+#[test]
+fn resolver_preserves_non_utf8_nix_profile_known_path() {
+    if std::env::var(CASE_ENV).as_deref() == Ok("nix-profile") {
+        let resolved = ToolResolver::new()
+            .resolve_tool("mytool-non-utf8-nix-profile")
+            .expect("non-UTF-8 NIX_PROFILE known path must remain searchable");
+        assert_eq!(resolved.source, ToolSource::NixProfileEnv);
+        assert_eq!(
+            resolved.path,
+            std::fs::canonicalize(expected_path()).unwrap()
+        );
+        return;
+    }
+
+    let profile = non_utf8_temp_dir("tool-nix-profile");
+    let tool = write_executable(&profile.join("bin"), "mytool-non-utf8-nix-profile");
+    run_child(
+        "resolver_preserves_non_utf8_nix_profile_known_path",
+        "nix-profile",
+        &tool,
+        |command| {
+            command.env("NIX_PROFILE", &profile);
+        },
+    );
+    let _ = std::fs::remove_dir_all(&profile);
+}
+
+#[test]
+fn resolver_preserves_non_utf8_home_nix_profile_known_path() {
+    if std::env::var(CASE_ENV).as_deref() == Ok("home") {
+        let resolved = ToolResolver::new()
+            .resolve_tool("mytool-non-utf8-home")
+            .expect("non-UTF-8 HOME known path must remain searchable");
+        assert_eq!(resolved.source, ToolSource::NixProfileHome);
+        assert_eq!(
+            resolved.path,
+            std::fs::canonicalize(expected_path()).unwrap()
+        );
+        return;
+    }
+
+    let home = non_utf8_temp_dir("tool-home");
+    let tool = write_executable(&home.join(".nix-profile/bin"), "mytool-non-utf8-home");
+    run_child(
+        "resolver_preserves_non_utf8_home_nix_profile_known_path",
+        "home",
+        &tool,
+        |command| {
+            command.env("HOME", &home);
+            command.env_remove("XDG_STATE_HOME");
+            command.env_remove("NIX_PROFILE");
+        },
+    );
+    let _ = std::fs::remove_dir_all(&home);
 }
