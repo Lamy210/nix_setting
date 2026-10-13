@@ -10,6 +10,8 @@ use crate::state::{State, StateStore};
 use crate::time::now_iso8601;
 use crate::tool::ToolInventory;
 use serde::Serialize;
+use std::ffi::OsString;
+use std::path::Path;
 
 /// apply / rollback の結果。output は capture 時のみ Some
 #[derive(Debug, Clone)]
@@ -56,8 +58,8 @@ pub fn rolled_back_state(target: &ConfigurationTarget) -> State {
 /// managed source は persisted state が authoritative。checkout 表現は git が
 /// 利用できる場合に現在の repository 実態を再検出し、State.source が apply /
 /// rollback で失われないようにする。git が無い場合は既存 state を保持する。
-fn source_for_persistence(
-    repo: &str,
+fn source_for_persistence<P: AsRef<Path> + ?Sized>(
+    repo: &P,
     previous: Option<&State>,
     tc: &ToolInventory,
 ) -> Result<Option<crate::source::SourceState>> {
@@ -76,22 +78,28 @@ fn source_for_persistence(
 /// - `capture == false`: stdio 継承のストリーミング実行 (CLI 用)
 /// - 操作はクロスプロセス・ロックで直列化される
 /// - state が managed source を示す場合、nix 引数には flake ref を使う
-pub fn apply(
+pub fn apply<P: AsRef<Path> + ?Sized>(
     target: &ConfigurationTarget,
-    repo: &str,
+    repo: &P,
     store: &StateStore,
     tc: &ToolInventory,
     capture: bool,
 ) -> Result<ApplyResult> {
     let _guard = acquire()?;
+    let repo = repo.as_ref();
     let prev = store.load()?;
     let source = source_for_persistence(repo, prev.as_ref(), tc)?;
 
-    let repo_ref = crate::source::effective_ref(repo, store)?;
+    let source_ref = crate::source::effective_source_ref(repo, store)?;
     let output = if capture {
-        Some(actions::apply_captured(target, &repo_ref, tc)?)
+        Some(actions::apply_captured_native(
+            target,
+            repo,
+            &source_ref,
+            tc,
+        )?)
     } else {
-        actions::apply(target, &repo_ref, tc)?;
+        actions::apply_native(target, repo, &source_ref, tc)?;
         None
     };
 
@@ -117,22 +125,28 @@ pub fn apply(
 ///
 /// `repo` は macOS の pinned rollback (`--inputs-from <repo>`) で使用する。
 /// state が managed source を示す場合は flake ref を使う。
-pub fn rollback(
+pub fn rollback<P: AsRef<Path> + ?Sized>(
     target: &ConfigurationTarget,
-    repo: &str,
+    repo: &P,
     store: &StateStore,
     tc: &ToolInventory,
     capture: bool,
 ) -> Result<ApplyResult> {
     let _guard = acquire()?;
+    let repo = repo.as_ref();
     let prev = store.load()?;
     let source = source_for_persistence(repo, prev.as_ref(), tc)?;
 
-    let repo_ref = crate::source::effective_ref(repo, store)?;
+    let source_ref = crate::source::effective_source_ref(repo, store)?;
     let output = if capture {
-        Some(actions::rollback_captured(target, &repo_ref, tc)?)
+        Some(actions::rollback_captured_native(
+            target,
+            repo,
+            &source_ref,
+            tc,
+        )?)
     } else {
-        actions::rollback(target, &repo_ref, tc)?;
+        actions::rollback_native(target, repo, &source_ref, tc)?;
         None
     };
 
@@ -147,12 +161,17 @@ pub fn rollback(
 
 /// upgrade (`nix flake update --flake <repo>`) をロック付きで実行する。
 /// v0.3 までの alias。本体は [`deps_update`]。
-pub fn upgrade(repo: &str, tc: &ToolInventory, capture: bool) -> Result<Option<String>> {
+pub fn upgrade<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    tc: &ToolInventory,
+    capture: bool,
+) -> Result<Option<String>> {
     let _guard = acquire()?;
+    let repo = repo.as_ref();
     let output = if capture {
-        Some(actions::upgrade_captured(repo, tc)?)
+        Some(actions::upgrade_captured_native(repo, tc)?)
     } else {
-        actions::upgrade(repo, tc)?;
+        actions::upgrade_native(repo, tc)?;
         None
     };
     Ok(output)
@@ -168,12 +187,14 @@ pub struct PlanResult {
 
 /// plan 対象 (host / flake target) を計算する純関数。コマンドは実行しない。
 /// state が managed source を示す場合は flake ref を target に使う
-pub fn plan_target(repo: &str) -> Result<PlanResult> {
+pub fn plan_target<P: AsRef<Path> + ?Sized>(repo: &P) -> Result<PlanResult> {
     plan_target_with(repo, &StateStore::default())
 }
 
-/// [`plan_target`] の state store 注入版 (test 用)
-pub fn plan_target_with(repo: &str, store: &StateStore) -> Result<PlanResult> {
+fn plan_source(
+    repo: &Path,
+    store: &StateStore,
+) -> Result<(ConfigurationTarget, crate::source::EffectiveSourceRef)> {
     let target = detect_target();
     if !target.is_supported() {
         return Err(Error::UnsupportedPlatform {
@@ -181,21 +202,49 @@ pub fn plan_target_with(repo: &str, store: &StateStore) -> Result<PlanResult> {
             arch: target.architecture().to_string(),
         });
     }
-    let repo_ref = crate::source::effective_ref(repo, store)?;
-    Ok(PlanResult {
+    let source_ref = crate::source::effective_source_ref(repo, store)?;
+    Ok((target, source_ref))
+}
+
+fn plan_result(
+    target: &ConfigurationTarget,
+    source_ref: &crate::source::EffectiveSourceRef,
+) -> PlanResult {
+    let fragment = target.build_fragment();
+    PlanResult {
         host: target.name().to_string(),
-        flake_target: target.build_ref(&repo_ref),
+        flake_target: format!("{}{}", source_ref.display_lossy(), fragment),
         output: None,
-    })
+    }
+}
+
+/// [`plan_target`] の state store 注入版 (test 用)
+pub fn plan_target_with<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    store: &StateStore,
+) -> Result<PlanResult> {
+    let (target, source_ref) = plan_source(repo.as_ref(), store)?;
+    Ok(plan_result(&target, &source_ref))
 }
 
 /// plan: 適用内容の dry-run を実行する (CWD 非依存)
-pub fn plan(repo: &str, tc: &ToolInventory, capture: bool) -> Result<PlanResult> {
-    let mut result = plan_target(repo)?;
+pub fn plan<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    tc: &ToolInventory,
+    capture: bool,
+) -> Result<PlanResult> {
+    let repo = repo.as_ref();
+    let store = StateStore::default();
+    let (target, source_ref) = plan_source(repo, &store)?;
+    let mut result = plan_result(&target, &source_ref);
     let nix = tc.require_nix()?;
-    let mut args = vec!["build".to_string(), "--dry-run".to_string()];
-    args.extend(profile::override_args(repo)?);
-    args.push(result.flake_target.clone());
+    let mut args = vec![OsString::from("build"), OsString::from("--dry-run")];
+    args.extend(
+        profile::override_args(repo)?
+            .into_iter()
+            .map(OsString::from),
+    );
+    args.push(source_ref.with_fragment(&target.build_fragment()));
     result.output = if capture {
         Some(run_capture(&nix.path, &args)?)
     } else {

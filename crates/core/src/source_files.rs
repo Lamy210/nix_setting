@@ -221,7 +221,10 @@ fn default_fetch(url: &str) -> std::result::Result<String, String> {
 /// source 解決経由で manifest (`schneeforge.toml`) を読む。state が
 /// managed Release を示す場合は tag-pinned 取得、それ以外は従来の
 /// local filesystem 読み取り
-pub fn load_manifest_for<P: AsRef<Path> + ?Sized>(repo: &P, store: &StateStore) -> Result<Manifest> {
+pub fn load_manifest_for<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    store: &StateStore,
+) -> Result<Manifest> {
     load_manifest_for_with(repo, store, &crate::machine::state_dir(), &default_fetch)
 }
 
