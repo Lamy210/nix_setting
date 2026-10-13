@@ -1,7 +1,44 @@
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
+
+/// OS-native repository filesystem identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepositoryPath(PathBuf);
+
+impl RepositoryPath {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self(path.into())
+    }
+
+    pub fn as_path(&self) -> &Path {
+        &self.0
+    }
+
+    pub fn into_path_buf(self) -> PathBuf {
+        self.0
+    }
+
+    pub fn display_lossy(&self) -> String {
+        self.0.to_string_lossy().into_owned()
+    }
+}
+
+impl AsRef<Path> for RepositoryPath {
+    fn as_ref(&self) -> &Path {
+        self.as_path()
+    }
+}
+
+impl From<PathBuf> for RepositoryPath {
+    fn from(path: PathBuf) -> Self {
+        Self::new(path)
+    }
+}
+
 /// 解決済み repository (パス + 存在有無)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Repo {
-    pub path: String,
+    pub path: RepositoryPath,
     pub exists: bool,
 }
 
@@ -15,18 +52,15 @@ impl RepoResolver {
     }
 
     /// repository path を解決し、存在有無も返す
-    pub fn resolve(&self, cli_repo: Option<&str>) -> Repo {
-        let path = resolve_repo(cli_repo);
-        let exists = std::path::Path::new(&path).is_dir();
+    pub fn resolve(&self, cli_repo: Option<&Path>) -> Repo {
+        let path = resolve_repo_path(cli_repo);
+        let exists = path.as_path().is_dir();
         Repo { path, exists }
     }
 }
 
-/// repository path から現在の git revision (HEAD) を取得する。
-///
-/// `git` は解決済みの ToolInventory パスを `git_bin` で受け取る（文字列リテラル
-/// `Command::new("git")` は CI の forbid-raw-spawn lint で禁止）。
-pub fn current_git_revision(repo: &str, git_bin: &std::path::Path) -> Option<String> {
+/// repository path から現在の git revision (HEAD) を取得する path-native API。
+pub fn current_git_revision_path(repo: &Path, git_bin: &Path) -> Option<String> {
     let out = std::process::Command::new(git_bin)
         .current_dir(repo)
         .args(["rev-parse", "HEAD"])
@@ -42,8 +76,46 @@ pub fn current_git_revision(repo: &str, git_bin: &std::path::Path) -> Option<Str
     }
 }
 
-/// リポジトリパスを解決する
+/// 移行中の String-based compatibility entry point。
+/// in-repo caller の path migration 完了後に削除する。
+pub fn current_git_revision(repo: &str, git_bin: &Path) -> Option<String> {
+    current_git_revision_path(Path::new(repo), git_bin)
+}
+
+/// リポジトリパスを OS-native path として解決する。
 /// 優先順: CLI 引数 > NIX_SETTING_DIR > ~/nix_setting > "."
+pub fn resolve_repo_path(cli_repo: Option<&Path>) -> RepositoryPath {
+    resolve_repo_path_with(
+        cli_repo,
+        std::env::var_os("NIX_SETTING_DIR").as_deref(),
+        std::env::var_os("HOME").as_deref(),
+    )
+}
+
+/// path-native のテスト可能な純関数版。
+pub fn resolve_repo_path_with(
+    cli_repo: Option<&Path>,
+    env_dir: Option<&OsStr>,
+    home: Option<&OsStr>,
+) -> RepositoryPath {
+    if let Some(repo) = cli_repo.filter(|path| !path.as_os_str().is_empty()) {
+        return RepositoryPath::new(repo.to_path_buf());
+    }
+    if let Some(repo) = env_dir.filter(|value| !value.is_empty()) {
+        return RepositoryPath::new(PathBuf::from(repo));
+    }
+    if let Some(home) = home
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+    {
+        return RepositoryPath::new(home.join("nix_setting"));
+    }
+    RepositoryPath::new(PathBuf::from("."))
+}
+
+/// 移行中の String-based compatibility entry point。
+/// CLI/Desktop migration 完了後に削除する。
 pub fn resolve_repo(cli_repo: Option<&str>) -> String {
     resolve_repo_with(
         cli_repo,
@@ -52,7 +124,7 @@ pub fn resolve_repo(cli_repo: Option<&str>) -> String {
     )
 }
 
-/// テスト可能な純関数版
+/// legacy String API の純関数版。最終 migration task で削除する。
 pub fn resolve_repo_with(
     cli_repo: Option<&str>,
     env_dir: Option<&str>,
@@ -66,7 +138,7 @@ pub fn resolve_repo_with(
     }
     if let Some(h) = home
         .filter(|h| !h.is_empty())
-        .filter(|h| std::path::Path::new(h).is_absolute())
+        .filter(|h| Path::new(h).is_absolute())
     {
         return format!("{h}/nix_setting");
     }
@@ -166,7 +238,7 @@ mod tests {
         std::fs::set_permissions(&fake_git, permissions).unwrap();
 
         assert_eq!(
-            current_git_revision(dir.to_str().unwrap(), &fake_git),
+            current_git_revision_path(&dir, &fake_git),
             None,
             "successful git inspection without a usable revision must not produce Some(\"\")"
         );
@@ -177,8 +249,11 @@ mod tests {
     #[test]
     fn repo_resolver_reports_missing_repo() {
         let resolver = RepoResolver::new();
-        let repo = resolver.resolve(Some("/definitely/not/a/real/repo"));
-        assert_eq!(repo.path, "/definitely/not/a/real/repo");
+        let repo = resolver.resolve(Some(Path::new("/definitely/not/a/real/repo")));
+        assert_eq!(
+            repo.path.as_path(),
+            Path::new("/definitely/not/a/real/repo")
+        );
         assert!(!repo.exists);
     }
 
@@ -187,8 +262,9 @@ mod tests {
         let dir = std::env::temp_dir().join("sf-repo-exists");
         std::fs::create_dir_all(&dir).unwrap();
         let resolver = RepoResolver::new();
-        let repo = resolver.resolve(Some(dir.to_str().unwrap()));
+        let repo = resolver.resolve(Some(&dir));
         assert!(repo.exists);
+        assert_eq!(repo.path.as_path(), dir.as_path());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -196,10 +272,10 @@ mod tests {
     #[test]
     fn resolve_repo_with_preserves_non_utf8_cli_path() {
         use std::os::unix::ffi::OsStringExt;
-        let cli = std::path::PathBuf::from(std::ffi::OsString::from_vec(
+        let cli = PathBuf::from(std::ffi::OsString::from_vec(
             b"/tmp/schneeforge-cli-\xff".to_vec(),
         ));
-        let resolved = resolve_repo_with(Some(cli.as_path()), None, None);
+        let resolved = resolve_repo_path_with(Some(cli.as_path()), None, None);
         assert_eq!(resolved.as_path().as_os_str(), cli.as_os_str());
     }
 
@@ -208,7 +284,7 @@ mod tests {
     fn resolve_repo_with_preserves_non_utf8_env_dir() {
         use std::os::unix::ffi::OsStringExt;
         let env_dir = std::ffi::OsString::from_vec(b"/tmp/schneeforge-env-\xff".to_vec());
-        let resolved = resolve_repo_with(None, Some(env_dir.as_os_str()), None);
+        let resolved = resolve_repo_path_with(None, Some(env_dir.as_os_str()), None);
         assert_eq!(resolved.as_path().as_os_str(), env_dir.as_os_str());
     }
 
@@ -217,8 +293,41 @@ mod tests {
     fn resolve_repo_with_preserves_non_utf8_absolute_home() {
         use std::os::unix::ffi::OsStringExt;
         let home = std::ffi::OsString::from_vec(b"/tmp/schneeforge-home-\xff".to_vec());
-        let resolved = resolve_repo_with(None, None, Some(home.as_os_str()));
-        let expected = std::path::PathBuf::from(home).join("nix_setting");
+        let resolved = resolve_repo_path_with(None, None, Some(home.as_os_str()));
+        let expected = PathBuf::from(home).join("nix_setting");
         assert_eq!(resolved.as_path(), expected.as_path());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn current_git_revision_preserves_non_utf8_working_directory() {
+        use std::os::unix::ffi::OsStringExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "sf-repo-native-revision-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let repo = root.join(std::ffi::OsString::from_vec(b"repo-\xff".to_vec()));
+        std::fs::create_dir_all(&repo).unwrap();
+        let fake_git = root.join("fake-git");
+        std::fs::write(
+            &fake_git,
+            "#!/bin/sh\nprintf '0123456789012345678901234567890123456789\\n'\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&fake_git, permissions).unwrap();
+
+        assert_eq!(
+            current_git_revision_path(&repo, &fake_git).as_deref(),
+            Some("0123456789012345678901234567890123456789")
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
