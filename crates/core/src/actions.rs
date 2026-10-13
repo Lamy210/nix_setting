@@ -2,7 +2,6 @@ use crate::discovery::ConfigurationTarget;
 use crate::error::{Error, Result};
 use crate::process::{run_capture, run_stream};
 use crate::profile;
-use crate::repo::RepositoryPath;
 use crate::source::EffectiveSourceRef;
 use crate::tool::{ResolvedTool, ToolInventory};
 use std::ffi::OsString;
@@ -53,10 +52,7 @@ fn linux_build_args_native(
 }
 
 /// path-native macOS rollback argv。
-fn darwin_rollback_args_native(
-    source: &EffectiveSourceRef,
-    overrides: &[String],
-) -> Vec<OsString> {
+fn darwin_rollback_args_native(source: &EffectiveSourceRef, overrides: &[String]) -> Vec<OsString> {
     let mut args = vec![
         OsString::from("run"),
         OsString::from("--inputs-from"),
@@ -490,6 +486,7 @@ pub fn scan(target: &ConfigurationTarget, tc: &ToolInventory) -> String {
 mod tests {
     use super::*;
     use crate::discovery::detect_target_for;
+    use crate::repo::RepositoryPath;
     use crate::tool::{ResolvedTool, ToolSource};
     use std::path::PathBuf;
 
@@ -592,15 +589,11 @@ mod tests {
 
     #[test]
     fn native_builders_keep_managed_flake_textual() {
-        let source = EffectiveSourceRef::ManagedFlake(
-            "github:Lamy210/nix_setting/v0.2.0".to_string(),
-        );
+        let source =
+            EffectiveSourceRef::ManagedFlake("github:Lamy210/nix_setting/v0.2.0".to_string());
         let target = detect_target_for("macos", "aarch64");
         let args = darwin_switch_args_native(&source, &target, &[]);
-        assert_eq!(
-            args[2],
-            OsString::from("github:Lamy210/nix_setting/v0.2.0")
-        );
+        assert_eq!(args[2], OsString::from("github:Lamy210/nix_setting/v0.2.0"));
         assert_eq!(
             args.last().unwrap(),
             &OsString::from(
