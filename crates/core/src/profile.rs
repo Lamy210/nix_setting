@@ -7,6 +7,8 @@
 //! pattern)。実際の `profiles/<name>.nix` 解決は flake 側
 //! (modules/profile-input.nix) が行う。
 
+use std::path::Path;
+
 use crate::error::{Error, Result};
 use crate::state::{State, StateStore};
 
@@ -20,12 +22,15 @@ pub fn default_profile_nix_path() -> std::path::PathBuf {
 /// 2. manifest の `profiles.default`
 ///
 /// 戻り値は (profile 名, state 由来か)
-pub fn resolve(repo: &str) -> Result<(String, bool)> {
+pub fn resolve<P: AsRef<Path> + ?Sized>(repo: &P) -> Result<(String, bool)> {
     resolve_with(repo, &StateStore::default())
 }
 
 /// [`resolve`] の state store 注入版 (test 用)
-pub fn resolve_with(repo: &str, store: &StateStore) -> Result<(String, bool)> {
+pub fn resolve_with<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    store: &StateStore,
+) -> Result<(String, bool)> {
     let manifest = crate::source_files::load_manifest_for(repo, store)?;
     let default = manifest
         .profiles
@@ -62,12 +67,12 @@ pub struct ProfileList {
 }
 
 /// [`ProfileList`] を構築する
-pub fn list(repo: &str) -> Result<ProfileList> {
+pub fn list<P: AsRef<Path> + ?Sized>(repo: &P) -> Result<ProfileList> {
     list_with(repo, &StateStore::default())
 }
 
 /// [`list`] の state store 注入版 (test 用)
-pub fn list_with(repo: &str, store: &StateStore) -> Result<ProfileList> {
+pub fn list_with<P: AsRef<Path> + ?Sized>(repo: &P, store: &StateStore) -> Result<ProfileList> {
     let manifest = crate::source_files::load_manifest_for(repo, store)?;
     Ok(ProfileList {
         available: manifest.profiles.available,
@@ -78,12 +83,16 @@ pub fn list_with(repo: &str, store: &StateStore) -> Result<ProfileList> {
 
 /// manifest の `profiles.available` を検証してから state へ保存する
 /// (CLI と GUI の検証経路を集約。fail-closed)
-pub fn set_selection(repo: &str, name: &str) -> Result<()> {
+pub fn set_selection<P: AsRef<Path> + ?Sized>(repo: &P, name: &str) -> Result<()> {
     set_selection_with(repo, &StateStore::default(), name)
 }
 
 /// [`set_selection`] の state store 注入版 (test 用)
-pub fn set_selection_with(repo: &str, store: &StateStore, name: &str) -> Result<()> {
+pub fn set_selection_with<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    store: &StateStore,
+    name: &str,
+) -> Result<()> {
     let manifest = crate::source_files::load_manifest_for(repo, store)?;
     if !manifest.profiles.available.contains(&name.to_string()) {
         return Err(Error::Manifest(format!(
@@ -134,7 +143,7 @@ fn escape_nix_string_literal(value: &str) -> String {
         .replace("${", "\\${")
 }
 
-fn nix_path_input(path: &std::path::Path, label: &str) -> Result<String> {
+fn nix_path_input(path: &Path, label: &str) -> Result<String> {
     let path = path.to_str().ok_or_else(|| {
         Error::Precondition(format!(
             "{label} path must be valid UTF-8 for Nix flake input"
@@ -159,12 +168,15 @@ pub fn write_profile_input(name: &str) -> Result<std::path::PathBuf> {
 /// file を指す path input の override は `path:<abs>` URL 形式が必須
 /// (nix 2.35 は bare の絶対 path を flake ref として解釈し
 /// "not a flake (because it's not a directory)" で拒否する)
-pub fn override_args(repo: &str) -> Result<Vec<String>> {
+pub fn override_args<P: AsRef<Path> + ?Sized>(repo: &P) -> Result<Vec<String>> {
     override_args_with(repo, &StateStore::default())
 }
 
 /// [`override_args`] の state store 注入版 (test 用。env の state に左右されない)
-pub fn override_args_with(repo: &str, store: &StateStore) -> Result<Vec<String>> {
+pub fn override_args_with<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    store: &StateStore,
+) -> Result<Vec<String>> {
     let facts = crate::machine::MachineFacts::detect()?;
     let machine_path = crate::machine::write_machine_input(&facts)?;
     let (profile, _) = resolve_with(repo, store)?;
