@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
@@ -49,9 +51,11 @@ impl Manifest {
     }
 
     /// repository の schneeforge.toml を読み込み・parse する (構造化エラーを返す)
-    pub fn load(repo: &str) -> Result<Self> {
-        let content = std::fs::read_to_string(format!("{repo}/schneeforge.toml"))
-            .map_err(|e| Error::Manifest(format!("failed to read {repo}/schneeforge.toml: {e}")))?;
+    pub fn load<P: AsRef<Path> + ?Sized>(repo: &P) -> Result<Self> {
+        let manifest_path = repo.as_ref().join("schneeforge.toml");
+        let content = std::fs::read_to_string(&manifest_path).map_err(|e| {
+            Error::Manifest(format!("failed to read {}: {e}", manifest_path.display()))
+        })?;
         Self::parse(&content)
             .map_err(|e| Error::Manifest(format!("failed to parse schneeforge.toml: {e}")))
     }
