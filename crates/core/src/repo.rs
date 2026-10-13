@@ -191,4 +191,34 @@ mod tests {
         assert!(repo.exists);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_repo_with_preserves_non_utf8_cli_path() {
+        use std::os::unix::ffi::OsStringExt;
+        let cli = std::path::PathBuf::from(std::ffi::OsString::from_vec(
+            b"/tmp/schneeforge-cli-\xff".to_vec(),
+        ));
+        let resolved = resolve_repo_with(Some(cli.as_path()), None, None);
+        assert_eq!(resolved.as_path().as_os_str(), cli.as_os_str());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_repo_with_preserves_non_utf8_env_dir() {
+        use std::os::unix::ffi::OsStringExt;
+        let env_dir = std::ffi::OsString::from_vec(b"/tmp/schneeforge-env-\xff".to_vec());
+        let resolved = resolve_repo_with(None, Some(env_dir.as_os_str()), None);
+        assert_eq!(resolved.as_path().as_os_str(), env_dir.as_os_str());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_repo_with_preserves_non_utf8_absolute_home() {
+        use std::os::unix::ffi::OsStringExt;
+        let home = std::ffi::OsString::from_vec(b"/tmp/schneeforge-home-\xff".to_vec());
+        let resolved = resolve_repo_with(None, None, Some(home.as_os_str()));
+        let expected = std::path::PathBuf::from(home).join("nix_setting");
+        assert_eq!(resolved.as_path(), expected.as_path());
+    }
 }
