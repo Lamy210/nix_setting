@@ -20,7 +20,7 @@ jobs:
           fetch-depth: 0
       - name: Verify Task 5 RED
         run: |
-          if cargo test -p schneeforge-cli --test repository_non_utf8_repo -- --nocapture; then
+          if cargo test -p schneeforge --test repository_non_utf8_repo -- --nocapture; then
             echo "Task 5 RED unexpectedly passed before adapter migration"
             exit 1
           else
@@ -32,14 +32,14 @@ jobs:
         run: cargo fmt --all
       - name: Verify native CLI repository paths
         run: |
-          cargo test -p schneeforge-cli --test repository_non_utf8_repo -- --nocapture
-          cargo test -p schneeforge-cli
+          cargo test -p schneeforge --test repository_non_utf8_repo -- --nocapture
+          cargo test -p schneeforge
       - name: Verify Diagnostics and preserved boundaries
         run: |
           cargo test -p schneeforge-core diagnostics -- --nocapture
           cargo test -p schneeforge-core --test managed_nix_escalation_non_utf8_paths -- --nocapture
           cargo test -p schneeforge-core --test windows_backend_contract -- --nocapture
-          cargo test -p schneeforge-cli --test windows_cli_contract -- --nocapture
+          cargo test -p schneeforge --test windows_cli_contract -- --nocapture
       - name: Check desktop adapter
         run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
       - name: Verify Windows backend source unchanged
