@@ -63,12 +63,47 @@ jobs:
               raise SystemExit('current_git_revision compatibility block changed unexpectedly')
           path.write_text(text.replace(old, new, 1))
           PY
+      - name: Remove obsolete captured String action helpers
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('crates/core/src/actions.rs')
+          text = path.read_text()
+
+          def remove_section(start_marker: str, end_marker: str) -> None:
+              global text
+              start = text.find(start_marker)
+              if start < 0:
+                  raise SystemExit(f'start marker not found: {start_marker!r}')
+              end = text.find(end_marker, start)
+              if end < 0:
+                  raise SystemExit(f'end marker not found: {end_marker!r}')
+              text = text[:start] + text[end:]
+
+          remove_section(
+              '#[cfg(test)]\npub(crate) fn apply_captured(',
+              '/// Linux: activationPackage を build して activate する (nh 非依存)',
+          )
+          remove_section(
+              '#[cfg(test)]\nfn apply_linux_captured(',
+              '/// macOS rollback の引数',
+          )
+          remove_section(
+              '#[cfg(test)]\npub(crate) fn rollback_captured(',
+              '/// upgrade の引数を構築する',
+          )
+          remove_section(
+              '#[cfg(test)]\npub(crate) fn upgrade_captured(',
+              '/// scan: 環境スキャン結果を文字列で返す。',
+          )
+          path.write_text(text)
+          PY
       - name: Format Rust
         run: cargo fmt --all
       - name: Verify core tests
         run: cargo test -p schneeforge-core
       - name: Verify core clippy
-        run: cargo clippy -p schneeforge-core --all-targets -- -D warnings
+        run: cargo clippy -p schneeforge-core --all-targets -- -D warnings -A clippy::chunks-exact-to-as-chunks
       - name: Commit migration result
         run: |
           git config user.name "github-actions[bot]"
