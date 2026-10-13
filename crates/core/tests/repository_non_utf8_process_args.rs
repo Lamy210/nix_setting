@@ -43,9 +43,7 @@ fn checkout_switch_target_preserves_repository_bytes_before_fragment() {
 
 #[test]
 fn managed_flake_target_stays_textual() {
-    let source = EffectiveSourceRef::ManagedFlake(
-        "github:Lamy210/nix_setting/v0.2.0".to_string(),
-    );
+    let source = EffectiveSourceRef::ManagedFlake("github:Lamy210/nix_setting/v0.2.0".to_string());
     let target = detect_target_for("linux", "x86_64");
 
     assert_eq!(
