@@ -3,6 +3,7 @@
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use schneeforge_core::profile;
 use schneeforge_core::source::{SourceKind, SourceResolver};
@@ -17,10 +18,13 @@ available = ["minimal", "developer"]
 x86_64-linux = true
 "#;
 
+static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
+
 fn non_utf8_repo() -> PathBuf {
     let root = std::env::temp_dir().join(format!(
-        "sf-repository-native-fs-{}",
-        std::process::id()
+        "sf-repository-native-fs-{}-{}",
+        std::process::id(),
+        TEMP_SEQ.fetch_add(1, Ordering::Relaxed)
     ));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
