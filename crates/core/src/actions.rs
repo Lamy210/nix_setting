@@ -118,7 +118,10 @@ fn apply_linux(target: &ConfigurationTarget, repo: &str, nix: &ResolvedTool) -> 
     let overrides = profile::override_args(repo)?;
     let args = linux_build_args(repo, target, &link.path, &overrides);
     run_stream(&nix.path, &args)?;
-    run_stream(Path::new(&format!("{}/activate", link.path)), &[])
+    run_stream(
+        Path::new(&format!("{}/activate", link.path)),
+        &[] as &[String],
+    )
 }
 
 fn apply_linux_captured(
@@ -130,7 +133,10 @@ fn apply_linux_captured(
     let overrides = profile::override_args(repo)?;
     let args = linux_build_args(repo, target, &link.path, &overrides);
     let mut out = run_capture(&nix.path, &args)?;
-    let activate = run_capture(Path::new(&format!("{}/activate", link.path)), &[])?;
+    let activate = run_capture(
+        Path::new(&format!("{}/activate", link.path)),
+        &[] as &[String],
+    )?;
     if !activate.is_empty() {
         out.push('\n');
         out.push_str(&activate);
