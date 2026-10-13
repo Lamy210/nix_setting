@@ -2,10 +2,12 @@
 //! source 種別を解決する。network access は行わない。
 
 use serde::{Deserialize, Serialize};
+use std::ffi::OsString;
 use std::path::Path;
 
 use crate::error::{Error, Result};
 use crate::process::run_capture;
+use crate::repo::RepositoryPath;
 use crate::semver;
 use crate::tool::ResolvedTool;
 
@@ -187,8 +189,69 @@ fn is_slug_component(s: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
-/// nix 引数に渡す repository 参照。state が managed Release を示す場合は
-/// flake ref (`github:<owner>/<repo>/<tag>`)、それ以外は path をそのまま返す
+/// Nix に渡す source identity。checkout は OS-native path、managed release は text ref。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EffectiveSourceRef {
+    Checkout(RepositoryPath),
+    ManagedFlake(String),
+}
+
+impl EffectiveSourceRef {
+    /// 表示専用の文字列表現。filesystem / argv の入力へ戻してはならない。
+    pub fn display_lossy(&self) -> String {
+        match self {
+            EffectiveSourceRef::Checkout(path) => path.display_lossy(),
+            EffectiveSourceRef::ManagedFlake(reference) => reference.clone(),
+        }
+    }
+
+    /// Nix argv へ入れる source identity を OS-native form で返す。
+    pub fn as_nix_arg(&self) -> OsString {
+        match self {
+            EffectiveSourceRef::Checkout(path) => path.as_path().as_os_str().to_os_string(),
+            EffectiveSourceRef::ManagedFlake(reference) => OsString::from(reference),
+        }
+    }
+
+    /// source identity に SchneeForge-owned ASCII fragment (`#...`) を付与する。
+    pub fn with_fragment(&self, fragment: &str) -> OsString {
+        debug_assert!(fragment.is_ascii());
+        let mut value = self.as_nix_arg();
+        value.push(fragment);
+        value
+    }
+}
+
+/// path-native source ref resolver。managed source だけ textual flake ref へ切り替える。
+pub fn effective_source_ref<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    store: &crate::state::StateStore,
+) -> Result<EffectiveSourceRef> {
+    let source = store.load()?.and_then(|s| s.source);
+    let Some(source) = source else {
+        return Ok(EffectiveSourceRef::Checkout(RepositoryPath::new(
+            repo.as_ref().to_path_buf(),
+        )));
+    };
+    if !source.managed {
+        return Ok(EffectiveSourceRef::Checkout(RepositoryPath::new(
+            repo.as_ref().to_path_buf(),
+        )));
+    }
+
+    source.validate_managed_release()?;
+    let remote = source.remote_url();
+    source
+        .flake_ref()
+        .map(EffectiveSourceRef::ManagedFlake)
+        .ok_or_else(|| {
+            Error::State(format!(
+                "managed source repository URL is not a supported GitHub repository: {remote}"
+            ))
+        })
+}
+
+/// 移行中の textual compatibility API。Task 4 で typed source ref へ置き換える。
 pub fn effective_ref(repo: &str, store: &crate::state::StateStore) -> Result<String> {
     let source = store.load()?.and_then(|s| s.source);
     let Some(source) = source else {
@@ -219,9 +282,13 @@ impl SourceResolver {
     /// repo path と解決済み git binary から source を検出する。
     /// `.git` が無ければ Local、branch があれば GitTracking、
     /// detached HEAD は tag の形式で Release/GitPinned を判別する。
-    pub fn detect(&self, repo: &str, git: &ResolvedTool) -> Result<SourceState> {
-        let repo_path = Path::new(repo);
-        if !repo_path.join(".git").exists() {
+    pub fn detect<P: AsRef<Path> + ?Sized>(
+        &self,
+        repo: &P,
+        git: &ResolvedTool,
+    ) -> Result<SourceState> {
+        let repo = repo.as_ref();
+        if !repo.join(".git").exists() {
             return Ok(SourceState {
                 kind: SourceKind::Local,
                 ref_: "-".to_string(),
@@ -283,9 +350,9 @@ impl SourceResolver {
     /// state に記録された managed source を優先する解決 (v2 §7)。
     /// state が managed な Release を示す場合は checkout の実態を見ずに
     /// それを返す。それ以外 (managed 無しを含む) は checkout から検出する。
-    pub fn resolve(
+    pub fn resolve<P: AsRef<Path> + ?Sized>(
         &self,
-        repo: &str,
+        repo: &P,
         git: &ResolvedTool,
         stored: Option<&SourceState>,
     ) -> Result<SourceState> {
@@ -303,7 +370,10 @@ impl SourceResolver {
 ///
 /// `rev-parse --abbrev-ref HEAD` は detached HEAD を正常終了 + literal `HEAD`
 /// で表現するため、Git 自体の実行失敗と detached 状態を混同しない。
-pub(crate) fn current_branch(repo: &str, git: &ResolvedTool) -> Result<Option<String>> {
+pub(crate) fn current_branch<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    git: &ResolvedTool,
+) -> Result<Option<String>> {
     let out = git_output(repo, git, &["rev-parse", "--abbrev-ref", "HEAD"])?;
     let branch = out.trim();
     if branch == "HEAD" {
@@ -324,7 +394,10 @@ pub(crate) fn current_branch(repo: &str, git: &ResolvedTool) -> Result<Option<St
 /// tag が無い状態と Git 実行失敗を区別できる。同一 commit に複数 tag が
 /// 付いている detached HEAD は checkout 元 ref を一意に復元できないため、
 /// 任意の tag を選ばず fail-closed に拒否する。
-pub(crate) fn exact_tag(repo: &str, git: &ResolvedTool) -> Result<Option<String>> {
+pub(crate) fn exact_tag<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    git: &ResolvedTool,
+) -> Result<Option<String>> {
     let out = git_output(repo, git, &["tag", "--points-at", "HEAD"])?;
     let tags: Vec<&str> = out
         .lines()
@@ -343,7 +416,7 @@ pub(crate) fn exact_tag(repo: &str, git: &ResolvedTool) -> Result<Option<String>
 }
 
 /// HEAD の commit hash
-fn head_revision(repo: &str, git: &ResolvedTool) -> Result<String> {
+fn head_revision<P: AsRef<Path> + ?Sized>(repo: &P, git: &ResolvedTool) -> Result<String> {
     let out = git_output(repo, git, &["rev-parse", "HEAD"])?;
     let revision = out.trim();
     if revision.is_empty() {
@@ -356,9 +429,16 @@ fn head_revision(repo: &str, git: &ResolvedTool) -> Result<String> {
     }
 }
 
-fn git_output(repo: &str, git: &ResolvedTool, args: &[&str]) -> Result<String> {
-    let mut cmd_args: Vec<String> = vec!["-C".to_string(), repo.to_string()];
-    cmd_args.extend(args.iter().map(|s| s.to_string()));
+fn git_output<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    git: &ResolvedTool,
+    args: &[&str],
+) -> Result<String> {
+    let mut cmd_args = vec![
+        OsString::from("-C"),
+        repo.as_ref().as_os_str().to_os_string(),
+    ];
+    cmd_args.extend(args.iter().map(OsString::from));
     run_capture(&git.path, &cmd_args)
 }
 
