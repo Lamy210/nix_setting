@@ -1,6 +1,7 @@
 #![cfg(unix)]
 
 use schneeforge_core::{diagnose, ToolInventory};
+use std::path::Path;
 use std::process::Command;
 
 const CHILD_CASE: &str = "SCHNEEFORGE_DIAGNOSTICS_HOME_CHILD";
@@ -17,7 +18,10 @@ fn empty_inventory() -> ToolInventory {
 #[test]
 fn empty_home_is_reported_as_unavailable() {
     if std::env::var(CHILD_CASE).as_deref() == Ok("empty-home") {
-        let diagnostics = diagnose(&empty_inventory(), Some("/definitely/not/a/real/repo"));
+        let diagnostics = diagnose(
+            &empty_inventory(),
+            Some(Path::new("/definitely/not/a/real/repo")),
+        );
         assert_eq!(
             diagnostics.home, None,
             "an empty HOME value must be reported as unavailable rather than as a real path"
@@ -51,7 +55,10 @@ fn empty_home_is_reported_as_unavailable() {
 #[test]
 fn relative_home_is_reported_as_unavailable() {
     if std::env::var(CHILD_CASE).as_deref() == Ok("relative-home") {
-        let diagnostics = diagnose(&empty_inventory(), Some("/definitely/not/a/real/repo"));
+        let diagnostics = diagnose(
+            &empty_inventory(),
+            Some(Path::new("/definitely/not/a/real/repo")),
+        );
         assert_eq!(
             diagnostics.home, None,
             "a relative HOME value must be reported as unavailable rather than as a real home directory"

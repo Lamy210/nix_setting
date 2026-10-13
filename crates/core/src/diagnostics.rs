@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use serde::Serialize;
 
 use crate::discovery::{current_user, detect_arch, detect_platform, detect_target};
@@ -6,7 +8,7 @@ use crate::managed_nix::status::{classify_current, StatusReport};
 use crate::manifest::Validation;
 use crate::nix_features::has_required_flake_features;
 use crate::process::{command_succeeds, run_capture};
-use crate::repo::resolve_repo;
+use crate::repo::resolve_repo_path;
 use crate::state::StateStore;
 use crate::tool::{ResolvedTool, ToolInventory, ToolResolver, ToolSource, ToolStatus};
 
@@ -132,13 +134,13 @@ impl From<&ResolvedTool> for ResolvedToolSummary {
 /// desktop は `CachedToolInventory` から・CLI は起動時に1回解決した `ToolInventory` から
 /// 呼び出すことで、起動直後の PATH 補正 (`fix_path_env::fix`) が反映された
 /// 同一の解決結果を Diagnostics と apply 系操作で共有できる。
-pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&str>) -> Diagnostics {
+pub fn diagnose(tc: &ToolInventory, cli_repo: Option<&Path>) -> Diagnostics {
     diagnose_with_store(tc, cli_repo, &StateStore::default())
 }
 
 fn diagnose_with_store(
     tc: &ToolInventory,
-    cli_repo: Option<&str>,
+    cli_repo: Option<&Path>,
     store: &StateStore,
 ) -> Diagnostics {
     let resolver = ToolResolver::new();
@@ -165,11 +167,12 @@ fn diagnose_with_store(
     let nix_status = classify_current(nix_health.store_accessible);
 
     let target = detect_target();
-    let repo_path = resolve_repo(cli_repo);
-    let repo_exists = std::path::Path::new(&repo_path).is_dir();
+    let native_repo = resolve_repo_path(cli_repo);
+    let repo_path = native_repo.as_path();
+    let repo_exists = repo_path.is_dir();
 
     let (manifest_found, manifest_error, manifest_default, validation) =
-        manifest_diagnostics(&repo_path, target.name(), store);
+        manifest_diagnostics(repo_path, target.name(), store);
 
     let (state, mut state_error) = match store.load() {
         Ok(state) => (state, None),
@@ -192,7 +195,7 @@ fn diagnose_with_store(
     let profile = if state_error.is_some() {
         None
     } else if manifest_found {
-        match crate::profile::resolve_with(&repo_path, store) {
+        match crate::profile::resolve_with(repo_path, store) {
             Ok((name, _)) => Some(name),
             // state 自体は valid だが profile/manifest が不整合な場合は、
             // diagnostics を継続するため manifest default を表示する。
@@ -206,7 +209,7 @@ fn diagnose_with_store(
         host: target.name().to_string(),
         platform: detect_platform().to_string(),
         architecture: detect_arch().to_string(),
-        repo_path,
+        repo_path: repo_path.to_string_lossy().into_owned(),
         repo_exists,
         manifest_found,
         manifest_error,
@@ -371,7 +374,7 @@ fn xdg_state_profile_dir() -> Option<std::path::PathBuf> {
 }
 
 fn manifest_diagnostics(
-    repo_path: &str,
+    repo_path: &Path,
     system: &str,
     store: &StateStore,
 ) -> (bool, Option<String>, Option<String>, Option<Validation>) {
@@ -407,10 +410,42 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn diagnose_uses_native_repository_path_before_display_conversion() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let tc = dummy_tc();
+        let root = std::env::temp_dir().join(format!(
+            "schneeforge-diagnostics-native-repo-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let repo = root.join(OsString::from_vec(b"repository-\xff".to_vec()));
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(
+            repo.join("schneeforge.toml"),
+            "schema = 1\n[profiles]\ndefault = \"developer\"\navailable = [\"developer\"]\n[systems]\nx86_64-linux = true\n",
+        )
+        .unwrap();
+        let store = StateStore::new(root.join("state.json"));
+
+        let d = diagnose_with_store(&tc, Some(&repo), &store);
+        assert!(d.repo_exists);
+        assert!(d.manifest_found);
+        assert_eq!(d.repo_path, repo.to_string_lossy());
+        let json = serde_json::to_value(&d).unwrap();
+        assert!(json.get("repo_path").is_some_and(|value| value.is_string()));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn diagnose_nonexistent_repo() {
         let tc = dummy_tc();
-        let d = diagnose(&tc, Some("/definitely/not/a/real/repo"));
+        let d = diagnose(&tc, Some(Path::new("/definitely/not/a/real/repo")));
         assert!(!d.repo_exists);
         assert!(!d.manifest_found);
         assert!(d.manifest_error.is_some());
@@ -430,7 +465,7 @@ mod tests {
         let store = StateStore::new(dir.join("state.json"));
         std::fs::write(store.path(), "{not-json").unwrap();
 
-        let d = diagnose_with_store(&tc, Some("/definitely/not/a/real/repo"), &store);
+        let d = diagnose_with_store(&tc, Some(Path::new("/definitely/not/a/real/repo")), &store);
         assert!(d
             .state_error
             .as_deref()
@@ -447,7 +482,7 @@ mod tests {
     #[test]
     fn diagnose_reports_platform_and_architecture() {
         let tc = dummy_tc();
-        let d = diagnose(&tc, Some("/definitely/not/a/real/repo"));
+        let d = diagnose(&tc, Some(Path::new("/definitely/not/a/real/repo")));
         assert!(!d.platform.is_empty());
         assert!(!d.architecture.is_empty());
         assert!(!d.host.is_empty());
@@ -456,7 +491,7 @@ mod tests {
     #[test]
     fn diagnose_includes_nix_health() {
         let tc = dummy_tc();
-        let d = diagnose(&tc, Some("/definitely/not/a/real/repo"));
+        let d = diagnose(&tc, Some(Path::new("/definitely/not/a/real/repo")));
         // nix_health フィールドが serialize 可能で、フィールド群が揃っていること
         let json = serde_json::to_string(&d.nix_health).expect("NixHealth must be serializable");
         assert!(json.contains("installed"));
@@ -467,7 +502,7 @@ mod tests {
     #[test]
     fn diagnose_includes_nix_status() {
         let tc = dummy_tc();
-        let d = diagnose(&tc, Some("/definitely/not/a/real/repo"));
+        let d = diagnose(&tc, Some(Path::new("/definitely/not/a/real/repo")));
         let json = serde_json::to_string(&d.nix_status).expect("StatusReport must be serializable");
         // status は 4 状態のいずれかの label で serialize される
         assert!(json.contains("status"));
@@ -489,7 +524,7 @@ mod tests {
     #[test]
     fn diagnose_includes_tool_inventory_summary() {
         let tc = dummy_tc();
-        let d = diagnose(&tc, Some("/definitely/not/a/real/repo"));
+        let d = diagnose(&tc, Some(Path::new("/definitely/not/a/real/repo")));
         // tool_inventory フィールドが serialize 可能な形で入っている
         let json = serde_json::to_string(&d.tool_inventory)
             .expect("ToolInventorySummary must be serializable");
@@ -618,7 +653,7 @@ mod tests {
             })
             .unwrap();
 
-        let d = diagnose_with_store(&tc, Some("/definitely/not/a/real/repo"), &store);
+        let d = diagnose_with_store(&tc, Some(Path::new("/definitely/not/a/real/repo")), &store);
         assert!(d
             .state_error
             .as_deref()
@@ -631,7 +666,7 @@ mod tests {
     #[test]
     fn diagnose_serializes_managed_source_key() {
         let tc = dummy_tc();
-        let d = diagnose(&tc, Some("/definitely/not/a/real/repo"));
+        let d = diagnose(&tc, Some(Path::new("/definitely/not/a/real/repo")));
         let whole = serde_json::to_string(&d).expect("Diagnostics must be serializable");
         assert!(
             whole.contains("managed_source"),
