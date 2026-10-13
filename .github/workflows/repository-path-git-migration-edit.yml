@@ -18,9 +18,23 @@ jobs:
         with:
           ref: refactor/repository-path-identity-implementation
           fetch-depth: 0
-      - name: Prepare duplicate sync replacement assertion
+      - name: Prepare migration assertions
         run: |
           sed -i 's/count != 1/count != (2 if label == "sync native args #1" else 1)/' .github/scripts/apply-repository-path-git-migration.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/scripts/apply-repository-path-git-migration.py')
+          text = path.read_text()
+          text = text.replace(
+              'if "repo: &str" in prod:\n    raise SystemExit("production operations.rs still contains repo: &str")',
+              'if prod.count("repo: &str") != 1 or "#[cfg(test)]\\nfn sync_args(repo: &str)" not in prod:\n    raise SystemExit("unexpected production repo: &str boundary remains")',
+          )
+          text = text.replace(
+              'if "repo.to_string()" in prod:\n    raise SystemExit("production operations.rs still stringifies a repository path")',
+              'if prod.count("repo.to_string()") != 1:\n    raise SystemExit("unexpected repository path stringification remains")',
+          )
+          path.write_text(text)
+          PY
       - name: Apply asserted Git path migration edits
         run: python3 .github/scripts/apply-repository-path-git-migration.py
       - name: Format Rust
