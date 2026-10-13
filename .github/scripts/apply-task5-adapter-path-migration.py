@@ -119,8 +119,21 @@ desktop = replace_once(
     '        cmd.env("NIX_SETTING_DIR", repo_dir.as_os_str());',
     "desktop native repo env",
 )
+# tauri-plugin-opener exposes a textual path API. Never use lossy conversion here:
+# fail closed rather than opening a different filesystem path.
+desktop = replace_once(
+    desktop,
+    "    match tauri_plugin_opener::open_path(&repo, None::<&str>) {",
+    '''    let repo_text = repo.to_str().ok_or_else(|| {
+        "repository path is not valid UTF-8; desktop opener cannot target it safely".to_string()
+    })?;
+    match tauri_plugin_opener::open_path(repo_text, None::<&str>) {''',
+    "desktop opener UTF-8 boundary",
+)
 if "resolve_repo(None)" in desktop or "PathBuf::from(&repo_dir)" in desktop:
     raise SystemExit("desktop repository String/path round trip remains")
+if "open_path(&repo" in desktop or "to_string_lossy" in desktop:
+    raise SystemExit("desktop opener repository boundary is not fail-closed")
 
 LEGACY.write_text(legacy)
 MAIN.write_text(main)
