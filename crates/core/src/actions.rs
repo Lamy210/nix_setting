@@ -2,12 +2,234 @@ use crate::discovery::ConfigurationTarget;
 use crate::error::{Error, Result};
 use crate::process::{run_capture, run_stream};
 use crate::profile;
+use crate::repo::RepositoryPath;
+use crate::source::EffectiveSourceRef;
 use crate::tool::{ResolvedTool, ToolInventory};
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+
+fn append_text_args(args: &mut Vec<OsString>, values: &[String]) {
+    args.extend(values.iter().map(OsString::from));
+}
+
+/// path-native macOS apply argv。
+/// checkout path は `EffectiveSourceRef` の OS-native argv 表現をそのまま使う。
+fn darwin_switch_args_native(
+    source: &EffectiveSourceRef,
+    target: &ConfigurationTarget,
+    overrides: &[String],
+) -> Vec<OsString> {
+    let mut args = vec![
+        OsString::from("run"),
+        OsString::from("--inputs-from"),
+        source.as_nix_arg(),
+    ];
+    append_text_args(&mut args, overrides);
+    args.extend([
+        OsString::from("nix-darwin#darwin-rebuild"),
+        OsString::from("--"),
+        OsString::from("switch"),
+        OsString::from("--flake"),
+        source.with_fragment(&target.switch_fragment()),
+    ]);
+    args
+}
+
+/// path-native Linux apply argv。
+fn linux_build_args_native(
+    source: &EffectiveSourceRef,
+    target: &ConfigurationTarget,
+    link: &Path,
+    overrides: &[String],
+) -> Vec<OsString> {
+    let mut args = vec![
+        OsString::from("build"),
+        OsString::from("--out-link"),
+        link.as_os_str().to_os_string(),
+    ];
+    append_text_args(&mut args, overrides);
+    args.push(source.with_fragment(&target.build_fragment()));
+    args
+}
+
+/// path-native macOS rollback argv。
+fn darwin_rollback_args_native(
+    source: &EffectiveSourceRef,
+    overrides: &[String],
+) -> Vec<OsString> {
+    let mut args = vec![
+        OsString::from("run"),
+        OsString::from("--inputs-from"),
+        source.as_nix_arg(),
+    ];
+    append_text_args(&mut args, overrides);
+    args.extend([
+        OsString::from("nix-darwin#darwin-rebuild"),
+        OsString::from("--"),
+        OsString::from("--rollback"),
+    ]);
+    args
+}
+
+fn upgrade_args_native(repo: &Path) -> Vec<OsString> {
+    vec![
+        OsString::from("flake"),
+        OsString::from("update"),
+        OsString::from("--flake"),
+        repo.as_os_str().to_os_string(),
+    ]
+}
+
+fn activation_link_path() -> PathBuf {
+    std::env::temp_dir().join(format!("schneeforge-activate-{}", std::process::id()))
+}
+
+/// drop 時に一時 symlink を削除する RAII ガード。
+/// path は OS-native のまま保持する。
+struct NativeActivationLink {
+    path: PathBuf,
+}
+
+impl NativeActivationLink {
+    fn new() -> Self {
+        Self {
+            path: activation_link_path(),
+        }
+    }
+}
+
+impl Drop for NativeActivationLink {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+pub(crate) fn apply_native(
+    target: &ConfigurationTarget,
+    repo: &Path,
+    source: &EffectiveSourceRef,
+    tc: &ToolInventory,
+) -> Result<()> {
+    if !target.is_supported() {
+        return Err(unsupported(target));
+    }
+    let nix = tc.require_nix()?;
+    if target.platform() == crate::discovery::Platform::MacOS {
+        let args = darwin_switch_args_native(source, target, &profile::override_args(repo)?);
+        run_stream(&nix.path, &args)
+    } else {
+        apply_linux_native(target, repo, source, nix)
+    }
+}
+
+pub(crate) fn apply_captured_native(
+    target: &ConfigurationTarget,
+    repo: &Path,
+    source: &EffectiveSourceRef,
+    tc: &ToolInventory,
+) -> Result<String> {
+    if !target.is_supported() {
+        return Err(unsupported(target));
+    }
+    let nix = tc.require_nix()?;
+    if target.platform() == crate::discovery::Platform::MacOS {
+        let args = darwin_switch_args_native(source, target, &profile::override_args(repo)?);
+        run_capture(&nix.path, &args)
+    } else {
+        apply_linux_captured_native(target, repo, source, nix)
+    }
+}
+
+fn apply_linux_native(
+    target: &ConfigurationTarget,
+    repo: &Path,
+    source: &EffectiveSourceRef,
+    nix: &ResolvedTool,
+) -> Result<()> {
+    let link = NativeActivationLink::new();
+    let overrides = profile::override_args(repo)?;
+    let args = linux_build_args_native(source, target, &link.path, &overrides);
+    run_stream(&nix.path, &args)?;
+    run_stream(&link.path.join("activate"), &[] as &[OsString])
+}
+
+fn apply_linux_captured_native(
+    target: &ConfigurationTarget,
+    repo: &Path,
+    source: &EffectiveSourceRef,
+    nix: &ResolvedTool,
+) -> Result<String> {
+    let link = NativeActivationLink::new();
+    let overrides = profile::override_args(repo)?;
+    let args = linux_build_args_native(source, target, &link.path, &overrides);
+    let mut out = run_capture(&nix.path, &args)?;
+    let activate = run_capture(&link.path.join("activate"), &[] as &[OsString])?;
+    if !activate.is_empty() {
+        out.push('\n');
+        out.push_str(&activate);
+    }
+    Ok(out)
+}
+
+pub(crate) fn rollback_native(
+    target: &ConfigurationTarget,
+    repo: &Path,
+    source: &EffectiveSourceRef,
+    tc: &ToolInventory,
+) -> Result<()> {
+    if !target.is_supported() {
+        return Err(unsupported(target));
+    }
+    if target.platform() == crate::discovery::Platform::MacOS {
+        let nix = tc.require_nix()?;
+        let args = darwin_rollback_args_native(source, &profile::override_args(repo)?);
+        run_stream(&nix.path, &args)
+    } else {
+        let nh = tc
+            .nh
+            .as_ref()
+            .ok_or_else(|| Error::Precondition("nh is required for Linux rollback".to_string()))?;
+        run_stream(&nh.path, &linux_rollback_args())
+    }
+}
+
+pub(crate) fn rollback_captured_native(
+    target: &ConfigurationTarget,
+    repo: &Path,
+    source: &EffectiveSourceRef,
+    tc: &ToolInventory,
+) -> Result<String> {
+    if !target.is_supported() {
+        return Err(unsupported(target));
+    }
+    if target.platform() == crate::discovery::Platform::MacOS {
+        let nix = tc.require_nix()?;
+        let args = darwin_rollback_args_native(source, &profile::override_args(repo)?);
+        run_capture(&nix.path, &args)
+    } else {
+        let nh = tc
+            .nh
+            .as_ref()
+            .ok_or_else(|| Error::Precondition("nh is required for Linux rollback".to_string()))?;
+        run_capture(&nh.path, &linux_rollback_args())
+    }
+}
+
+pub(crate) fn upgrade_native(repo: &Path, tc: &ToolInventory) -> Result<()> {
+    let nix = tc.require_nix()?;
+    run_stream(&nix.path, &upgrade_args_native(repo))
+}
+
+pub(crate) fn upgrade_captured_native(repo: &Path, tc: &ToolInventory) -> Result<String> {
+    let nix = tc.require_nix()?;
+    run_capture(&nix.path, &upgrade_args_native(repo))
+}
 
 /// macOS apply の引数 (`nix run --inputs-from <repo> nix-darwin#darwin-rebuild -- switch --flake <ref>`)
 /// `--inputs-from <repo>` で repo の flake.lock に pin された nix-darwin を使う (registry 非依存)。
-/// `repo` は path / `github:` flake ref どちらの文字列もそのまま受け付ける
+///
+/// 移行中の UTF-8 compatibility builder。新規 operational path は
+/// `darwin_switch_args_native` を使う。
 fn darwin_switch_args(
     repo: &str,
     target: &ConfigurationTarget,
@@ -48,10 +270,7 @@ fn linux_build_args(
 
 /// activationPackage を build する際の一時 symlink パス
 fn activation_link() -> String {
-    std::env::temp_dir()
-        .join(format!("schneeforge-activate-{}", std::process::id()))
-        .to_string_lossy()
-        .to_string()
+    activation_link_path().to_string_lossy().to_string()
 }
 
 /// drop 時に一時 symlink を削除する RAII ガード
@@ -319,7 +538,6 @@ mod tests {
 
     #[test]
     fn scan_reports_missing_nix_and_git_for_fresh_machine() {
-        // Fresh install 環境では nix / git が未解決でも scan は落ちない
         let target = detect_target_for("macos", "aarch64");
         let out = scan(
             &target,
@@ -332,6 +550,63 @@ mod tests {
         );
         assert!(out.contains("nix:  not found"));
         assert!(out.contains("git:  not found"));
+    }
+
+    #[test]
+    fn native_builders_keep_checkout_path_as_os_string() {
+        let target = detect_target_for("linux", "x86_64");
+        let source = EffectiveSourceRef::Checkout(RepositoryPath::new(PathBuf::from("/tmp/repo")));
+        let args = linux_build_args_native(&source, &target, Path::new("/tmp/link"), &[]);
+        assert_eq!(args[0], OsString::from("build"));
+        assert_eq!(args[2], OsString::from("/tmp/link"));
+        assert_eq!(
+            args.last().unwrap(),
+            &OsString::from("/tmp/repo#homeConfigurations.linux.activationPackage")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_builders_preserve_non_utf8_checkout_bytes() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        let repo = PathBuf::from(OsString::from_vec(b"/tmp/repo-\xff".to_vec()));
+        let source = EffectiveSourceRef::Checkout(RepositoryPath::new(repo.clone()));
+        let target = detect_target_for("linux", "x86_64");
+        let args = linux_build_args_native(&source, &target, Path::new("/tmp/link"), &[]);
+        let target_arg = args.last().unwrap();
+        let mut expected = repo.as_os_str().as_bytes().to_vec();
+        expected.extend_from_slice(b"#homeConfigurations.linux.activationPackage");
+        assert_eq!(target_arg.as_os_str().as_bytes(), expected.as_slice());
+
+        let mac = detect_target_for("macos", "aarch64");
+        let args = darwin_switch_args_native(&source, &mac, &[]);
+        assert_eq!(args[2].as_os_str().as_bytes(), repo.as_os_str().as_bytes());
+        let mut expected_switch = repo.as_os_str().as_bytes().to_vec();
+        expected_switch.extend_from_slice(b"#darwinConfigurations.darwin-aarch64");
+        assert_eq!(
+            args.last().unwrap().as_os_str().as_bytes(),
+            expected_switch.as_slice()
+        );
+    }
+
+    #[test]
+    fn native_builders_keep_managed_flake_textual() {
+        let source = EffectiveSourceRef::ManagedFlake(
+            "github:Lamy210/nix_setting/v0.2.0".to_string(),
+        );
+        let target = detect_target_for("macos", "aarch64");
+        let args = darwin_switch_args_native(&source, &target, &[]);
+        assert_eq!(
+            args[2],
+            OsString::from("github:Lamy210/nix_setting/v0.2.0")
+        );
+        assert_eq!(
+            args.last().unwrap(),
+            &OsString::from(
+                "github:Lamy210/nix_setting/v0.2.0#darwinConfigurations.darwin-aarch64"
+            )
+        );
     }
 
     #[test]
@@ -397,8 +672,6 @@ mod tests {
 
     #[test]
     fn rollback_macos_uses_resolved_nix() {
-        // macOS rollback は tc.nix.path を使う。ここでは引数組み立てまで検証
-        // (dir 名は test 毎に一意にしないと並列 test の setup で消し合う)
         let repo = manifest_repo("rollback-resolved");
         let args = darwin_rollback_args(&repo, &[]);
         assert_eq!(args[1], "--inputs-from");
@@ -413,7 +686,6 @@ mod tests {
         assert_eq!(args[0], "run");
         assert_eq!(args[1], "--inputs-from");
         assert_eq!(args[2], repo);
-        // machine / profile の 2 組の --override-input が並ぶ
         let oi = args.iter().position(|a| a == "--override-input").unwrap();
         assert_eq!(args[oi + 1], "machine");
         let last_oi = args.iter().rposition(|a| a == "--override-input").unwrap();
@@ -493,7 +765,6 @@ mod tests {
 
     #[test]
     fn override_args_point_at_state_dir() {
-        // profile 解決は manifest を要求するため repo を用意する
         let dir = std::env::temp_dir().join("schneeforge-actions-override-test");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -513,7 +784,6 @@ mod tests {
             .expect("machine input name present");
         assert_eq!(args[machine_idx - 1], "--override-input");
         let machine_path = &args[machine_idx + 1];
-        // file 指す path input は path: URL 形式であること (nix 2.35 の要件)
         assert!(
             machine_path.starts_with("path:"),
             "must use path: URL form: {machine_path}"
@@ -565,15 +835,11 @@ mod tests {
             &profile::override_args(&repo).unwrap(),
         );
         assert!(linux_args.iter().any(|a| a == "--override-input"));
-        // flake ref は最後のまま
         assert!(linux_args.last().unwrap().starts_with(&format!("{repo}#")));
     }
 
     #[test]
     fn switch_and_build_args_accept_github_flake_ref() {
-        // managed source (v2 §7): repo 文字列が `github:<owner>/<repo>/<tag>`
-        // flake ref でも引数構成は不変 (--inputs-from / --flake / build ref が
-        // 文字列をそのまま受け、override は並ぶ位置も形式も変わらない)
         let ref_ = "github:Lamy210/nix_setting/v0.2.0";
         let overrides = vec![
             "--override-input".to_string(),
@@ -592,7 +858,6 @@ mod tests {
             mac_args.last().unwrap(),
             &format!("{ref_}#darwinConfigurations.darwin-aarch64")
         );
-        // override 引数は --inputs-from と nix-darwin# の間にそのまま並ぶ
         let start = mac_args
             .iter()
             .position(|a| a == "--override-input")
