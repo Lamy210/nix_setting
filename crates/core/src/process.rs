@@ -151,10 +151,7 @@ mod tests {
 
     #[test]
     fn run_stream_nonexistent_command_returns_error() {
-        let result = run_stream(
-            Path::new("/__no_such_binary__"),
-            &[] as &[String],
-        );
+        let result = run_stream(Path::new("/__no_such_binary__"), &[] as &[String]);
         assert!(result.is_err());
         match result.unwrap_err() {
             Error::Command { command, detail } => {
@@ -172,10 +169,8 @@ mod tests {
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = std::env::temp_dir().join(format!(
-            "sf-process-native-argv-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sf-process-native-argv-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let script = dir.join("capture-argv");
@@ -186,13 +181,12 @@ mod tests {
         std::fs::set_permissions(&script, permissions).unwrap();
 
         let native = OsString::from_vec(b"repo-\xff-path".to_vec());
-        run_capture(
-            &script,
-            &[output.clone().into_os_string(), native.clone()],
-        )
-        .unwrap();
+        run_capture(&script, &[output.clone().into_os_string(), native.clone()]).unwrap();
 
-        assert_eq!(std::fs::read(&output).unwrap(), native.as_os_str().as_bytes());
+        assert_eq!(
+            std::fs::read(&output).unwrap(),
+            native.as_os_str().as_bytes()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
