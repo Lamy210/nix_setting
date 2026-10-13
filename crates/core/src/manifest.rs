@@ -54,10 +54,7 @@ impl Manifest {
     pub fn load<P: AsRef<Path> + ?Sized>(repo: &P) -> Result<Self> {
         let manifest_path = repo.as_ref().join("schneeforge.toml");
         let content = std::fs::read_to_string(&manifest_path).map_err(|e| {
-            Error::Manifest(format!(
-                "failed to read {}: {e}",
-                manifest_path.display()
-            ))
+            Error::Manifest(format!("failed to read {}: {e}", manifest_path.display()))
         })?;
         Self::parse(&content)
             .map_err(|e| Error::Manifest(format!("failed to parse schneeforge.toml: {e}")))
