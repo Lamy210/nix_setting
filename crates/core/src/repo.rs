@@ -304,10 +304,8 @@ mod tests {
         use std::os::unix::ffi::OsStringExt;
         use std::os::unix::fs::PermissionsExt;
 
-        let root = std::env::temp_dir().join(format!(
-            "sf-repo-native-revision-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("sf-repo-native-revision-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
 
