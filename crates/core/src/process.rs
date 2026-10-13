@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::path::Path;
 use std::process::Command;
 
@@ -6,7 +7,7 @@ use crate::error::{Error, Result};
 /// コマンドが存在し実行可能かを確認する (出力は破棄)
 ///
 /// `cmd` は解決済みの絶対パス（`ToolInventory` 経由）を渡すこと。
-pub fn command_succeeds(cmd: &Path, args: &[String]) -> bool {
+pub fn command_succeeds<S: AsRef<OsStr>>(cmd: &Path, args: &[S]) -> bool {
     Command::new(cmd)
         .args(args)
         .stdout(std::process::Stdio::null())
@@ -16,11 +17,19 @@ pub fn command_succeeds(cmd: &Path, args: &[String]) -> bool {
         .unwrap_or(false)
 }
 
+fn display_args<S: AsRef<OsStr>>(args: &[S]) -> String {
+    args.iter()
+        .map(|arg| arg.as_ref().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// コマンドを stdio 継承で実行する (リアルタイム出力)
 ///
 /// `cmd` は解決済みの絶対パス（`ToolInventory` 経由）を渡すこと。
-pub fn run_stream(cmd: &Path, args: &[String]) -> Result<()> {
-    println!("running: {} {}", cmd.display(), args.join(" "));
+/// argv は OS-native のまま `Command` へ渡し、表示時のみ lossy 変換する。
+pub fn run_stream<S: AsRef<OsStr>>(cmd: &Path, args: &[S]) -> Result<()> {
+    println!("running: {} {}", cmd.display(), display_args(args));
     let status = Command::new(cmd)
         .args(args)
         .status()
@@ -41,7 +50,8 @@ pub fn run_stream(cmd: &Path, args: &[String]) -> Result<()> {
 /// コマンドを実行し、stdout/stderr をキャプチャして返す
 ///
 /// `cmd` は解決済みの絶対パス（`ToolInventory` 経由）を渡すこと。
-pub fn run_capture(cmd: &Path, args: &[String]) -> Result<String> {
+/// argv は OS-native のまま `Command` へ渡す。
+pub fn run_capture<S: AsRef<OsStr>>(cmd: &Path, args: &[S]) -> Result<String> {
     match Command::new(cmd).args(args).output() {
         Ok(out) => {
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -90,19 +100,22 @@ mod tests {
 
     #[test]
     fn command_succeeds_with_real_command() {
-        let ok = command_succeeds(&true_bin(), &[]);
+        let ok = command_succeeds(&true_bin(), &[] as &[String]);
         assert!(ok);
     }
 
     #[test]
     fn command_succeeds_with_failing_command() {
-        let ok = command_succeeds(Path::new("/bin/false"), &[]);
+        let ok = command_succeeds(Path::new("/bin/false"), &[] as &[String]);
         assert!(!ok);
     }
 
     #[test]
     fn command_succeeds_with_nonexistent_command() {
-        let ok = command_succeeds(Path::new("/__definitely_not_a_real_binary__"), &[]);
+        let ok = command_succeeds(
+            Path::new("/__definitely_not_a_real_binary__"),
+            &[] as &[String],
+        );
         assert!(!ok);
     }
 
@@ -114,7 +127,7 @@ mod tests {
 
     #[test]
     fn run_capture_failing_command_returns_error() {
-        let result = run_capture(Path::new("/bin/false"), &[]);
+        let result = run_capture(Path::new("/bin/false"), &[] as &[String]);
         assert!(result.is_err());
         let err = result.unwrap_err();
         match err {
@@ -132,13 +145,16 @@ mod tests {
 
     #[test]
     fn run_stream_failing_command_returns_error() {
-        let result = run_stream(Path::new("/bin/false"), &[]);
+        let result = run_stream(Path::new("/bin/false"), &[] as &[String]);
         assert!(result.is_err());
     }
 
     #[test]
     fn run_stream_nonexistent_command_returns_error() {
-        let result = run_stream(Path::new("/__no_such_binary__"), &[]);
+        let result = run_stream(
+            Path::new("/__no_such_binary__"),
+            &[] as &[String],
+        );
         assert!(result.is_err());
         match result.unwrap_err() {
             Error::Command { command, detail } => {
