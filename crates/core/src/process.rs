@@ -148,4 +148,35 @@ mod tests {
             _ => panic!("expected Command error"),
         }
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_capture_preserves_non_utf8_argument_bytes() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!(
+            "sf-process-native-argv-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("capture-argv");
+        let output = dir.join("argv.bin");
+        std::fs::write(&script, "#!/bin/sh\nprintf '%s' \"$2\" > \"$1\"\n").unwrap();
+        let mut permissions = std::fs::metadata(&script).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&script, permissions).unwrap();
+
+        let native = OsString::from_vec(b"repo-\xff-path".to_vec());
+        run_capture(
+            &script,
+            &[output.clone().into_os_string(), native.clone()],
+        )
+        .unwrap();
+
+        assert_eq!(std::fs::read(&output).unwrap(), native.as_os_str().as_bytes());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
