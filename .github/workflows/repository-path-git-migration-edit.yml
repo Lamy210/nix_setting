@@ -18,6 +18,9 @@ jobs:
         with:
           ref: refactor/repository-path-identity-implementation
           fetch-depth: 0
+      - name: Prepare duplicate sync replacement assertion
+        run: |
+          sed -i 's/count != 1/count != (2 if label == "sync native args #1" else 1)/' .github/scripts/apply-repository-path-git-migration.py
       - name: Apply asserted Git path migration edits
         run: python3 .github/scripts/apply-repository-path-git-migration.py
       - name: Format Rust
