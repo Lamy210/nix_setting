@@ -282,13 +282,18 @@ impl VerifyReport {
 }
 
 /// verify: 環境・repo/manifest・state を検証する (各検査は infallible)
-pub fn verify(repo: &str, tc: &ToolInventory) -> VerifyReport {
+pub fn verify<P: AsRef<Path> + ?Sized>(repo: &P, tc: &ToolInventory) -> VerifyReport {
     verify_with_store(repo, tc, &StateStore::default())
 }
 
 /// [`verify`] の state store 注入版。diagnostics と同様に state failure を
 /// process-global env を変更せず hermetic に検証できるようにする。
-fn verify_with_store(repo: &str, tc: &ToolInventory, state_store: &StateStore) -> VerifyReport {
+fn verify_with_store<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    tc: &ToolInventory,
+    state_store: &StateStore,
+) -> VerifyReport {
+    let repo = repo.as_ref();
     let state_result = state_store.load();
     let semantic_error = state_result
         .as_ref()
@@ -381,7 +386,7 @@ fn verify_with_store(repo: &str, tc: &ToolInventory, state_store: &StateStore) -
 
 /// repository check: managed source は local に checkout を持たないため
 /// flake ref として有効である旨の check に切り替える
-fn repository_check(repo: &str, managed: bool) -> VerifyCheck {
+fn repository_check<P: AsRef<Path> + ?Sized>(repo: &P, managed: bool) -> VerifyCheck {
     if managed {
         VerifyCheck {
             name: "source (managed flake ref)".to_string(),
@@ -390,12 +395,22 @@ fn repository_check(repo: &str, managed: bool) -> VerifyCheck {
     } else {
         VerifyCheck {
             name: "repository".to_string(),
-            ok: std::path::Path::new(repo).is_dir(),
+            ok: repo.as_ref().is_dir(),
         }
     }
 }
 
 /// sync の引数を構築する (`git -C <repo> pull --ff-only`)
+fn sync_args_native(repo: &Path) -> Vec<OsString> {
+    vec![
+        OsString::from("-C"),
+        repo.as_os_str().to_os_string(),
+        OsString::from("pull"),
+        OsString::from("--ff-only"),
+    ]
+}
+
+#[cfg(test)]
 fn sync_args(repo: &str) -> Vec<String> {
     vec![
         "-C".to_string(),
@@ -407,7 +422,10 @@ fn sync_args(repo: &str) -> Vec<String> {
 
 /// checkout 中の branch 名。detached HEAD (release tag の depth-1 clone 等) では None。
 /// source classification と同じ fail-closed contract を共有する。
-fn current_branch(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Option<String>> {
+fn current_branch<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    git: &crate::tool::ResolvedTool,
+) -> Result<Option<String>> {
     crate::source::current_branch(repo, git)
 }
 
@@ -437,7 +455,11 @@ fn managed_source_note(store: &StateStore) -> Result<Option<String>> {
 /// detached HEAD (install.sh の release tag pin clone) は pull できず失敗するため、
 /// clean no-op として pinned である旨を返す。managed source は git 実態が無い
 /// 旨を案内して終了する (error にしない)。
-pub fn sync(repo: &str, tc: &ToolInventory, capture: bool) -> Result<Option<String>> {
+pub fn sync<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    tc: &ToolInventory,
+    capture: bool,
+) -> Result<Option<String>> {
     if let Some(note) = managed_source_note(&StateStore::default())? {
         return Ok(note_output(&note, capture));
     }
@@ -448,12 +470,13 @@ pub fn sync(repo: &str, tc: &ToolInventory, capture: bool) -> Result<Option<Stri
 /// precondition (git 解決) は lock 取得の前に評価する — lock file の作成先が
 /// read-only の環境 (nix build の checkPhase sandbox 等) でも precondition error
 /// を正しく返せるようにするため。
-fn sync_with_lock(
-    repo: &str,
+fn sync_with_lock<P: AsRef<Path> + ?Sized>(
+    repo: &P,
     tc: &ToolInventory,
     capture: bool,
     lock: &OperationLock,
 ) -> Result<Option<String>> {
+    let repo = repo.as_ref();
     let git = tc.require_git()?;
     let _guard = match lock.try_acquire()? {
         Some(guard) => guard,
@@ -475,7 +498,7 @@ fn sync_with_lock(
         return Ok(None);
     }
 
-    let args = sync_args(repo);
+    let args = sync_args_native(repo);
     let output = if capture {
         Some(run_capture(&git.path, &args)?)
     } else {
@@ -486,16 +509,15 @@ fn sync_with_lock(
 }
 
 /// repository の working tree に未コミット変更があるか
-fn git_dirty(repo: &str, git: &crate::tool::ResolvedTool) -> Result<bool> {
-    let out = run_capture(
-        &git.path,
-        &[
-            "-C".to_string(),
-            repo.to_string(),
-            "status".to_string(),
-            "--porcelain".to_string(),
-        ],
-    )?;
+fn git_dirty<P: AsRef<Path> + ?Sized>(repo: &P, git: &crate::tool::ResolvedTool) -> Result<bool> {
+    let repo = repo.as_ref();
+    let args = [
+        OsString::from("-C"),
+        repo.as_os_str().to_os_string(),
+        OsString::from("status"),
+        OsString::from("--porcelain"),
+    ];
+    let out = run_capture(&git.path, &args)?;
     Ok(!out.trim().is_empty())
 }
 
@@ -556,12 +578,13 @@ pub struct UpdateResult {
 
 /// update: source kind と表現に応じて configuration source を更新する。
 /// flake.lock はどの経路でも更新しない (release 単位の検証を保持)。
-pub fn update(
-    repo: &str,
+pub fn update<P: AsRef<Path> + ?Sized>(
+    repo: &P,
     store: &StateStore,
     tc: &ToolInventory,
     capture: bool,
 ) -> Result<UpdateResult> {
+    let repo = repo.as_ref();
     let git = tc.require_git()?;
     let _guard = acquire()?;
     let previous = store.load()?;
@@ -586,7 +609,7 @@ pub fn update(
                     "repository has uncommitted changes; commit or stash first".to_string(),
                 ));
             }
-            let args = sync_args(repo);
+            let args = sync_args_native(repo);
             if capture {
                 Some(run_capture(&git.path, &args)?)
             } else {
@@ -749,8 +772,8 @@ pub struct SourceInitResult {
 /// managed source を state に設定する (`schneeforge source init`)。
 /// `tag` が None なら channel (default: stable) の最新 tag を remote から
 /// 解決する。rev は ReleaseMetadata で検証して記録する
-pub fn source_init(
-    repo: &str,
+pub fn source_init<P: AsRef<Path> + ?Sized>(
+    repo: &P,
     store: &StateStore,
     git: &crate::tool::ResolvedTool,
     channel: Option<String>,
@@ -794,8 +817,8 @@ struct RemoteTags<'a> {
 }
 
 /// [`source_init`] の tag 列 / metadata fetch 差し込み版 (hermetic test)
-fn source_init_with(
-    repo: &str,
+fn source_init_with<P: AsRef<Path> + ?Sized>(
+    repo: &P,
     store: &StateStore,
     git: &crate::tool::ResolvedTool,
     remote: &RemoteTags,
@@ -861,12 +884,13 @@ fn source_init_with(
 
 /// release channel 内の最新 tag へ checkout する。
 /// dirty working tree は中止。候補は fetch 済み tag のみ (offline 安全)。
-fn update_release(
-    repo: &str,
+fn update_release<P: AsRef<Path> + ?Sized>(
+    repo: &P,
     git: &crate::tool::ResolvedTool,
     channel: &str,
     capture: bool,
 ) -> Result<Option<String>> {
+    let repo = repo.as_ref();
     validate_release_channel(channel)?;
     if git_dirty(repo, git)? {
         return Err(Error::Busy(
@@ -877,11 +901,11 @@ fn update_release(
     // 新しい tag を取得する。remote fetch に失敗した状態で local tag のみを
     // 「latest」と判定すると stale 情報で成功扱いしてしまうため fail-closed。
     let fetch_args = vec![
-        "-C".to_string(),
-        repo.to_string(),
-        "fetch".to_string(),
-        "--tags".to_string(),
-        "--quiet".to_string(),
+        OsString::from("-C"),
+        repo.as_os_str().to_os_string(),
+        OsString::from("fetch"),
+        OsString::from("--tags"),
+        OsString::from("--quiet"),
     ];
     run_capture(&git.path, &fetch_args)?;
 
@@ -911,11 +935,11 @@ fn update_release(
     }
 
     let checkout_args = vec![
-        "-C".to_string(),
-        repo.to_string(),
-        "checkout".to_string(),
-        "--quiet".to_string(),
-        latest.clone(),
+        OsString::from("-C"),
+        repo.as_os_str().to_os_string(),
+        OsString::from("checkout"),
+        OsString::from("--quiet"),
+        OsString::from(latest),
     ];
     let output = if capture {
         Some(run_capture(&git.path, &checkout_args)?)
@@ -930,16 +954,18 @@ fn update_release(
 }
 
 /// local の tag 一覧 (`git tag`)
-fn list_tags(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Vec<String>> {
-    let out = run_capture(
-        &git.path,
-        &[
-            "-C".to_string(),
-            repo.to_string(),
-            "tag".to_string(),
-            "--list".to_string(),
-        ],
-    )?;
+fn list_tags<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    git: &crate::tool::ResolvedTool,
+) -> Result<Vec<String>> {
+    let repo = repo.as_ref();
+    let args = [
+        OsString::from("-C"),
+        repo.as_os_str().to_os_string(),
+        OsString::from("tag"),
+        OsString::from("--list"),
+    ];
+    let out = run_capture(&git.path, &args)?;
     Ok(out
         .lines()
         .map(|l| l.trim().to_string())
@@ -949,20 +975,27 @@ fn list_tags(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Vec<String>>
 
 /// 現在 checkout されている ref (exact tag があれば tag 名)。
 /// tag 無しと Git inspection failure を区別する。
-fn current_checkout_ref(repo: &str, git: &crate::tool::ResolvedTool) -> Result<Option<String>> {
+fn current_checkout_ref<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    git: &crate::tool::ResolvedTool,
+) -> Result<Option<String>> {
     crate::source::exact_tag(repo, git)
 }
 
 /// source sync (Advanced): 従来 sync の git pull --ff-only。
 /// Tracking 以外の source では kind を説明する no-op note を返す。
 /// managed source は git 実態が無い旨を案内して終了する (error にしない)。
-pub fn source_sync(repo: &str, tc: &ToolInventory, capture: bool) -> Result<Option<String>> {
+pub fn source_sync<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    tc: &ToolInventory,
+    capture: bool,
+) -> Result<Option<String>> {
     source_sync_with(repo, tc, capture, &StateStore::default())
 }
 
 /// [`source_sync`] の state store 注入版 (test 用)
-fn source_sync_with(
-    repo: &str,
+fn source_sync_with<P: AsRef<Path> + ?Sized>(
+    repo: &P,
     tc: &ToolInventory,
     capture: bool,
     store: &StateStore,
@@ -989,13 +1022,17 @@ const DEPS_MANAGED_ERROR: &str = "flake.lock of a managed (github flake ref) sou
 /// source deps update (Advanced): `nix flake update`。
 /// Release channel では release 検証単位から外れる警告を先頭に付ける。
 /// managed source の lock は (flake ref が実体のため) 書き換えられない。
-pub fn deps_update(repo: &str, tc: &ToolInventory, capture: bool) -> Result<Option<String>> {
+pub fn deps_update<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    tc: &ToolInventory,
+    capture: bool,
+) -> Result<Option<String>> {
     deps_update_with(repo, tc, capture, &StateStore::default())
 }
 
 /// [`deps_update`] の state store 注入版 (test 用)
-fn deps_update_with(
-    repo: &str,
+fn deps_update_with<P: AsRef<Path> + ?Sized>(
+    repo: &P,
     tc: &ToolInventory,
     capture: bool,
     store: &StateStore,
@@ -1016,7 +1053,10 @@ fn deps_update_with(
 }
 
 /// Release source で flake.lock を更新する場合の警告文
-fn release_lock_warning(repo: &str, tc: &ToolInventory) -> Result<Option<String>> {
+fn release_lock_warning<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    tc: &ToolInventory,
+) -> Result<Option<String>> {
     let Some(git) = tc.git.as_ref() else {
         return Ok(None);
     };

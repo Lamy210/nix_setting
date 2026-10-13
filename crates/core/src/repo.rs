@@ -76,10 +76,11 @@ pub fn current_git_revision_path(repo: &Path, git_bin: &Path) -> Option<String> 
     }
 }
 
-/// 移行中の String-based compatibility entry point。
-/// in-repo caller の path migration 完了後に削除する。
-pub fn current_git_revision(repo: &str, git_bin: &Path) -> Option<String> {
-    current_git_revision_path(Path::new(repo), git_bin)
+/// repository path から現在の git revision (HEAD) を取得する。
+/// migration 中は `&str` caller も `AsRef<Path>` 経由で受けるが、内部では
+/// OS-native path identity を保ったまま `current_dir` へ渡す。
+pub fn current_git_revision<P: AsRef<Path> + ?Sized>(repo: &P, git_bin: &Path) -> Option<String> {
+    current_git_revision_path(repo.as_ref(), git_bin)
 }
 
 /// リポジトリパスを OS-native path として解決する。

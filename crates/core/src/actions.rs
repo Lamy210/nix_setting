@@ -226,6 +226,7 @@ pub(crate) fn upgrade_captured_native(repo: &Path, tc: &ToolInventory) -> Result
 ///
 /// 移行中の UTF-8 compatibility builder。新規 operational path は
 /// `darwin_switch_args_native` を使う。
+#[cfg(test)]
 fn darwin_switch_args(
     repo: &str,
     target: &ConfigurationTarget,
@@ -248,6 +249,7 @@ fn darwin_switch_args(
 }
 
 /// Linux apply の build 引数 (`nix build --out-link <link> <ref>`)
+#[cfg(test)]
 fn linux_build_args(
     repo: &str,
     target: &ConfigurationTarget,
@@ -265,15 +267,18 @@ fn linux_build_args(
 }
 
 /// activationPackage を build する際の一時 symlink パス
+#[cfg(test)]
 fn activation_link() -> String {
     activation_link_path().to_string_lossy().to_string()
 }
 
 /// drop 時に一時 symlink を削除する RAII ガード
+#[cfg(test)]
 struct ActivationLink {
     path: String,
 }
 
+#[cfg(test)]
 impl ActivationLink {
     fn new() -> Self {
         Self {
@@ -282,6 +287,7 @@ impl ActivationLink {
     }
 }
 
+#[cfg(test)]
 impl Drop for ActivationLink {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
@@ -296,6 +302,7 @@ fn unsupported(target: &ConfigurationTarget) -> Error {
 }
 
 /// apply: ストリーミング実行 (stdio 継承、リアルタイム出力)
+#[cfg(test)]
 pub(crate) fn apply(target: &ConfigurationTarget, repo: &str, tc: &ToolInventory) -> Result<()> {
     if !target.is_supported() {
         return Err(unsupported(target));
@@ -310,24 +317,8 @@ pub(crate) fn apply(target: &ConfigurationTarget, repo: &str, tc: &ToolInventory
 }
 
 /// apply_captured: 出力をキャプチャして返す (GUI 用)
-pub(crate) fn apply_captured(
-    target: &ConfigurationTarget,
-    repo: &str,
-    tc: &ToolInventory,
-) -> Result<String> {
-    if !target.is_supported() {
-        return Err(unsupported(target));
-    }
-    let nix = tc.require_nix()?;
-    if target.platform() == crate::discovery::Platform::MacOS {
-        let args = darwin_switch_args(repo, target, &profile::override_args(repo)?);
-        run_capture(&nix.path, &args)
-    } else {
-        apply_linux_captured(target, repo, nix)
-    }
-}
-
 /// Linux: activationPackage を build して activate する (nh 非依存)
+#[cfg(test)]
 fn apply_linux(target: &ConfigurationTarget, repo: &str, nix: &ResolvedTool) -> Result<()> {
     let link = ActivationLink::new();
     let overrides = profile::override_args(repo)?;
@@ -339,27 +330,8 @@ fn apply_linux(target: &ConfigurationTarget, repo: &str, nix: &ResolvedTool) -> 
     )
 }
 
-fn apply_linux_captured(
-    target: &ConfigurationTarget,
-    repo: &str,
-    nix: &ResolvedTool,
-) -> Result<String> {
-    let link = ActivationLink::new();
-    let overrides = profile::override_args(repo)?;
-    let args = linux_build_args(repo, target, &link.path, &overrides);
-    let mut out = run_capture(&nix.path, &args)?;
-    let activate = run_capture(
-        Path::new(&format!("{}/activate", link.path)),
-        &[] as &[String],
-    )?;
-    if !activate.is_empty() {
-        out.push('\n');
-        out.push_str(&activate);
-    }
-    Ok(out)
-}
-
 /// macOS rollback の引数 (`nix run --inputs-from <repo> nix-darwin#darwin-rebuild -- --rollback`)
+#[cfg(test)]
 fn darwin_rollback_args(repo: &str, overrides: &[String]) -> Vec<String> {
     let mut args = vec![
         "run".to_string(),
@@ -386,6 +358,7 @@ fn linux_rollback_args() -> Vec<String> {
 }
 
 /// rollback: ストリーミング実行
+#[cfg(test)]
 pub(crate) fn rollback(target: &ConfigurationTarget, repo: &str, tc: &ToolInventory) -> Result<()> {
     if !target.is_supported() {
         return Err(unsupported(target));
@@ -404,28 +377,8 @@ pub(crate) fn rollback(target: &ConfigurationTarget, repo: &str, tc: &ToolInvent
 }
 
 /// rollback_captured: 出力をキャプチャ (GUI 用)
-pub(crate) fn rollback_captured(
-    target: &ConfigurationTarget,
-    repo: &str,
-    tc: &ToolInventory,
-) -> Result<String> {
-    if !target.is_supported() {
-        return Err(unsupported(target));
-    }
-    if target.platform() == crate::discovery::Platform::MacOS {
-        let nix = tc.require_nix()?;
-        let args = darwin_rollback_args(repo, &profile::override_args(repo)?);
-        run_capture(&nix.path, &args)
-    } else {
-        let nh = tc
-            .nh
-            .as_ref()
-            .ok_or_else(|| Error::Precondition("nh is required for Linux rollback".to_string()))?;
-        run_capture(&nh.path, &linux_rollback_args())
-    }
-}
-
 /// upgrade の引数を構築する (`nix flake update --flake <repo>`)
+#[cfg(test)]
 fn upgrade_args(repo: &str) -> Vec<String> {
     vec![
         "flake".to_string(),
@@ -436,17 +389,13 @@ fn upgrade_args(repo: &str) -> Vec<String> {
 }
 
 /// upgrade: `nix flake update` (repo-aware、`--flake <repo>`)
+#[cfg(test)]
 pub(crate) fn upgrade(repo: &str, tc: &ToolInventory) -> Result<()> {
     let nix = tc.require_nix()?;
     run_stream(&nix.path, &upgrade_args(repo))
 }
 
 /// upgrade_captured: 出力をキャプチャ (GUI 用)
-pub(crate) fn upgrade_captured(repo: &str, tc: &ToolInventory) -> Result<String> {
-    let nix = tc.require_nix()?;
-    run_capture(&nix.path, &upgrade_args(repo))
-}
-
 /// scan: 環境スキャン結果を文字列で返す。Nix/Git が未解決でも落ちない
 pub fn scan(target: &ConfigurationTarget, tc: &ToolInventory) -> String {
     let mut out = String::new();
