@@ -535,7 +535,10 @@ fn run_verify(state: tauri::State<'_, CachedToolInventory>) -> Result<VerifyRepo
     Ok(schneeforge_core::verify(&resolve_repo_path(None).into_path_buf(), &tc))
 }
 
-fn load_dashboard_manifest(repo: &std::path::Path, store: &StateStore) -> Result<Option<Manifest>, String> {
+fn load_dashboard_manifest(
+    repo: &std::path::Path,
+    store: &StateStore,
+) -> Result<Option<Manifest>, String> {
     // Dashboard は manifest 非存在/parse failure を optional 表示として扱う既存挙動を
     // 維持する。一方、state error は「未設定」と同義ではないため fail-closed で
     // caller へ伝播する (update-state-load-fail-closed D5)。

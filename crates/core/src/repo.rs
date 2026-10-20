@@ -322,8 +322,21 @@ mod tests {
         permissions.set_mode(0o755);
         std::fs::set_permissions(&fake_git, permissions).unwrap();
 
+        let actual = current_git_revision_path(&repo, &fake_git);
+        if actual.is_none() {
+            // Record the OS-level execution result only when this regression fails.
+            // Re-running the fake executable is diagnostic evidence, not a pass criterion.
+            let direct = std::process::Command::new(&fake_git)
+                .current_dir(&repo)
+                .args(["rev-parse", "HEAD"])
+                .output();
+            panic!(
+                "path-native git revision lookup returned None; repo={:?}, fake_git={:?}, direct_execution={:?}",
+                repo, fake_git, direct
+            );
+        }
         assert_eq!(
-            current_git_revision_path(&repo, &fake_git).as_deref(),
+            actual.as_deref(),
             Some("0123456789012345678901234567890123456789")
         );
 
