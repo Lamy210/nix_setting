@@ -38,6 +38,10 @@ SchneeForge SHALL は `bootstrap-manifest.toml` で nix-installer の version �
 ### Requirement: installer binary のキャッシュ
 SchneeForge SHALL は download した nix-installer binary を実行権限ごとに分かれた cache へ保存し、二回目以降の install は offline で動作させる。
 
+#### Scenario: 実行権限に応じた installer cache の配置
+- **WHEN** SchneeForge が nix-installer binary を cache する
+- **THEN** 以下の詳細契約を満たす。
+
 - **root 実行 (Phase 1 CLI の通常経路)**: privileged state dir 配下
   (`/var/lib/schneeforge` (Linux) / `/private/var/db/schneeforge` (macOS))
   の `managed-nix/cache/{version}/nix-installer`。sudo で user の HOME/XDG が
@@ -52,6 +56,7 @@ SchneeForge SHALL は download した nix-installer binary を実行権限ごと
 - **WHEN** キャッシュ済みの version で `schneeforge nix install` を実行する
 - **THEN** ネットワークアクセス無しでキャッシュから binary を取り出して install する
 - **AND** キャッシュの SHA256 を manifest と再検証する
+
 
 ### Requirement: SLSA provenance と SHA256SUMS の CI 検証
 SchneeForge SHALL は upstream release を取り込む CI で SLSA provenance (`gh attestation verify`) と SHA256SUMS を検証し、`bootstrap-manifest.toml` へ bump する PR を作成する。runtime は manifest の SHA256 のみを検証する。bump PR は SchneeForge の release cycle で評価し、breaking change がある場合は棄却する。
@@ -75,7 +80,13 @@ SchneeForge SHALL は upstream release を取り込む CI で SLSA provenance (`
 - **THEN** `gh` や `cosign` が未導入でも manifest の SHA256 比較で検証を完結する
 
 ### Requirement: subprocess 実行と logger stderr parse
-SchneeForge SHALL は nix-installer を subprocess 実行し、plan.json を **positional argument** として渡し (`install <plan.json>`)、`--logger json` の stderr を JSON Lines として best-effort parse する。SchneeForge 側で phase (Download / Verify / Privilege / Plan / Install / PostInstall) を管理し、installer 内部のメッセージに直接依存しない。plan と planner-subcommand は upstream 側で排他 (両方渡すと upstream が error。SchneeForge は plan を secure dir 内で生成するため user がこの状態を作ることはできない)。flakes は plan 生成時 (`plan <planner> --enable-flakes`) に plan へ焼き込み、install replay 時には再度指定しない。
+SchneeForge SHALL は nix-installer を subprocess 実行し、plan.json を **positional argument** として渡し (`install <plan.json>`)、`--logger json` の stderr を JSON Lines として best-effort parse する。
+
+#### Scenario: plan replay と progress phase の条件
+- **WHEN** SchneeForge が nix-installer を subprocess で実行する
+- **THEN** 以下の詳細契約を満たす。
+
+SchneeForge 側で phase (Download / Verify / Privilege / Plan / Install / PostInstall) を管理し、installer 内部のメッセージに直接依存しない。plan と planner-subcommand は upstream 側で排他 (両方渡すと upstream が error。SchneeForge は plan を secure dir 内で生成するため user がこの状態を作ることはできない)。flakes は plan 生成時 (`plan <planner> --enable-flakes`) に plan へ焼き込み、install replay 時には再度指定しない。
 
 #### Scenario: subprocess で install を実行
 - **WHEN** `schneeforge nix install` を実行する
@@ -85,6 +96,7 @@ SchneeForge SHALL は nix-installer を subprocess 実行し、plan.json を **p
 #### Scenario: installer 内部メッセージの schema 変更に耐性がある
 - **WHEN** upstream が installer 内部の `Step: *` メッセージを変更する
 - **THEN** SchneeForge 側の phase 表示は壊れない (best-effort parse のみ依存)
+
 
 ### Requirement: 2 段階 Plan UX
 SchneeForge SHALL は root 不要の preflight と、root 実行後の detailed plan 表示・最終確認に分けて UX を提供する。upstream を `--no-confirm` で呼ぶため、install 前の確認責任は SchneeForge 側にある。

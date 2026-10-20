@@ -412,6 +412,11 @@ git) から取得し、channel 毎の最新選択は既存の `latest_tag_for_ch
 ### Requirement: Dashboard snapshot の構築
 
 core SHALL は GUI Dashboard (§28) 表示のための snapshot を構築できる。
+
+#### Scenario: Dashboard snapshot に含む情報
+- **WHEN** core が GUI Dashboard snapshot を構築する
+- **THEN** 以下の詳細契約を満たす。
+
 snapshot は次で構成する:
 
 - `installed`: 実行 binary version / 実効 profile (state 選択 >
@@ -444,12 +449,17 @@ network access は snapshot 構築から分離し、呼び出し元が解決結�
 
 - **WHEN** state に source 情報がある場合はその channel、無い場合は `stable` を channel として使う
 
+
 ### Requirement: Managed Release Source (working tree-less)
 
 core SHALL は Release source (Stable / Preview) の表現として、git
 working tree を持たない「managed」表現をサポートする (v2 §7)。managed
 source の実体は flake ref `github:<owner>/<repo>/<tag>` であり、nix が
 直接取得・cache する。SchneeForge は source tree を local に持たない。
+
+#### Scenario: managed source の状態と互換条件
+- **WHEN** core が managed release source を設定または読み込む
+- **THEN** 以下の詳細契約を満たす。
 
 - managed は State の source 情報 (`managed` flag) で表現し、旧
   state.json は managed 無し (checkout 表現) として読み込める
@@ -477,11 +487,16 @@ source の実体は flake ref `github:<owner>/<repo>/<tag>` であり、nix が
 - **THEN** ReleaseMetadata の `source_revision` を State に記録する
 - **AND** metadata asset を持たない tag では警告付きで検証を skip する
 
+
 ### Requirement: repo file の tag-pinned 取得
 
 core SHALL は managed source について、repo file (`schneeforge.toml` /
 `bootstrap-manifest.toml` 等) を release tag pinned で取得できる。取得は
 `raw.githubusercontent.com/<owner>/<repo>/<tag>/<file>` とする。
+
+#### Scenario: tag-pinned file cache の検証と制約
+- **WHEN** core が managed source の repository file を取得または cache から読み取る
+- **THEN** 以下の詳細契約を満たす。
 
 cache content は state dir の `sources/<tag>/<file>` に原子保存し、各
 entry は repository identity と content SHA-256 を持つ provenance
@@ -564,6 +579,7 @@ filesystem を使う。
 
 - **WHEN** source が checkout または Local で managed release ではない
 - **THEN** repo file は従来どおり local filesystem から読み取る
+
 
 ### Requirement: 本体の自己更新
 
