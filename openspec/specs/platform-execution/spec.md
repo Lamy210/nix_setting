@@ -24,7 +24,13 @@ SchneeForge SHALL model the launcher host separately from the environment in whi
 
 ### Requirement: WSL2 distribution selection is deterministic and fail-closed
 
-On Windows, SchneeForge MUST select the WSL distribution using the precedence `--wsl-distro` > `SCHNEEFORGE_WSL_DISTRO` > WSL default distribution. The selected distribution MUST exist and MUST use WSL version 2. WSL unavailable, no registered distribution, an unknown explicit distribution, no usable default, or a WSL1-only selected distribution SHALL be a structured precondition failure. SchneeForge MUST NOT silently fall back to WSL1, native Windows execution, or a different arbitrary distribution.
+On Windows, SchneeForge MUST select the WSL distribution using the precedence `--wsl-distro` > `SCHNEEFORGE_WSL_DISTRO` > WSL default distribution. The selected distribution MUST exist and MUST use WSL version 2.
+
+#### Scenario: invalid WSL distribution selection is rejected
+- **WHEN** Windows launcher resolves the selected WSL2 distribution
+- **THEN** 以下の詳細契約を満たす。
+
+WSL unavailable, no registered distribution, an unknown explicit distribution, no usable default, or a WSL1-only selected distribution SHALL be a structured precondition failure. SchneeForge MUST NOT silently fall back to WSL1, native Windows execution, or a different arbitrary distribution.
 
 #### Scenario: CLI selector overrides all other sources
 
@@ -49,6 +55,7 @@ On Windows, SchneeForge MUST select the WSL distribution using the precedence `-
 - **WHEN** the selected registered distribution reports WSL version 1
 - **THEN** backend selection fails with an actionable precondition error
 - **AND** the command is not delegated
+
 
 ### Requirement: WSL inventory parsing tolerates Windows output forms
 
@@ -78,7 +85,13 @@ For an execution-requiring Windows command, SchneeForge MUST choose/validate the
 
 ### Requirement: Delegation preserves process arguments and status without a shell
 
-The Windows launcher MUST invoke `wsl.exe` with process arguments equivalent to `-d <distro> --exec schneeforge <args...>` so WSL executes the helper without routing the command through the distribution's default shell. User-provided arguments MUST be forwarded as argv entries rather than concatenated into `sh -c`, PowerShell, `cmd /c`, or another command string. The launcher SHALL inherit or transparently relay stdin/stdout/stderr and SHALL return the delegated process exit status. The launcher-only `--wsl-distro` selector MUST NOT be forwarded to the Linux helper.
+The Windows launcher MUST invoke `wsl.exe` with process arguments equivalent to `-d <distro> --exec schneeforge <args...>` so WSL executes the helper without routing the command through the distribution's default shell.
+
+#### Scenario: delegated argv and exit status stay unchanged
+- **WHEN** Windows launcher delegates a command through wsl.exe
+- **THEN** 以下の詳細契約を満たす。
+
+User-provided arguments MUST be forwarded as argv entries rather than concatenated into `sh -c`, PowerShell, `cmd /c`, or another command string. The launcher SHALL inherit or transparently relay stdin/stdout/stderr and SHALL return the delegated process exit status. The launcher-only `--wsl-distro` selector MUST NOT be forwarded to the Linux helper.
 
 #### Scenario: shell metacharacters remain literal arguments
 
@@ -92,9 +105,16 @@ The Windows launcher MUST invoke `wsl.exe` with process arguments equivalent to 
 - **THEN** the Windows launcher exits with the helper's command result status
 - **AND** the result is not rewritten as a backend-discovery error
 
+
 ### Requirement: WSL helper compatibility is verified before operations
 
-The Linux helper used by the Windows launcher MUST expose a machine-readable compatibility probe containing at least bridge protocol version, application version, execution OS, and architecture. Before an execution-requiring command is delegated, the Windows launcher MUST verify that the helper is present, reports Linux on a supported architecture, has the same bridge protocol version, and has the same application version. Missing, malformed, or incompatible helpers SHALL fail closed with remediation guidance. This change SHALL NOT automatically install or update the helper.
+The Linux helper used by the Windows launcher MUST expose a machine-readable compatibility probe containing at least bridge protocol version, application version, execution OS, and architecture.
+
+#### Scenario: incompatible or missing helper is rejected before delegation
+- **WHEN** Windows launcher prepares to invoke a WSL2 helper
+- **THEN** 以下の詳細契約を満たす。
+
+Before an execution-requiring command is delegated, the Windows launcher MUST verify that the helper is present, reports Linux on a supported architecture, has the same bridge protocol version, and has the same application version. Missing, malformed, or incompatible helpers SHALL fail closed with remediation guidance. This change SHALL NOT automatically install or update the helper.
 
 #### Scenario: compatible helper is accepted
 
@@ -107,9 +127,16 @@ The Linux helper used by the Windows launcher MUST expose a machine-readable com
 - **THEN** SchneeForge reports an incompatibility precondition error
 - **AND** the requested operation does not execute
 
+
 ### Requirement: Windows-hosted repositories and state stay execution-side
 
-For WSL2 execution, omitted repository selection SHALL be resolved by the Linux helper inside WSL. An explicit Windows-launcher `--repo` path SHALL be accepted only when it is an absolute Linux execution-side path in the initial implementation. Clearly Windows-native drive-letter or UNC paths MUST be rejected with actionable guidance. SchneeForge MUST NOT implicitly translate a Windows project path into `/mnt/<drive>` or inject Windows `HOME`, PATH, or SchneeForge state as the Linux execution defaults.
+For WSL2 execution, omitted repository selection SHALL be resolved by the Linux helper inside WSL.
+
+#### Scenario: Windows repo selection and default environment remain in WSL
+- **WHEN** a repository is supplied or omitted through the Windows launcher
+- **THEN** 以下の詳細契約を満たす。
+
+An explicit Windows-launcher `--repo` path SHALL be accepted only when it is an absolute Linux execution-side path in the initial implementation. Clearly Windows-native drive-letter or UNC paths MUST be rejected with actionable guidance. SchneeForge MUST NOT implicitly translate a Windows project path into `/mnt/<drive>` or inject Windows `HOME`, PATH, or SchneeForge state as the Linux execution defaults.
 
 #### Scenario: default repository is resolved in WSL
 
@@ -121,6 +148,7 @@ For WSL2 execution, omitted repository selection SHALL be resolved by the Linux 
 - **WHEN** a Windows user supplies `--repo C:\\Users\\alice\\project`
 - **THEN** the launcher rejects the path before delegation
 - **AND** explains that the initial WSL2 backend expects a Linux path in the WSL filesystem
+
 
 ### Requirement: Windows doctor exposes backend readiness
 
