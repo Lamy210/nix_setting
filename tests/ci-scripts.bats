@@ -747,3 +747,59 @@ PY
   grep -Fq 'Before opening a recovery PR manually' "$installer"
   grep -Fq 'do not auto-merge' "$installer"
 }
+
+
+# Regression: a rerun must never force-push over a reviewed/manual recovery branch.
+@test "installer bump branch is created once, reused without rewrite, and rejects hash drift" {
+  fixture="$(mktemp -d)"
+  work="$fixture/work"
+  remote="$fixture/remote.git"
+  helper="$PWD/scripts/ci/prepare-upstream-bump-branch.sh"
+  manifest=bootstrap-manifest.toml
+  branch=bump/nix-installer-2.35.3
+  msg="$fixture/message.txt"
+
+  git init -q --bare "$remote"
+  git init -q "$work"
+  git -C "$work" config user.name test-bump
+  git -C "$work" config user.email test-bump@example.invalid
+  git -C "$work" config commit.gpgsign false
+  printf 'old manifest\n' > "$work/$manifest"
+  git -C "$work" add "$manifest"
+  git -C "$work" commit -qm "seed manifest"
+  git -C "$work" branch -M develop
+  git -C "$work" remote add origin "$remote"
+  git -C "$work" push -q origin develop
+  printf 'verified version and hashes\n' > "$work/$manifest"
+  printf 'bump(nix-installer): 2.35.3\n' > "$msg"
+
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$work" "$helper" "$manifest" "$branch" "$msg"
+  [ "$status" -eq 0 ]
+  initial="$(git --git-dir="$remote" rev-parse "refs/heads/$branch")"
+
+  git -C "$work" checkout -q develop
+  printf 'verified version and hashes\n' > "$work/$manifest"
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$work" "$helper" "$manifest" "$branch" "$msg"
+  [ "$status" -eq 0 ]
+  [ "$(git --git-dir="$remote" rev-parse "refs/heads/$branch")" = "$initial" ]
+  [ "$(git -C "$work" branch --show-current)" = develop ]
+
+  printf 'different upstream hash\n' > "$work/$manifest"
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$work" "$helper" "$manifest" "$branch" "$msg"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"differs from freshly verified"* ]]
+  [ "$(git --git-dir="$remote" rev-parse "refs/heads/$branch")" = "$initial" ]
+
+  rm -rf "$fixture"
+}
+
+@test "scheduled installer workflow cannot overwrite an existing review branch or PR body" {
+  workflow=.github/workflows/upstream-nix-installer.yml
+  grep -Fq 'prepare-upstream-bump-branch.sh' "$workflow"
+  grep -Fq 'preserving its current body' "$workflow"
+  run grep -E -- 'git push --force|git checkout -B|gh pr edit' "$workflow"
+  [ "$status" -ne 0 ]
+}

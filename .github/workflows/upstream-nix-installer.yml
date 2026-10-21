@@ -210,16 +210,7 @@ jobs:
           git config user.name "schneeforge-bump-bot"
           git config user.email "actions@users.noreply.github.com"
 
-          # 同 version の再実行時は branch が既存。reset して上書き。
-          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
-            echo "branch $branch already exists; resetting to base"
-            git fetch origin develop
-            git checkout -B "$branch" origin/develop
-          else
-            git checkout -b "$branch"
-          fi
-
-          git add "$MANIFEST_PATH"
+          # Preserve existing update branches and human review notes on reruns.
           {
             printf 'bump(nix-installer): %s\n\n' "$TARGET_VERSION"
             printf 'SLSA provenance verified via gh attestation verify.\n'
@@ -228,9 +219,8 @@ jobs:
             printf 'Evaluate before merge per design.md D3 (release-cycle, not latest-tracking).\n\n'
             printf 'Source: %s\n' "$WORKFLOW_URL"
           } > /tmp/commit-msg.txt
-          git commit -F /tmp/commit-msg.txt
-          # 再実行時は上書きが必要なので force-with-lease
-          git push --force-with-lease origin "$branch"
+          bash scripts/ci/prepare-upstream-bump-branch.sh \
+            "$MANIFEST_PATH" "$branch" /tmp/commit-msg.txt
 
           {
             printf '## Summary\n'
@@ -248,8 +238,8 @@ jobs:
           # 既存 PR があれば更新、無ければ作成
           existing_pr=$(gh pr list --head "$branch" --base develop --json number --jq '.[0].number' || true)
           if [ -n "$existing_pr" ]; then
-            gh pr edit "$existing_pr" --body-file /tmp/pr-body.md
-            echo "Updated existing PR #$existing_pr"
+            # Preserve manually recorded acceptance checkboxes and review notes.
+            echo "PR #$existing_pr already exists; preserving its current body"
           else
             gh pr create \
               --base develop \
