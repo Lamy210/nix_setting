@@ -235,18 +235,9 @@ jobs:
             printf '自動生成元: [workflow run](%s)\n' "$WORKFLOW_URL"
           } > /tmp/pr-body.md
 
-          # 既存 PR があれば更新、無ければ作成
-          existing_pr=$(gh pr list --head "$branch" --base develop --json number --jq '.[0].number' || true)
-          if [ -n "$existing_pr" ]; then
-            # Preserve manually recorded acceptance checkboxes and review notes.
-            echo "PR #$existing_pr already exists; preserving its current body"
-          else
-            gh pr create \
-              --base develop \
-              --head "$branch" \
-              --title "bump(nix-installer): ${TARGET_VERSION}" \
-              --body-file /tmp/pr-body.md
-          fi
+          # Fail closed when lookup fails; preserve reviewer edits on existing PRs.
+          bash scripts/ci/ensure-installer-bump-pr.sh \
+            "$TARGET_VERSION" "$branch" /tmp/pr-body.md
 
       - name: Explain bump PR creation failure
         if: ${{ failure() && steps.bump_pr.outcome == 'failure' }}

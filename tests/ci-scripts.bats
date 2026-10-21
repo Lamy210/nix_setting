@@ -856,7 +856,8 @@ PY
 @test "scheduled installer workflow cannot overwrite an existing review branch or PR body" {
   workflow=.github/workflows/upstream-nix-installer.yml
   grep -Fq 'prepare-upstream-bump-branch.sh' "$workflow"
-  grep -Fq 'preserving its current body' "$workflow"
+  grep -Fq 'ensure-installer-bump-pr.sh' "$workflow"
+  grep -Fq 'preserving its current body' scripts/ci/ensure-installer-bump-pr.sh
   run grep -E -- 'git push --force|git checkout -B|gh pr edit' "$workflow"
   [ "$status" -ne 0 ]
 }
@@ -928,6 +929,65 @@ PY
   run git --git-dir="$remote" rev-parse --verify refs/heads/bump/nix-installer-2.35.4
   [ "$status" -ne 0 ]
   [ "$(git -C "$work" branch --show-current)" = manual-preview ]
+
+  rm -rf "$fixture"
+}
+
+
+# PR listing is a remote API request, not a reliable zero-or-one predicate.
+# A failed lookup must never cascade into PR creation on a reviewed branch.
+@test "installer bump PR lookup failure is fail-closed and successful retries are idempotent" {
+  fixture="$(mktemp -d)"
+  mkdir -p "$fixture/bin"
+  body="$fixture/body.md"
+  calls="$fixture/calls.log"
+  helper="$PWD/scripts/ci/ensure-installer-bump-pr.sh"
+  printf 'review acceptance checklist\n' > "$body"
+
+  cat > "$fixture/bin/gh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$GH_CALLS"
+if [ "$1" = pr ] && [ "$2" = list ]; then
+  if [ "$GH_LIST_FAIL" = 1 ]; then
+    exit 43
+  fi
+  printf '%s' "$GH_LIST_RESULT"
+elif [ "$1" = pr ] && [ "$2" = create ]; then
+  echo 'created'
+else
+  exit 44
+fi
+SH
+  chmod +x "$fixture/bin/gh"
+
+  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=1 GH_LIST_RESULT="" \
+    bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Cannot list existing installer bump PRs"* ]]
+  [ "$(wc -l < "$calls")" -eq 1 ]
+  grep -Fq 'pr list ' "$calls"
+
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT=244 \
+    bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PR #244 already exists; preserving its current body"* ]]
+  [ "$(wc -l < "$calls")" -eq 1 ]
+
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT="" \
+    bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"created"* ]]
+  [ "$(wc -l < "$calls")" -eq 2 ]
+  grep -Fq 'pr create --base develop --head bump/nix-installer-2.35.3' "$calls"
+
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT="" \
+    bash "$helper" 2.35.3 bump/nix-installer-2.35.3-extra "$body"
+  [ "$status" -ne 0 ]
+  [ ! -s "$calls" ]
 
   rm -rf "$fixture"
 }

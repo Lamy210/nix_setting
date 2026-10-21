@@ -2,7 +2,7 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-10-21
+最終更新: 2026-10-22
 
 ## 2026-10-21: repository path identity（実装完了・OpenSpec同期）
 
@@ -13,7 +13,8 @@
 - OpenSpec の `refactor-repository-path-identity` proposal/design/tasks/差分仕様は PR #243 (`e5ca7e1`) で archive 済み。canonical `core-operations` / `gui-diagnostics` / `managed-nix-bootstrap` を同期し、最終 HEAD `1130fda` の CI 22 jobs / 26 checks が成功。
 - **意図的な制限**: upstream Nix の local flake parser が全 non-UTF-8 path を受理することまでは保証しない。GUI の AppleScript/pkexec による権限昇格は引き続き non-UTF-8 repo path を fail-closed で拒否する。
 - 定期更新ワークフローのPR作成失敗時の診断と復旧案内は PR #245 (`c69f5f4`) で `develop` に squash merge 済み。Issue #240 のrepository/organization側PR作成権限は引き続き未解決。
-- 更新ワークフローの再実行安全性: PR #246 で nix-installer bump branch / 既存PRのレビュー記録を force-push・本文上書きから保護。既存branchのmanifest以外の差分、ハッシュ不一致、remote障害、非`develop` manual dispatchはfail-closed。実装PRのCI確認・統合待ち。
+- 更新ワークフローの再実行安全性: PR #246 (`a0907be`) を `develop` に squash merge 済み。nix-installer bump branch / 既存PR本文をforce-push・本文上書きから保護。manifest以外の差分、ハッシュ不一致、remote障害、非`develop` manual dispatchはfail-closed。最終HEAD `bd1ca2f` はCI 22/22ジョブ、26/26 checksが成功。
+- CI follow-up: nix-installer PR検索が失敗しても新規PRの作成へ進まない fail-closed 改善（APIエラー、既存PR、新規PR、入力異常の回帰検証）をtopic PRで検証中。issue #240のrepo設定は未解決。
 - リリース readiness: macOS Final Acceptance、production GUI updater activation の手動 gate は別途未完了。CI dependency-update の PR 作成権限問題は issue #240 で追跡中。既存 `bump/nix-installer-2.35.3` branch は Draft PR #244 として救済済み（release-cycle acceptance 未完了のためマージ禁止）。
 
 ## 完成済み
