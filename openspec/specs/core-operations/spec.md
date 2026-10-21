@@ -5,8 +5,7 @@ core ライブラリが提供する apply / rollback / upgrade / plan / sync / v
 ## Requirements
 ### Requirement: repo-aware 操作
 
-全操作（plan/apply/verify/rollback/update/sync）SHALL は repository
-path を明示的に受け取り、CWD に依存しない。
+全操作（plan/apply/verify/rollback/update/sync）SHALL は repository path を明示的に受け取り、CWD に依存しない。local repository filesystem path は OS-native path identity を保持し、SchneeForge core は filesystem/process 境界へ到達する前に valid UTF-8 であることを要求してはならない。
 
 #### Scenario: update が repo を指定する
 
@@ -22,6 +21,12 @@ path を明示的に受け取り、CWD に依存しない。
 
 - **WHEN** 別ディレクトリから sync を実行する
 - **THEN** `git -C <repo>` で操作する
+
+#### Scenario: non-UTF-8 local repository path
+
+- **WHEN** supported Unix execution environment が non-UTF-8 bytes を含む local repository path を解決する
+- **THEN** core の filesystem operation はその OS-native path identity を使用する
+- **AND** SchneeForge は UTF-8 へ変換できないことだけを理由に local filesystem operation を拒否しない
 
 ### Requirement: 操作の core 集約
 CLI と GUI SHALL は同じ core operation を呼ぶ。実ロジックを CLI/GUI に重複させない。全操作 SHALL は `Toolchain` を受け取り、文字列リテラルによる `Command::new` を使わない。
@@ -412,6 +417,11 @@ git) から取得し、channel 毎の最新選択は既存の `latest_tag_for_ch
 ### Requirement: Dashboard snapshot の構築
 
 core SHALL は GUI Dashboard (§28) 表示のための snapshot を構築できる。
+
+#### Scenario: Dashboard snapshot に含む情報
+- **WHEN** core が GUI Dashboard snapshot を構築する
+- **THEN** 以下の詳細契約を満たす。
+
 snapshot は次で構成する:
 
 - `installed`: 実行 binary version / 実効 profile (state 選択 >
@@ -444,12 +454,17 @@ network access は snapshot 構築から分離し、呼び出し元が解決結�
 
 - **WHEN** state に source 情報がある場合はその channel、無い場合は `stable` を channel として使う
 
+
 ### Requirement: Managed Release Source (working tree-less)
 
 core SHALL は Release source (Stable / Preview) の表現として、git
 working tree を持たない「managed」表現をサポートする (v2 §7)。managed
 source の実体は flake ref `github:<owner>/<repo>/<tag>` であり、nix が
 直接取得・cache する。SchneeForge は source tree を local に持たない。
+
+#### Scenario: managed source の状態と互換条件
+- **WHEN** core が managed release source を設定または読み込む
+- **THEN** 以下の詳細契約を満たす。
 
 - managed は State の source 情報 (`managed` flag) で表現し、旧
   state.json は managed 無し (checkout 表現) として読み込める
@@ -477,11 +492,16 @@ source の実体は flake ref `github:<owner>/<repo>/<tag>` であり、nix が
 - **THEN** ReleaseMetadata の `source_revision` を State に記録する
 - **AND** metadata asset を持たない tag では警告付きで検証を skip する
 
+
 ### Requirement: repo file の tag-pinned 取得
 
 core SHALL は managed source について、repo file (`schneeforge.toml` /
 `bootstrap-manifest.toml` 等) を release tag pinned で取得できる。取得は
 `raw.githubusercontent.com/<owner>/<repo>/<tag>/<file>` とする。
+
+#### Scenario: tag-pinned file cache の検証と制約
+- **WHEN** core が managed source の repository file を取得または cache から読み取る
+- **THEN** 以下の詳細契約を満たす。
 
 cache content は state dir の `sources/<tag>/<file>` に原子保存し、各
 entry は repository identity と content SHA-256 を持つ provenance
@@ -564,6 +584,7 @@ filesystem を使う。
 
 - **WHEN** source が checkout または Local で managed release ではない
 - **THEN** repo file は従来どおり local filesystem から読み取る
+
 
 ### Requirement: 本体の自己更新
 
@@ -662,3 +683,35 @@ Operations that depend on persisted source/profile/state semantics SHALL load an
 - **WHEN** status, diagnostics, source status, or Dashboard observes an existing invalid state file
 - **THEN** the surface reports the state read failure explicitly
 - **AND** it MUST NOT report the state as simply uninitialized or absent
+
+### Requirement: local repository path と managed flake reference の型分離
+
+SchneeForge core MUST distinguish local repository filesystem paths from managed textual flake references. Local checkout identity SHALL be represented with a path-native type, while managed release references SHALL remain validated canonical UTF-8 flake reference strings.
+
+#### Scenario: local checkout source
+
+- **WHEN** effective source が local checkout である
+- **THEN** filesystem consumers は OS-native repository path を受け取る
+- **AND** path を display string へ変換した値を filesystem identity として再利用しない
+
+#### Scenario: managed release source
+
+- **WHEN** effective source が managed Release である
+- **THEN** Nix reference consumers は canonical `github:<owner>/<repo>/<tag>` textual flake reference を受け取る
+- **AND** managed flake reference を local filesystem path として扱わない
+
+### Requirement: repository process argument の OS-native preservation
+
+SchneeForge SHALL pass local repository process arguments without requiring UTF-8 conversion. Process helpers and action argument builders MUST be capable of carrying `OsStr` / `OsString`-equivalent repository values to the spawned process.
+
+#### Scenario: fake process に non-UTF-8 repository argument を渡す
+
+- **WHEN** supported Unix test environment で non-UTF-8 repository path を process argument または current directory として渡す
+- **THEN** spawned process boundary で SchneeForge は元の OS-native path identity を保持する
+- **AND** test は fake executable が観測した argv/current-directory を用いて preservation を検証する
+
+#### Scenario: upstream Nix の追加制約
+
+- **WHEN** SchneeForge が preserved repository argument を Nix へ渡した後に upstream Nix が flake-reference 制約で拒否する
+- **THEN** SchneeForge はその upstream failure を通常の command error として報告する
+- **AND** SchneeForge 自身の都合で事前に lossy path へ置換しない

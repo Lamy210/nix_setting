@@ -727,3 +727,267 @@ assert at_least_stable(tauri, (2, 11, 5)), tauri
 assert at_least_stable(updater, (2, 12, 0)), updater
 PY
 }
+
+# The permission gate lives in repository/org Settings, not YAML permissions.
+# Ensure failures remain red and provide a human recovery path in both jobs.
+@test "scheduled dependency update workflows explain blocked PR creation" {
+  flake=.github/workflows/update.yml
+  installer=.github/workflows/upstream-nix-installer.yml
+
+  grep -Fq '  pull-requests: write' "$flake"
+  grep -Fq '  pull-requests: write' "$installer"
+  grep -Fq 'id: flake_update' "$flake"
+  grep -Fq "steps.flake_update.outcome == 'failure'" "$flake"
+  grep -Fq 'If GitHub Actions cannot create pull requests' "$flake"
+  grep -Fq 'Avoid duplicate branches and PRs' "$flake"
+
+  grep -Fq 'id: bump_pr' "$installer"
+  grep -Fq "steps.bump_pr.outcome == 'failure'" "$installer"
+  grep -Fq 'Inspect the branch push and gh pr create log' "$installer"
+  grep -Fq 'Before opening a recovery PR manually' "$installer"
+  grep -Fq 'do not auto-merge' "$installer"
+}
+
+
+# Regression: a rerun must never force-push over a reviewed/manual recovery branch.
+@test "installer bump branch is created once, reused without rewrite, and rejects hash drift" {
+  fixture="$(mktemp -d)"
+  work="$fixture/work"
+  remote="$fixture/remote.git"
+  helper="$PWD/scripts/ci/prepare-upstream-bump-branch.sh"
+  manifest=bootstrap-manifest.toml
+  branch=bump/nix-installer-2.35.3
+  msg="$fixture/message.txt"
+
+  git init -q --bare "$remote"
+  git init -q "$work"
+  git -C "$work" config user.name test-bump
+  git -C "$work" config user.email test-bump@example.invalid
+  git -C "$work" config commit.gpgsign false
+  printf 'old manifest\n' > "$work/$manifest"
+  git -C "$work" add "$manifest"
+  git -C "$work" commit -qm "seed manifest"
+  git -C "$work" branch -M develop
+  git -C "$work" remote add origin "$remote"
+  git -C "$work" push -q origin develop
+  printf 'verified version and hashes\n' > "$work/$manifest"
+  printf 'bump(nix-installer): 2.35.3\n' > "$msg"
+
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$work" "$helper" "$manifest" "$branch" "$msg"
+  [ "$status" -eq 0 ]
+  initial="$(git --git-dir="$remote" rev-parse "refs/heads/$branch")"
+
+  git -C "$work" checkout -q develop
+  printf 'verified version and hashes\n' > "$work/$manifest"
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$work" "$helper" "$manifest" "$branch" "$msg"
+  [ "$status" -eq 0 ]
+  [ "$(git --git-dir="$remote" rev-parse "refs/heads/$branch")" = "$initial" ]
+  [ "$(git -C "$work" branch --show-current)" = develop ]
+
+  printf 'different upstream hash\n' > "$work/$manifest"
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$work" "$helper" "$manifest" "$branch" "$msg"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"differs from freshly verified"* ]]
+  [ "$(git --git-dir="$remote" rev-parse "refs/heads/$branch")" = "$initial" ]
+
+  # The verified manifest alone is insufficient: an unrelated file in the
+  # reviewed branch must fail closed rather than be silently reused.
+  git -C "$work" checkout -q -- "$manifest"
+  git -C "$work" checkout -q "$branch"
+  printf 'unexpected file\n' > "$work/unrelated.txt"
+  git -C "$work" add unrelated.txt
+  git -C "$work" commit -qm "add unrelated change"
+  git -C "$work" push -q origin "$branch"
+  changed_head="$(git --git-dir="$remote" rev-parse "refs/heads/$branch")"
+  git -C "$work" checkout -q develop
+  printf 'verified version and hashes\n' > "$work/$manifest"
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$work" "$helper" "$manifest" "$branch" "$msg"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Unexpected files or changes"* ]]
+  [ "$(git --git-dir="$remote" rev-parse "refs/heads/$branch")" = "$changed_head" ]
+  rm -rf "$fixture"
+}
+
+@test "installer bump branch reuse works from a shallow Actions checkout" {
+  fixture="$(mktemp -d)"
+  remote="$fixture/remote.git"
+  source="$fixture/source"
+  shallow="$fixture/shallow"
+  helper="$PWD/scripts/ci/prepare-upstream-bump-branch.sh"
+  msg="$fixture/message.txt"
+  manifest=bootstrap-manifest.toml
+  branch=bump/nix-installer-2.35.3
+
+  git init -q --bare "$remote"
+  git init -q "$source"
+  git -C "$source" config user.name test-bump
+  git -C "$source" config user.email test-bump@example.invalid
+  git -C "$source" config commit.gpgsign false
+  printf 'old manifest\n' > "$source/$manifest"
+  git -C "$source" add "$manifest"
+  git -C "$source" commit -qm 'seed'
+  git -C "$source" branch -M develop
+  git -C "$source" remote add origin "$remote"
+  git -C "$source" push -q origin develop
+
+  printf 'verified version and hashes\n' > "$source/$manifest"
+  printf 'bump(nix-installer): 2.35.3\n' > "$msg"
+  bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$source" "$helper" "$manifest" "$branch" "$msg"
+  previous="$(git --git-dir="$remote" rev-parse "refs/heads/$branch")"
+
+  # file:// transports depth correctly; a local path alone ignores --depth.
+  git clone -q --depth 1 --branch develop "file://$remote" "$shallow"
+  printf 'verified version and hashes\n' > "$shallow/$manifest"
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$shallow" "$helper" "$manifest" "$branch" "$msg"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"preserving remote commits and PR review"* ]]
+  [ "$(git --git-dir="$remote" rev-parse "refs/heads/$branch")" = "$previous" ]
+  [ "$(git -C "$shallow" branch --show-current)" = develop ]
+
+  rm -rf "$fixture"
+}
+
+@test "scheduled installer workflow cannot overwrite an existing review branch or PR body" {
+  workflow=.github/workflows/upstream-nix-installer.yml
+  grep -Fq 'prepare-upstream-bump-branch.sh' "$workflow"
+  grep -Fq 'ensure-installer-bump-pr.sh' "$workflow"
+  grep -Fq 'preserving its current body' scripts/ci/ensure-installer-bump-pr.sh
+  run grep -E -- 'git push --force|git checkout -B|gh pr edit' "$workflow"
+  [ "$status" -ne 0 ]
+}
+
+
+@test "installer bump fails closed when branch names or remote discovery are invalid" {
+  fixture="$(mktemp -d)"
+  work="$fixture/work"
+  helper="$PWD/scripts/ci/prepare-upstream-bump-branch.sh"
+  msg="$fixture/message.txt"
+
+  git init -q "$work"
+  git -C "$work" config user.name test-bump
+  git -C "$work" config user.email test-bump@example.invalid
+  printf 'verified version and hashes\n' > "$work/bootstrap-manifest.toml"
+  printf 'bump message\n' > "$msg"
+
+  # Reject unexpected branches before any Git or network operation.
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$work" "$helper" bootstrap-manifest.toml 'bump/nix-installer-2.35.3-malicious' "$msg"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Refusing unexpected bump branch"* ]]
+  [ "$(git -C "$work" branch --list | wc -l)" -eq 0 ]
+
+  # Do not treat origin failures as absence of a branch (and push anyway).
+  git -C "$work" remote add origin "$fixture/missing-origin.git"
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$work" "$helper" bootstrap-manifest.toml bump/nix-installer-2.35.3 "$msg"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Cannot inspect remote branch"* ]]
+  [ "$(git -C "$work" branch --list | wc -l)" -eq 0 ]
+
+  rm -rf "$fixture"
+}
+
+
+# A workflow_dispatch run on main/feature must not publish its unrelated
+# ancestry as a legitimate installer bump PR targeting develop.
+@test "installer bump rejects workflow_dispatch refs outside develop" {
+  fixture="$(mktemp -d)"
+  remote="$fixture/remote.git"
+  work="$fixture/work"
+  helper="$PWD/scripts/ci/prepare-upstream-bump-branch.sh"
+  msg="$fixture/message.txt"
+
+  git init -q --bare "$remote"
+  git init -q "$work"
+  git -C "$work" config user.name test-bump
+  git -C "$work" config user.email test-bump@example.invalid
+  git -C "$work" config commit.gpgsign false
+  printf 'old\n' > "$work/bootstrap-manifest.toml"
+  git -C "$work" add bootstrap-manifest.toml
+  git -C "$work" commit -qm seed
+  git -C "$work" branch -M develop
+  git -C "$work" remote add origin "$remote"
+  git -C "$work" push -q origin develop
+
+  git -C "$work" checkout -qb manual-preview
+  printf 'unrelated feature\n' > "$work/unrelated.txt"
+  git -C "$work" add unrelated.txt
+  git -C "$work" commit -qm 'unrelated feature'
+  printf 'verified version and hashes\n' > "$work/bootstrap-manifest.toml"
+  printf 'bump(nix-installer): 2.35.4\n' > "$msg"
+
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$work" "$helper" bootstrap-manifest.toml bump/nix-installer-2.35.4 "$msg"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Installer bump must start at current origin/develop HEAD"* ]]
+  run git --git-dir="$remote" rev-parse --verify refs/heads/bump/nix-installer-2.35.4
+  [ "$status" -ne 0 ]
+  [ "$(git -C "$work" branch --show-current)" = manual-preview ]
+
+  rm -rf "$fixture"
+}
+
+
+# PR listing is a remote API request, not a reliable zero-or-one predicate.
+# A failed lookup must never cascade into PR creation on a reviewed branch.
+@test "installer bump PR lookup failure is fail-closed and successful retries are idempotent" {
+  fixture="$(mktemp -d)"
+  mkdir -p "$fixture/bin"
+  body="$fixture/body.md"
+  calls="$fixture/calls.log"
+  helper="$PWD/scripts/ci/ensure-installer-bump-pr.sh"
+  printf 'review acceptance checklist\n' > "$body"
+
+  cat > "$fixture/bin/gh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$GH_CALLS"
+if [ "$1" = pr ] && [ "$2" = list ]; then
+  if [ "$GH_LIST_FAIL" = 1 ]; then
+    exit 43
+  fi
+  printf '%s' "$GH_LIST_RESULT"
+elif [ "$1" = pr ] && [ "$2" = create ]; then
+  echo 'created'
+else
+  exit 44
+fi
+SH
+  chmod +x "$fixture/bin/gh"
+
+  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=1 GH_LIST_RESULT="" \
+    bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Cannot list existing installer bump PRs"* ]]
+  [ "$(wc -l < "$calls")" -eq 1 ]
+  grep -Fq 'pr list ' "$calls"
+
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT=244 \
+    bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PR #244 already exists; preserving its current body"* ]]
+  [ "$(wc -l < "$calls")" -eq 1 ]
+
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT="" \
+    bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"created"* ]]
+  [ "$(wc -l < "$calls")" -eq 2 ]
+  grep -Fq 'pr create --base develop --head bump/nix-installer-2.35.3' "$calls"
+
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT="" \
+    bash "$helper" 2.35.3 bump/nix-installer-2.35.3-extra "$body"
+  [ "$status" -ne 0 ]
+  [ ! -s "$calls" ]
+
+  rm -rf "$fixture"
+}

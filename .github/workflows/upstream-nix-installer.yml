@@ -198,6 +198,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Create or update bump PR
+        id: bump_pr
         if: steps.slsa.outputs.slsa_failed != 'true' && steps.check.outputs.skip != 'true'
         env:
           TARGET_VERSION: ${{ steps.ver.outputs.version }}
@@ -209,16 +210,7 @@ jobs:
           git config user.name "schneeforge-bump-bot"
           git config user.email "actions@users.noreply.github.com"
 
-          # 同 version の再実行時は branch が既存。reset して上書き。
-          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
-            echo "branch $branch already exists; resetting to base"
-            git fetch origin develop
-            git checkout -B "$branch" origin/develop
-          else
-            git checkout -b "$branch"
-          fi
-
-          git add "$MANIFEST_PATH"
+          # Preserve existing update branches and human review notes on reruns.
           {
             printf 'bump(nix-installer): %s\n\n' "$TARGET_VERSION"
             printf 'SLSA provenance verified via gh attestation verify.\n'
@@ -227,9 +219,8 @@ jobs:
             printf 'Evaluate before merge per design.md D3 (release-cycle, not latest-tracking).\n\n'
             printf 'Source: %s\n' "$WORKFLOW_URL"
           } > /tmp/commit-msg.txt
-          git commit -F /tmp/commit-msg.txt
-          # 再実行時は上書きが必要なので force-with-lease
-          git push --force-with-lease origin "$branch"
+          bash scripts/ci/prepare-upstream-bump-branch.sh \
+            "$MANIFEST_PATH" "$branch" /tmp/commit-msg.txt
 
           {
             printf '## Summary\n'
@@ -244,15 +235,19 @@ jobs:
             printf '自動生成元: [workflow run](%s)\n' "$WORKFLOW_URL"
           } > /tmp/pr-body.md
 
-          # 既存 PR があれば更新、無ければ作成
-          existing_pr=$(gh pr list --head "$branch" --base develop --json number --jq '.[0].number' || true)
-          if [ -n "$existing_pr" ]; then
-            gh pr edit "$existing_pr" --body-file /tmp/pr-body.md
-            echo "Updated existing PR #$existing_pr"
-          else
-            gh pr create \
-              --base develop \
-              --head "$branch" \
-              --title "bump(nix-installer): ${TARGET_VERSION}" \
-              --body-file /tmp/pr-body.md
-          fi
+          # Fail closed when lookup fails; preserve reviewer edits on existing PRs.
+          bash scripts/ci/ensure-installer-bump-pr.sh \
+            "$TARGET_VERSION" "$branch" /tmp/pr-body.md
+
+      - name: Explain bump PR creation failure
+        if: ${{ failure() && steps.bump_pr.outcome == 'failure' }}
+        env:
+          TARGET_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          echo "::error title=Installer bump PR failed::Inspect the branch push and gh pr create log. Repository or organization policy may block PR creation even with pull-requests: write."
+          {
+            printf '### nix-installer %s bump PR step failed\n\n' "$TARGET_VERSION"
+            printf 'Inspect **Create or update bump PR** logs to determine whether the change branch was pushed successfully.\n\n'
+            printf 'If GitHub rejected PR creation, ask a repository admin to review **Settings → Actions → General → Workflow permissions** and organization policy. YAML pull-requests: write does not override that restriction.\n\n'
+            printf 'Before opening a recovery PR manually, look for bump/nix-installer-%s and any existing PR to avoid duplicates. Follow design.md D3 release-cycle and acceptance gates; do not auto-merge. See issue #240.\n' "$TARGET_VERSION"
+          } >> "$GITHUB_STEP_SUMMARY"
