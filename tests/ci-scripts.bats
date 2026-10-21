@@ -727,3 +727,23 @@ assert at_least_stable(tauri, (2, 11, 5)), tauri
 assert at_least_stable(updater, (2, 12, 0)), updater
 PY
 }
+
+# The permission gate lives in repository/org Settings, not YAML permissions.
+# Ensure failures remain red and provide a human recovery path in both jobs.
+@test "scheduled dependency update workflows explain blocked PR creation" {
+  flake=.github/workflows/update.yml
+  installer=.github/workflows/upstream-nix-installer.yml
+
+  grep -Fq '  pull-requests: write' "$flake"
+  grep -Fq '  pull-requests: write' "$installer"
+  grep -Fq 'id: flake_update' "$flake"
+  grep -Fq "steps.flake_update.outcome == 'failure'" "$flake"
+  grep -Fq 'If GitHub Actions cannot create pull requests' "$flake"
+  grep -Fq 'Avoid duplicate branches and PRs' "$flake"
+
+  grep -Fq 'id: bump_pr' "$installer"
+  grep -Fq "steps.bump_pr.outcome == 'failure'" "$installer"
+  grep -Fq 'Inspect the branch push and gh pr create log' "$installer"
+  grep -Fq 'Before opening a recovery PR manually' "$installer"
+  grep -Fq 'do not auto-merge' "$installer"
+}

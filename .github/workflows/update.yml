@@ -18,9 +18,28 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
 
       - name: Update flake.lock
+        id: flake_update
         uses: DeterminateSystems/update-flake-lock@a2bbe0274e3a0c4194390a1e445f734c597ebc37
         with:
           pr-title: "chore: update flake.lock"
           pr-labels: |
             dependencies
             automated
+
+      # A repository/org workflow policy can reject PR creation even with
+      # pull-requests: write. Keep the action failure, but surface recovery steps.
+      - name: Explain flake update failure
+        if: ${{ failure() && steps.flake_update.outcome == 'failure' }}
+        run: |
+          echo "::error title=Flake update failed::Inspect the update action log. If GitHub Actions cannot create pull requests, check repository/organization workflow permissions."
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOT'
+          ### flake.lock update failed
+
+          Review the **Update flake.lock** step logs to distinguish a dependency/build failure from a pull-request creation policy failure.
+
+          If the log says `GitHub Actions is not permitted to create or approve pull requests`:
+          - Ask a repository administrator to review **Settings → Actions → General → Workflow permissions** and any organization policy.
+          - `pull-requests: write` in the workflow is necessary but does not override a repository/organization PR-creation prohibition.
+          - Check whether the action already pushed an update branch before creating a reviewable PR manually. Avoid duplicate branches and PRs.
+          - See issue #240. Do not bypass required CI or automatically merge dependency updates.
+          EOT

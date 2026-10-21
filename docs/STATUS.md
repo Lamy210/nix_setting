@@ -10,9 +10,9 @@
 - Rust Core の `RepositoryPath` / typed `EffectiveSourceRef`、`OsString` 対応プロセス引数、CLI `--repo: PathBuf`、Desktop/Tauri の OS-native repository 解決に移行した。Linux の non-UTF-8 repository path と fake process argv を regression test で検証。
 - PR #238 の最終 HEAD `505b968` は Actions run `39519506446` で required CI、Rust、OpenSpec、macOS 15/26、Windows、CodeQL、release-artifact を含め全ジョブ成功。OpenSpec strict 問題 #239 も PR #241 で修正・close 済み。
 - 設計の migration step 8 に基づく旧 String-based `resolve_repo` / `resolve_repo_with` / `effective_ref` の撤去と公開 exports・テスト移行は PR #242 (`98e6c5e`) で squash merge 済み。PR #242 の最終 HEAD `ea7399e` では 22 CI jobs と 26 checks が成功。
-- OpenSpec の `refactor-repository-path-identity` proposal/design/tasks/差分仕様を PR #243 で `openspec/changes/archive/2026-10-21-refactor-repository-path-identity/` へ移動し、canonical `core-operations` / `gui-diagnostics` / `managed-nix-bootstrap` の仕様を同期する。実装から切り離した archive/spec sync PR として検証する。
+- OpenSpec の `refactor-repository-path-identity` proposal/design/tasks/差分仕様は PR #243 (`e5ca7e1`) で archive 済み。canonical `core-operations` / `gui-diagnostics` / `managed-nix-bootstrap` を同期し、最終 HEAD `1130fda` の CI 22 jobs / 26 checks が成功。
 - **意図的な制限**: upstream Nix の local flake parser が全 non-UTF-8 path を受理することまでは保証しない。GUI の AppleScript/pkexec による権限昇格は引き続き non-UTF-8 repo path を fail-closed で拒否する。
-- リリース readiness: macOS Final Acceptance、production GUI updater activation の手動 gate は別途未完了。CI dependency-update の PR 作成権限問題は issue #240 で追跡中。
+- リリース readiness: macOS Final Acceptance、production GUI updater activation の手動 gate は別途未完了。CI dependency-update の PR 作成権限問題は issue #240 で追跡中。既存 `bump/nix-installer-2.35.3` branch は Draft PR #244 として救済済み（release-cycle acceptance 未完了のためマージ禁止）。
 
 ## 完成済み
 
