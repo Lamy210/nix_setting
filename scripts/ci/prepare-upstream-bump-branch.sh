@@ -11,7 +11,7 @@ manifest=$1
 branch=$2
 commit_message=$3
 
-if [[ ! "$branch" =~ ^bump/nix-installer-[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [[ ! $branch =~ ^bump/nix-installer-[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "::error::Refusing unexpected bump branch: $branch" >&2
   exit 2
 fi
@@ -19,7 +19,6 @@ if [ ! -f "$manifest" ] || [ ! -f "$commit_message" ]; then
   echo '::error::Expected updated manifest and commit message files' >&2
   exit 2
 fi
-
 
 # A workflow_dispatch run may be started on main or a feature branch. Never
 # publish a version bump with that branch's unrelated changes as its ancestry.
