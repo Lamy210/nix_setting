@@ -20,8 +20,26 @@ if [ ! -f "$manifest" ] || [ ! -f "$commit_message" ]; then
   exit 2
 fi
 
+
+# A workflow_dispatch run may be started on main or a feature branch. Never
+# publish a version bump with that branch's unrelated changes as its ancestry.
+require_develop_head() {
+  local develop_ref develop_sha current_sha
+  if ! develop_ref=$(git ls-remote --exit-code --heads origin refs/heads/develop); then
+    echo "::error::Cannot verify remote develop HEAD; refusing to create or reuse bump branch." >&2
+    return 1
+  fi
+  develop_sha=$(printf '%s\n' "$develop_ref" | awk '{print $1}')
+  current_sha=$(git rev-parse HEAD)
+  if [ "$current_sha" != "$develop_sha" ]; then
+    echo "::error::Installer bump must start at current origin/develop HEAD, not another workflow_dispatch ref." >&2
+    return 1
+  fi
+}
+
 if remote_head=$(git ls-remote --exit-code --heads origin "refs/heads/$branch"); then
   remote_sha=$(printf '%s\n' "$remote_head" | awk '{print $1}')
+  require_develop_head
   # Validate against the immutable SHA returned by ls-remote. Never overwrite
   # a manually recovered PR branch or reset its reviewed commit history.
   git fetch --no-tags --depth=100 origin "refs/heads/$branch"
@@ -54,6 +72,7 @@ else
     echo "::error::Cannot inspect remote branch $branch (git exit $rc); refusing push." >&2
     exit "$rc"
   fi
+  require_develop_head
   git checkout -b "$branch"
   git add -- "$manifest"
   if git diff --cached --quiet -- "$manifest"; then

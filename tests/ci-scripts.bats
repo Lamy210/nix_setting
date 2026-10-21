@@ -891,3 +891,43 @@ PY
 
   rm -rf "$fixture"
 }
+
+
+# A workflow_dispatch run on main/feature must not publish its unrelated
+# ancestry as a legitimate installer bump PR targeting develop.
+@test "installer bump rejects workflow_dispatch refs outside develop" {
+  fixture="$(mktemp -d)"
+  remote="$fixture/remote.git"
+  work="$fixture/work"
+  helper="$PWD/scripts/ci/prepare-upstream-bump-branch.sh"
+  msg="$fixture/message.txt"
+
+  git init -q --bare "$remote"
+  git init -q "$work"
+  git -C "$work" config user.name test-bump
+  git -C "$work" config user.email test-bump@example.invalid
+  git -C "$work" config commit.gpgsign false
+  printf 'old\n' > "$work/bootstrap-manifest.toml"
+  git -C "$work" add bootstrap-manifest.toml
+  git -C "$work" commit -qm seed
+  git -C "$work" branch -M develop
+  git -C "$work" remote add origin "$remote"
+  git -C "$work" push -q origin develop
+
+  git -C "$work" checkout -qb manual-preview
+  printf 'unrelated feature\n' > "$work/unrelated.txt"
+  git -C "$work" add unrelated.txt
+  git -C "$work" commit -qm 'unrelated feature'
+  printf 'verified version and hashes\n' > "$work/bootstrap-manifest.toml"
+  printf 'bump(nix-installer): 2.35.4\n' > "$msg"
+
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$work" "$helper" bootstrap-manifest.toml bump/nix-installer-2.35.4 "$msg"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Installer bump must start at current origin/develop HEAD"* ]]
+  run git --git-dir="$remote" rev-parse --verify refs/heads/bump/nix-installer-2.35.4
+  [ "$status" -ne 0 ]
+  [ "$(git -C "$work" branch --show-current)" = manual-preview ]
+
+  rm -rf "$fixture"
+}
