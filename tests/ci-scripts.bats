@@ -793,6 +793,22 @@ PY
   [[ "$output" == *"differs from freshly verified"* ]]
   [ "$(git --git-dir="$remote" rev-parse "refs/heads/$branch")" = "$initial" ]
 
+  # The verified manifest alone is insufficient: an unrelated file in the
+  # reviewed branch must fail closed rather than be silently reused.
+  git -C "$work" checkout -q -- "$manifest"
+  git -C "$work" checkout -q "$branch"
+  printf 'unexpected file\n' > "$work/unrelated.txt"
+  git -C "$work" add unrelated.txt
+  git -C "$work" commit -qm "add unrelated change"
+  git -C "$work" push -q origin "$branch"
+  changed_head="$(git --git-dir="$remote" rev-parse "refs/heads/$branch")"
+  git -C "$work" checkout -q develop
+  printf 'verified version and hashes\n' > "$work/$manifest"
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$work" "$helper" "$manifest" "$branch" "$msg"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Unexpected files or changes"* ]]
+  [ "$(git --git-dir="$remote" rev-parse "refs/heads/$branch")" = "$changed_head" ]
   rm -rf "$fixture"
 }
 

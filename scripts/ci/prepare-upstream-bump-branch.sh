@@ -24,10 +24,23 @@ if remote_head=$(git ls-remote --exit-code --heads origin "refs/heads/$branch");
   remote_sha=$(printf '%s\n' "$remote_head" | awk '{print $1}')
   # Validate against the immutable SHA returned by ls-remote. Never overwrite
   # a manually recovered PR branch or reset its reviewed commit history.
-  git fetch --no-tags origin "refs/heads/$branch"
+  git fetch --no-tags --depth=100 origin "refs/heads/$branch"
   fetched_sha=$(git rev-parse FETCH_HEAD)
   if [ "$remote_sha" != "$fetched_sha" ]; then
     echo "::error::Bump branch changed while verifying: $branch" >&2
+    exit 1
+  fi
+  # Reject any unrelated commit content, even when the manifest matches.
+  # The scheduled Actions checkout is shallow: fetch enough ancestry to
+  # compare the candidate against its common develop ancestor.
+  git fetch --no-tags --depth=100 origin develop
+  if ! ancestor=$(git merge-base HEAD "$remote_sha"); then
+    echo "::error::Cannot verify bump branch ancestry against develop; review manually." >&2
+    exit 1
+  fi
+  changed=$(git diff --name-only "$ancestor" "$remote_sha")
+  if [ "$changed" != "$manifest" ]; then
+    echo "::error::Unexpected files or changes in existing $branch; only $manifest is allowed" >&2
     exit 1
   fi
   if ! git show "$remote_sha:$manifest" | cmp -s - "$manifest"; then
