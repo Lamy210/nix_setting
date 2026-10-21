@@ -969,7 +969,7 @@ SH
   grep -Fq 'pr list ' "$calls"
 
   : > "$calls"
-  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT="$(printf '244\tOPEN')" \
+  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT=244:OPEN \
     bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
   [ "$status" -eq 0 ]
   [[ "$output" == *"PR #244 already exists; preserving its current body"* ]]
@@ -994,7 +994,7 @@ SH
   for previous_state in CLOSED MERGED; do
     : > "$calls"
     run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 \
-      GH_LIST_RESULT="$(printf '244\t%s' "$previous_state")" \
+      GH_LIST_RESULT="244:$previous_state" \
       bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
     [ "$status" -ne 0 ]
     [[ "$output" == *"PR #244 is $previous_state; refusing to recreate"* ]]
@@ -1002,16 +1002,26 @@ SH
   done
 
   # Ambiguous or malformed API responses are never "no matching PR".
-  for result in 
-244\tOPEN\n243\tCLOSED' 
-not-a-number\tOPEN'; do
-    : > "$calls"
-    run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 \
-      GH_LIST_RESULT="$result" \
-      bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
-    [ "$status" -ne 0 ]
-    [ "$(wc -l < "$calls")" -eq 1 ]
-  done
+  multi_result=$(cat <<'ROWS'
+244:OPEN
+243:CLOSED
+ROWS
+)
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 \
+    GH_LIST_RESULT="$multi_result" \
+    bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Multiple installer bump PRs"* ]]
+  [ "$(wc -l < "$calls")" -eq 1 ]
+
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 \
+    GH_LIST_RESULT=not-a-number:OPEN \
+    bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Unexpected installer bump PR lookup response"* ]]
+  [ "$(wc -l < "$calls")" -eq 1 ]
 
   rm -rf "$fixture"
 }
