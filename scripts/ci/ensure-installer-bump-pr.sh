@@ -18,12 +18,33 @@ if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
   exit 2
 fi
 
-if ! existing_pr=$(gh pr list --head "$branch" --base develop --json number --jq '.[0].number'); then
+# Include closed and merged PRs: a human may have rejected this exact bump.
+# Reopening that release automatically would override the review decision.
+if ! matching_prs=$(gh pr list --state all --head "$branch" --base develop \
+    --limit 100 --json number,state --jq '.[] | [.number, .state] | @tsv'); then
   echo "::error::Cannot list existing installer bump PRs; refusing to create a possible duplicate." >&2
   exit 1
 fi
-if [ -n "$existing_pr" ]; then
-  echo "PR #$existing_pr already exists; preserving its current body"
+
+if [ -n "$matching_prs" ]; then
+  # Multiple historical PRs with the same head should be reviewed manually.
+  if [[ $matching_prs == *
+\n'* ]]; then
+    echo "::error::Multiple installer bump PRs found for $branch; review manually." >&2
+    exit 1
+  fi
+  IFS=
+\t' read -r number state <<< "$matching_prs"
+  if [[ ! $number =~ ^[0-9]+$ ]] ||
+    [[ $state != OPEN && $state != CLOSED && $state != MERGED ]]; then
+    echo "::error::Unexpected installer bump PR lookup response; refusing create." >&2
+    exit 1
+  fi
+  if [ "$state" != OPEN ]; then
+    echo "::error::PR #$number is $state; refusing to recreate a reviewed installer bump." >&2
+    exit 1
+  fi
+  echo "PR #$number already exists; preserving its current body"
 else
   gh pr create \
     --base develop \

@@ -969,7 +969,7 @@ SH
   grep -Fq 'pr list ' "$calls"
 
   : > "$calls"
-  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT=244 \
+  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT="$(printf '244\tOPEN')" \
     bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
   [ "$status" -eq 0 ]
   [[ "$output" == *"PR #244 already exists; preserving its current body"* ]]
@@ -988,6 +988,30 @@ SH
     bash "$helper" 2.35.3 bump/nix-installer-2.35.3-extra "$body"
   [ "$status" -ne 0 ]
   [ ! -s "$calls" ]
+
+
+  # A rejected or already merged bump must never be silently re-created.
+  for previous_state in CLOSED MERGED; do
+    : > "$calls"
+    run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 \
+      GH_LIST_RESULT="$(printf '244\t%s' "$previous_state")" \
+      bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"PR #244 is $previous_state; refusing to recreate"* ]]
+    [ "$(wc -l < "$calls")" -eq 1 ]
+  done
+
+  # Ambiguous or malformed API responses are never "no matching PR".
+  for result in 
+244\tOPEN\n243\tCLOSED' 
+not-a-number\tOPEN'; do
+    : > "$calls"
+    run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 \
+      GH_LIST_RESULT="$result" \
+      bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
+    [ "$status" -ne 0 ]
+    [ "$(wc -l < "$calls")" -eq 1 ]
+  done
 
   rm -rf "$fixture"
 }
