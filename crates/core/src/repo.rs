@@ -214,10 +214,15 @@ mod tests {
     fn current_git_revision_rejects_blank_success_output() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir =
-            std::env::temp_dir().join(format!("sf-repo-empty-revision-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "sf-repo-empty-revision-{}-{timestamp}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&dir).unwrap();
         let fake_git = dir.join("fake-git");
         std::fs::write(&fake_git, "#!/bin/sh\nexit 0\n").unwrap();
         let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
@@ -291,10 +296,15 @@ mod tests {
         use std::os::unix::ffi::OsStringExt;
         use std::os::unix::fs::PermissionsExt;
 
-        let root =
-            std::env::temp_dir().join(format!("sf-repo-native-revision-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "sf-repo-native-revision-{}-{timestamp}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&root).unwrap();
 
         let repo = root.join(std::ffi::OsString::from_vec(b"repo-\xff".to_vec()));
         std::fs::create_dir_all(&repo).unwrap();
