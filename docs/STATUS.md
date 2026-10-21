@@ -12,7 +12,8 @@
 - 設計の migration step 8 に基づく旧 String-based `resolve_repo` / `resolve_repo_with` / `effective_ref` の撤去と公開 exports・テスト移行は PR #242 (`98e6c5e`) で squash merge 済み。PR #242 の最終 HEAD `ea7399e` では 22 CI jobs と 26 checks が成功。
 - OpenSpec の `refactor-repository-path-identity` proposal/design/tasks/差分仕様は PR #243 (`e5ca7e1`) で archive 済み。canonical `core-operations` / `gui-diagnostics` / `managed-nix-bootstrap` を同期し、最終 HEAD `1130fda` の CI 22 jobs / 26 checks が成功。
 - **意図的な制限**: upstream Nix の local flake parser が全 non-UTF-8 path を受理することまでは保証しない。GUI の AppleScript/pkexec による権限昇格は引き続き non-UTF-8 repo path を fail-closed で拒否する。
-- 更新ワークフローの再実行安全性: nix-installer bump branch / 既存PRのレビュー記録を force-push・本文上書きから保護する回帰テスト付きfollow-upを進行中。Issue #240 のPR作成権限とは独立した対策。
+- 定期更新ワークフローのPR作成失敗時の診断と復旧案内は PR #245 (`c69f5f4`) で `develop` に squash merge 済み。Issue #240 のrepository/organization側PR作成権限は引き続き未解決。
+- 更新ワークフローの再実行安全性: PR #246 で nix-installer bump branch / 既存PRのレビュー記録を force-push・本文上書きから保護。既存branchのmanifest以外の差分、ハッシュ不一致、remote障害、非`develop` manual dispatchはfail-closed。実装PRのCI確認・統合待ち。
 - リリース readiness: macOS Final Acceptance、production GUI updater activation の手動 gate は別途未完了。CI dependency-update の PR 作成権限問題は issue #240 で追跡中。既存 `bump/nix-installer-2.35.3` branch は Draft PR #244 として救済済み（release-cycle acceptance 未完了のためマージ禁止）。
 
 ## 完成済み
