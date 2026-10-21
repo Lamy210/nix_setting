@@ -819,3 +819,34 @@ PY
   run grep -E -- 'git push --force|git checkout -B|gh pr edit' "$workflow"
   [ "$status" -ne 0 ]
 }
+
+
+@test "installer bump fails closed when branch names or remote discovery are invalid" {
+  fixture="$(mktemp -d)"
+  work="$fixture/work"
+  helper="$PWD/scripts/ci/prepare-upstream-bump-branch.sh"
+  msg="$fixture/message.txt"
+
+  git init -q "$work"
+  git -C "$work" config user.name test-bump
+  git -C "$work" config user.email test-bump@example.invalid
+  printf 'verified version and hashes\n' > "$work/bootstrap-manifest.toml"
+  printf 'bump message\n' > "$msg"
+
+  # Reject unexpected branches before any Git or network operation.
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$work" "$helper" bootstrap-manifest.toml 'bump/nix-installer-2.35.3-malicious' "$msg"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Refusing unexpected bump branch"* ]]
+  [ "$(git -C "$work" branch --list | wc -l)" -eq 0 ]
+
+  # Do not treat origin failures as absence of a branch (and push anyway).
+  git -C "$work" remote add origin "$fixture/missing-origin.git"
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$work" "$helper" bootstrap-manifest.toml bump/nix-installer-2.35.3 "$msg"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Cannot inspect remote branch"* ]]
+  [ "$(git -C "$work" branch --list | wc -l)" -eq 0 ]
+
+  rm -rf "$fixture"
+}
