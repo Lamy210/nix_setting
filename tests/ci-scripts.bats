@@ -812,6 +812,47 @@ PY
   rm -rf "$fixture"
 }
 
+@test "installer bump branch reuse works from a shallow Actions checkout" {
+  fixture="$(mktemp -d)"
+  remote="$fixture/remote.git"
+  source="$fixture/source"
+  shallow="$fixture/shallow"
+  helper="$PWD/scripts/ci/prepare-upstream-bump-branch.sh"
+  msg="$fixture/message.txt"
+  manifest=bootstrap-manifest.toml
+  branch=bump/nix-installer-2.35.3
+
+  git init -q --bare "$remote"
+  git init -q "$source"
+  git -C "$source" config user.name test-bump
+  git -C "$source" config user.email test-bump@example.invalid
+  git -C "$source" config commit.gpgsign false
+  printf 'old manifest\n' > "$source/$manifest"
+  git -C "$source" add "$manifest"
+  git -C "$source" commit -qm 'seed'
+  git -C "$source" branch -M develop
+  git -C "$source" remote add origin "$remote"
+  git -C "$source" push -q origin develop
+
+  printf 'verified version and hashes\n' > "$source/$manifest"
+  printf 'bump(nix-installer): 2.35.3\n' > "$msg"
+  bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$source" "$helper" "$manifest" "$branch" "$msg"
+  previous="$(git --git-dir="$remote" rev-parse "refs/heads/$branch")"
+
+  # file:// transports depth correctly; a local path alone ignores --depth.
+  git clone -q --depth 1 --branch develop "file://$remote" "$shallow"
+  printf 'verified version and hashes\n' > "$shallow/$manifest"
+  run bash -c 'cd "$1" && bash "$2" "$3" "$4" "$5"' \
+    _ "$shallow" "$helper" "$manifest" "$branch" "$msg"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"preserving remote commits and PR review"* ]]
+  [ "$(git --git-dir="$remote" rev-parse "refs/heads/$branch")" = "$previous" ]
+  [ "$(git -C "$shallow" branch --show-current)" = develop ]
+
+  rm -rf "$fixture"
+}
+
 @test "scheduled installer workflow cannot overwrite an existing review branch or PR body" {
   workflow=.github/workflows/upstream-nix-installer.yml
   grep -Fq 'prepare-upstream-bump-branch.sh' "$workflow"
