@@ -251,25 +251,6 @@ pub fn effective_source_ref<P: AsRef<Path> + ?Sized>(
         })
 }
 
-/// 移行中の textual compatibility API。Task 4 で typed source ref へ置き換える。
-pub fn effective_ref(repo: &str, store: &crate::state::StateStore) -> Result<String> {
-    let source = store.load()?.and_then(|s| s.source);
-    let Some(source) = source else {
-        return Ok(repo.to_string());
-    };
-    if !source.managed {
-        return Ok(repo.to_string());
-    }
-
-    source.validate_managed_release()?;
-    let remote = source.remote_url();
-    source.flake_ref().ok_or_else(|| {
-        Error::State(format!(
-            "managed source repository URL is not a supported GitHub repository: {remote}"
-        ))
-    })
-}
-
 /// checkout の実態から SourceKind を解決する
 #[derive(Debug, Clone, Default)]
 pub struct SourceResolver;
@@ -898,14 +879,15 @@ mod tests {
     }
 
     #[test]
-    fn effective_ref_uses_flake_ref_only_for_managed_release() {
+    fn effective_source_ref_uses_typed_variant_only_for_managed_release() {
         let dir = std::env::temp_dir().join(format!("sf-effective-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let store = crate::state::StateStore::new(dir.join("state.json"));
 
-        // managed でない場合は path をそのまま返す
-        assert_eq!(effective_ref("/tmp/repo", &store).unwrap(), "/tmp/repo");
+        // managed でない場合は OS-native checkout を返す
+        let checkout = EffectiveSourceRef::Checkout(RepositoryPath::new(Path::new("/tmp/repo").to_path_buf()));
+        assert_eq!(effective_source_ref(Path::new("/tmp/repo"), &store).unwrap(), checkout);
 
         let mut state = crate::state::State {
             source: Some(managed_state(SourceKind::ReleaseStable, "v0.2.0", "stable")),
@@ -913,14 +895,14 @@ mod tests {
         };
         store.save(&state).unwrap();
         assert_eq!(
-            effective_ref("/tmp/repo", &store).unwrap(),
-            "github:Lamy210/nix_setting/v0.2.0"
+            effective_source_ref(Path::new("/tmp/repo"), &store).unwrap(),
+            EffectiveSourceRef::ManagedFlake("github:Lamy210/nix_setting/v0.2.0".to_string())
         );
 
         // managed state は mutable ref / kind-tag mismatch を local path へ fallback しない
         state.source = Some(managed_state(SourceKind::ReleaseStable, "main", "stable"));
         store.save(&state).unwrap();
-        let err = effective_ref("/tmp/repo", &store).unwrap_err();
+        let err = effective_source_ref(Path::new("/tmp/repo"), &store).unwrap_err();
         assert!(matches!(err, Error::State(_)), "{err}");
         assert!(err.to_string().contains("valid release tag"), "{err}");
 
@@ -930,7 +912,7 @@ mod tests {
             "stable",
         ));
         store.save(&state).unwrap();
-        let err = effective_ref("/tmp/repo", &store).unwrap_err();
+        let err = effective_source_ref(Path::new("/tmp/repo"), &store).unwrap_err();
         assert!(matches!(err, Error::State(_)), "{err}");
         assert!(err.to_string().contains("does not match"), "{err}");
 
@@ -943,7 +925,7 @@ mod tests {
             revision: None,
         });
         store.save(&state).unwrap();
-        let err = effective_ref("/tmp/repo", &store).unwrap_err();
+        let err = effective_source_ref(Path::new("/tmp/repo"), &store).unwrap_err();
         assert!(matches!(err, Error::State(_)), "{err}");
         assert!(err.to_string().contains("GitHub repository"), "{err}");
 
@@ -957,7 +939,7 @@ mod tests {
             revision: None,
         });
         store.save(&state).unwrap();
-        assert_eq!(effective_ref("/tmp/repo", &store).unwrap(), "/tmp/repo");
+        assert_eq!(effective_source_ref(Path::new("/tmp/repo"), &store).unwrap(), checkout);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

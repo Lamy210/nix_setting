@@ -115,37 +115,6 @@ pub fn resolve_repo_path_with(
     RepositoryPath::new(PathBuf::from("."))
 }
 
-/// 移行中の String-based compatibility entry point。
-/// CLI/Desktop migration 完了後に削除する。
-pub fn resolve_repo(cli_repo: Option<&str>) -> String {
-    resolve_repo_with(
-        cli_repo,
-        std::env::var("NIX_SETTING_DIR").ok().as_deref(),
-        std::env::var("HOME").ok().as_deref(),
-    )
-}
-
-/// legacy String API の純関数版。最終 migration task で削除する。
-pub fn resolve_repo_with(
-    cli_repo: Option<&str>,
-    env_dir: Option<&str>,
-    home: Option<&str>,
-) -> String {
-    if let Some(r) = cli_repo.filter(|r| !r.is_empty()) {
-        return r.to_string();
-    }
-    if let Some(r) = env_dir.filter(|r| !r.is_empty()) {
-        return r.to_string();
-    }
-    if let Some(h) = home
-        .filter(|h| !h.is_empty())
-        .filter(|h| Path::new(h).is_absolute())
-    {
-        return format!("{h}/nix_setting");
-    }
-    ".".to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,16 +130,27 @@ mod tests {
         }
     }
 
+    // UTF-8 examples exercise the same OS-native API used by the CLI/Desktop.
+    // Non-UTF-8 inputs are covered below with OsString/OsStr byte checks.
+    fn resolve_test_repo(cli: Option<&str>, env: Option<&str>, home: Option<&str>) -> PathBuf {
+        resolve_repo_path_with(
+            cli.map(Path::new),
+            env.map(OsStr::new),
+            home.map(OsStr::new),
+        )
+        .into_path_buf()
+    }
+
     #[test]
     fn cli_repo_wins() {
-        assert_eq!(resolve_repo_with(Some("/custom"), None, None), "/custom");
+        assert_eq!(resolve_test_repo(Some("/custom"), None, None), PathBuf::from("/custom"));
     }
 
     #[test]
     fn env_dir_second() {
         assert_eq!(
-            resolve_repo_with(None, Some("/from/env"), Some("/home/u")),
-            "/from/env"
+            resolve_test_repo(None, Some("/from/env"), Some("/home/u")),
+            PathBuf::from("/from/env")
         );
     }
 
@@ -178,34 +158,34 @@ mod tests {
     fn home_fallback() {
         let home = absolute_home();
         assert_eq!(
-            resolve_repo_with(None, None, Some(home)),
-            format!("{home}/nix_setting")
+            resolve_test_repo(None, None, Some(home)),
+            Path::new(home).join("nix_setting")
         );
     }
 
     #[test]
     fn relative_home_falls_back_to_current_directory() {
-        assert_eq!(resolve_repo_with(None, None, Some("relative-home")), ".");
+        assert_eq!(resolve_test_repo(None, None, Some("relative-home")), PathBuf::from("."));
     }
 
     #[test]
     fn default_dot() {
-        assert_eq!(resolve_repo_with(None, None, None), ".");
+        assert_eq!(resolve_test_repo(None, None, None), PathBuf::from("."));
     }
 
     #[test]
     fn cli_repo_overrides_all() {
         assert_eq!(
-            resolve_repo_with(Some("/custom"), Some("/env"), Some("/home/u")),
-            "/custom"
+            resolve_test_repo(Some("/custom"), Some("/env"), Some("/home/u")),
+            PathBuf::from("/custom")
         );
     }
 
     #[test]
     fn empty_cli_repo_falls_back_to_env_dir() {
         assert_eq!(
-            resolve_repo_with(Some(""), Some("/from/env"), Some("/home/u")),
-            "/from/env"
+            resolve_test_repo(Some(""), Some("/from/env"), Some("/home/u")),
+            PathBuf::from("/from/env")
         );
     }
 
@@ -213,14 +193,14 @@ mod tests {
     fn empty_env_dir_falls_back_to_home() {
         let home = absolute_home();
         assert_eq!(
-            resolve_repo_with(None, Some(""), Some(home)),
-            format!("{home}/nix_setting")
+            resolve_test_repo(None, Some(""), Some(home)),
+            Path::new(home).join("nix_setting")
         );
     }
 
     #[test]
     fn empty_home_falls_back_to_current_directory() {
-        assert_eq!(resolve_repo_with(None, None, Some("")), ".");
+        assert_eq!(resolve_test_repo(None, None, Some("")), PathBuf::from("."));
     }
 
     #[cfg(unix)]

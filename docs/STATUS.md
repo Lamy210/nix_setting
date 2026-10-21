@@ -4,14 +4,14 @@
 
 最終更新: 2026-10-21
 
-## 2026-10-21: repository path identity（進行中）
+## 2026-10-21: repository path identity（実装マージ済み・archive 準備中）
 
-- `develop@f91a96c` に OpenSpec / design PR #237 を merge 済み。`refactor/repository-path-identity-implementation` の Draft PR #238 は実装中で、**未マージ**。
-- Core の `RepositoryPath` / `EffectiveSourceRef` / OS-native subprocess argv への移行と、CLI / Desktop adapter 移行を進めている。2026-10-21 の `c0b44ee` で CLI `--repo: PathBuf`、Desktop native path、Managed Nix adapter を反映。一時的な自己編集 CI workflow は削除。
-- 最初の CI では non-UTF-8 CLI repo regression 2 件失敗。移行後 CI で `rust-quality` の Core unit test `repo::tests::current_git_revision_preserves_non_utf8_working_directory` が 398 pass / 1 fail。原因未確定のため診断強化して再検証する。
-- `openspec-check` は現在解決される OpenSpec により既存 canonical spec 3 件の長文 requirement warnings で strict failure。spec の規範的意味を維持する独立した修正が必要。
-- **merge 禁止条件**: required CI failures、macOS lanes の未確認、回帰検証未完了。Green / review / OpenSpec strict 確認後に PR #238 を `develop` へ squash merge、archive は別 PR。
-- リリース readiness: macOS Final Acceptance、production GUI updater activation の手動 gate は引き続き未完了。
+- 設計 PR #237、OpenSpec strict 検証修正 PR #241 (`03e750c`)、実装 PR #238 (`2ffcf1e`) を `develop` に squash merge 済み。
+- Rust Core の `RepositoryPath` / typed `EffectiveSourceRef`、`OsString` 対応プロセス引数、CLI `--repo: PathBuf`、Desktop/Tauri の OS-native repository 解決に移行した。Linux の non-UTF-8 repository path と fake process argv を regression test で検証。
+- PR #238 の最終 HEAD `505b968` は Actions run `39519506446` で required CI、Rust、OpenSpec、macOS 15/26、Windows、CodeQL、release-artifact を含め全ジョブ成功。OpenSpec strict 問題 #239 も PR #241 で修正・close 済み。
+- 設計の migration step 8 に基づき、残存する旧 String-based `resolve_repo` / `resolve_repo_with` / `effective_ref` を follow-up PR で削除し、テスト・公開 exports を path-native API に統一する。完了後、OpenSpec を別の `chore/archive-*` PR で archive/spec sync する。
+- **意図的な制限**: upstream Nix の local flake parser が全 non-UTF-8 path を受理することまでは保証しない。GUI の AppleScript/pkexec による権限昇格は引き続き non-UTF-8 repo path を fail-closed で拒否する。
+- リリース readiness: macOS Final Acceptance、production GUI updater activation の手動 gate は別途未完了。CI dependency-update の PR 作成権限問題は issue #240 で追跡中。
 
 ## 完成済み
 
