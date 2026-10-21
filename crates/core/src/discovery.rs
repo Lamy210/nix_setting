@@ -76,22 +76,39 @@ impl ConfigurationTarget {
         self.platform != Platform::Unsupported && self.architecture != Architecture::Unsupported
     }
 
-    /// apply/switch 用の flake 参照 (`<repo>#darwinConfigurations.<name>` / `#homeConfigurations.<name>`)
-    pub fn switch_ref(&self, repo: &str) -> String {
+    /// apply/switch 用の flake output fragment。
+    /// repository/source identity は含めず、呼び出し側が OS-native source arg と連結する。
+    pub fn switch_fragment(&self) -> String {
         if self.platform == Platform::MacOS {
-            format!("{repo}#darwinConfigurations.{}", self.name)
+            format!("#darwinConfigurations.{}", self.name)
         } else {
-            format!("{repo}#homeConfigurations.{}", self.name)
+            format!("#homeConfigurations.{}", self.name)
         }
     }
 
-    /// build (dry-run) 用の flake 参照 (`...system` / `...activationPackage`)
-    pub fn build_ref(&self, repo: &str) -> String {
+    /// build (dry-run / activationPackage) 用の flake output fragment。
+    /// repository/source identity は含めず、ASCII の SchneeForge-owned suffix のみ返す。
+    pub fn build_fragment(&self) -> String {
         if self.platform == Platform::MacOS {
-            format!("{repo}#darwinConfigurations.{}.system", self.name)
+            format!("#darwinConfigurations.{}.system", self.name)
         } else {
-            format!("{repo}#homeConfigurations.{}.activationPackage", self.name)
+            format!("#homeConfigurations.{}.activationPackage", self.name)
         }
+    }
+
+    /// apply/switch 用の flake 参照 (`<repo>#darwinConfigurations.<name>` / `#homeConfigurations.<name>`)
+    ///
+    /// 移行中の textual compatibility helper。repository path を実行 argv に渡す新規コードは
+    /// [`Self::switch_fragment`] と `EffectiveSourceRef::with_fragment` を使用する。
+    pub fn switch_ref(&self, repo: &str) -> String {
+        format!("{repo}{}", self.switch_fragment())
+    }
+
+    /// build (dry-run) 用の flake 参照 (`...system` / `...activationPackage`)
+    ///
+    /// 移行中の textual compatibility helper。実行用途では [`Self::build_fragment`] を使う。
+    pub fn build_ref(&self, repo: &str) -> String {
+        format!("{repo}{}", self.build_fragment())
     }
 }
 
@@ -246,6 +263,43 @@ mod tests {
     #[test]
     fn target_display_is_name() {
         assert_eq!(detect_target_for("linux", "x86_64").to_string(), "linux");
+    }
+
+    #[test]
+    fn target_fragments_are_source_independent_ascii_suffixes() {
+        let mac = detect_target_for("macos", "aarch64");
+        assert_eq!(
+            mac.switch_fragment(),
+            "#darwinConfigurations.darwin-aarch64"
+        );
+        assert_eq!(
+            mac.build_fragment(),
+            "#darwinConfigurations.darwin-aarch64.system"
+        );
+        assert!(mac.switch_fragment().is_ascii());
+        assert!(mac.build_fragment().is_ascii());
+
+        let linux = detect_target_for("linux", "x86_64");
+        assert_eq!(linux.switch_fragment(), "#homeConfigurations.linux");
+        assert_eq!(
+            linux.build_fragment(),
+            "#homeConfigurations.linux.activationPackage"
+        );
+        assert!(linux.switch_fragment().is_ascii());
+        assert!(linux.build_fragment().is_ascii());
+    }
+
+    #[test]
+    fn textual_ref_helpers_remain_compatible_during_migration() {
+        let target = detect_target_for("linux", "x86_64");
+        assert_eq!(
+            target.switch_ref("/tmp/repo"),
+            "/tmp/repo#homeConfigurations.linux"
+        );
+        assert_eq!(
+            target.build_ref("/tmp/repo"),
+            "/tmp/repo#homeConfigurations.linux.activationPackage"
+        );
     }
 
     #[test]

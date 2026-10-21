@@ -2,7 +2,16 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-10-03
+最終更新: 2026-10-21
+
+## 2026-10-21: repository path identity（進行中）
+
+- `develop@f91a96c` に OpenSpec / design PR #237 を merge 済み。`refactor/repository-path-identity-implementation` の Draft PR #238 は実装中で、**未マージ**。
+- Core の `RepositoryPath` / `EffectiveSourceRef` / OS-native subprocess argv への移行と、CLI / Desktop adapter 移行を進めている。2026-10-21 の `c0b44ee` で CLI `--repo: PathBuf`、Desktop native path、Managed Nix adapter を反映。一時的な自己編集 CI workflow は削除。
+- 最初の CI では non-UTF-8 CLI repo regression 2 件失敗。移行後 CI で `rust-quality` の Core unit test `repo::tests::current_git_revision_preserves_non_utf8_working_directory` が 398 pass / 1 fail。原因未確定のため診断強化して再検証する。
+- `openspec-check` は現在解決される OpenSpec により既存 canonical spec 3 件の長文 requirement warnings で strict failure。spec の規範的意味を維持する独立した修正が必要。
+- **merge 禁止条件**: required CI failures、macOS lanes の未確認、回帰検証未完了。Green / review / OpenSpec strict 確認後に PR #238 を `develop` へ squash merge、archive は別 PR。
+- リリース readiness: macOS Final Acceptance、production GUI updater activation の手動 gate は引き続き未完了。
 
 ## 完成済み
 

@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -211,7 +212,11 @@ fn ensure_setup_nix_and_flakes_with(
 }
 
 /// 初回セットアップ: Nix 確認 → flakes 有効化 + 再診断 → apply
-pub fn setup(repo: &str, store: &StateStore, tc: &ToolInventory) -> Result<ApplyResult> {
+pub fn setup<P: AsRef<Path> + ?Sized>(
+    repo: &P,
+    store: &StateStore,
+    tc: &ToolInventory,
+) -> Result<ApplyResult> {
     ensure_setup_nix_and_flakes_with(tc, preflight, enable_flakes)?;
     let target = detect_target();
     apply(&target, repo, store, tc, false)
@@ -236,7 +241,11 @@ pub fn generate_config(_repo: &str, username: &str) -> Result<()> {
 /// clone は Git を必要とする操作。
 pub const DEFAULT_REPO_URL: &str = "https://github.com/Lamy210/nix_setting.git";
 
-pub fn clone_repo(url: &str, dest: &str, tc: &ToolInventory) -> Result<String> {
+pub fn clone_repo<P: AsRef<Path> + ?Sized>(
+    url: &str,
+    dest: &P,
+    tc: &ToolInventory,
+) -> Result<String> {
     let effective_url = if url.trim().is_empty() {
         crate::source::repo_url()
     } else {
@@ -249,14 +258,12 @@ pub fn clone_repo(url: &str, dest: &str, tc: &ToolInventory) -> Result<String> {
         return Err(Error::Precondition("invalid repository URL".to_string()));
     }
     let git = tc.require_git()?;
-    run_capture(
-        &git.path,
-        &[
-            "clone".to_string(),
-            effective_url.to_string(),
-            dest.to_string(),
-        ],
-    )
+    let args = [
+        OsString::from("clone"),
+        OsString::from(effective_url),
+        dest.as_ref().as_os_str().to_os_string(),
+    ];
+    run_capture(&git.path, &args)
 }
 
 #[cfg(test)]
@@ -553,6 +560,50 @@ mod tests {
     fn generate_config_rejects_invalid_username() {
         assert!(generate_config("/tmp", "").is_err());
         assert!(generate_config("/tmp", "a\nb").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn clone_repo_preserves_non_utf8_destination_bytes() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "schneeforge-clone-native-dest-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let capture = root.join("argv-capture");
+        let git = root.join("fake-git");
+        std::fs::write(
+            &git,
+            format!(
+                "#!/bin/sh\nprintf '%s' \"$3\" > '{}'\nprintf 'ok\\n'\n",
+                capture.display()
+            ),
+        )
+        .unwrap();
+        let mut perms = std::fs::metadata(&git).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&git, perms).unwrap();
+
+        let tc = ToolInventory {
+            nix: None,
+            git: Some(ResolvedTool::new(git, ToolSource::Path)),
+            homebrew: None,
+            nh: None,
+        };
+        let dest = PathBuf::from(OsString::from_vec(b"/tmp/repository-\xff".to_vec()));
+
+        let output = clone_repo("https://example.com/repo.git", &dest, &tc).unwrap();
+        assert_eq!(output.trim(), "ok");
+        assert_eq!(
+            std::fs::read(&capture).unwrap(),
+            dest.as_os_str().as_bytes()
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use schneeforge_core::{
-    detect_target, release_page_url, repo_url, resolve_repo, scan, Diagnostics, Error, Manifest,
+    detect_target, release_page_url, repo_url, resolve_repo_path, scan, Diagnostics, Error, Manifest,
     PreflightReport, StateStore, ToolInventory, VerifyReport,
 };
 use serde::Serialize;
@@ -332,7 +332,7 @@ async fn run_upgrade(app: tauri::AppHandle) -> Result<CommandOutput, String> {
 #[tauri::command]
 async fn run_update(state: tauri::State<'_, CachedToolInventory>) -> Result<CommandOutput, String> {
     let tc = state.get_or_discover()?;
-    let repo = resolve_repo(None);
+    let repo = resolve_repo_path(None).into_path_buf();
     tauri::async_runtime::spawn_blocking(move || {
         match schneeforge_core::update(&repo, &schneeforge_core::StateStore::default(), &tc, true) {
             Ok(r) => {
@@ -434,7 +434,7 @@ async fn run_clone_repo(
     state: tauri::State<'_, CachedToolInventory>,
 ) -> Result<CommandOutput, String> {
     let tc = state.get_or_discover()?;
-    let dest = resolve_repo(None);
+    let dest = resolve_repo_path(None).into_path_buf();
     tauri::async_runtime::spawn_blocking(move || {
         match schneeforge_core::clone_repo(&url, &dest, &tc) {
             Ok(out) => CommandOutput {
@@ -469,7 +469,7 @@ async fn run_source_init(
                 output: "git not found; managed source requires git to resolve tags".to_string(),
             };
         };
-        let repo = resolve_repo(None);
+        let repo = resolve_repo_path(None).into_path_buf();
         match schneeforge_core::source_init(
             &repo,
             &schneeforge_core::StateStore::default(),
@@ -514,7 +514,7 @@ async fn run_source_init(
 #[tauri::command]
 async fn run_plan(state: tauri::State<'_, CachedToolInventory>) -> Result<CommandOutput, String> {
     let tc = state.get_or_discover()?;
-    let repo = resolve_repo(None);
+    let repo = resolve_repo_path(None).into_path_buf();
     tauri::async_runtime::spawn_blocking(move || match schneeforge_core::plan(&repo, &tc, true) {
         Ok(r) => CommandOutput {
             success: true,
@@ -532,10 +532,13 @@ async fn run_plan(state: tauri::State<'_, CachedToolInventory>) -> Result<Comman
 #[tauri::command]
 fn run_verify(state: tauri::State<'_, CachedToolInventory>) -> Result<VerifyReport, String> {
     let tc = state.get_or_discover()?;
-    Ok(schneeforge_core::verify(&resolve_repo(None), &tc))
+    Ok(schneeforge_core::verify(&resolve_repo_path(None).into_path_buf(), &tc))
 }
 
-fn load_dashboard_manifest(repo: &str, store: &StateStore) -> Result<Option<Manifest>, String> {
+fn load_dashboard_manifest(
+    repo: &std::path::Path,
+    store: &StateStore,
+) -> Result<Option<Manifest>, String> {
     // Dashboard は manifest 非存在/parse failure を optional 表示として扱う既存挙動を
     // 維持する。一方、state error は「未設定」と同義ではないため fail-closed で
     // caller へ伝播する (update-state-load-fail-closed D5)。
@@ -580,7 +583,7 @@ async fn get_dashboard(
                 .map_err(|e| e.to_string()),
             None => Err("git not found; cannot resolve available release".to_string()),
         };
-        let repo = resolve_repo(None);
+        let repo = resolve_repo_path(None).into_path_buf();
         let manifest = load_dashboard_manifest(&repo, &store)?;
         Ok(schneeforge_core::snapshot(
             env!("CARGO_PKG_VERSION"),
@@ -621,7 +624,7 @@ fn open_release(version: String) -> Result<CommandOutput, String> {
 #[tauri::command]
 async fn get_profiles() -> Result<schneeforge_core::ProfileList, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let repo = resolve_repo(None);
+        let repo = resolve_repo_path(None).into_path_buf();
         schneeforge_core::list_profiles(&repo).map_err(|e| e.to_string())
     })
     .await
@@ -634,7 +637,7 @@ async fn get_profiles() -> Result<schneeforge_core::ProfileList, String> {
 #[tauri::command]
 async fn set_profile(name: String) -> Result<CommandOutput, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let repo = resolve_repo(None);
+        let repo = resolve_repo_path(None).into_path_buf();
         match schneeforge_core::set_selection(&repo, &name) {
             Ok(()) => CommandOutput {
                 success: true,
@@ -726,7 +729,7 @@ fn nix_prepare_plan_blocking() -> CommandOutput {
             output: "existing Nix detected; SchneeForge does not overwrite".to_string(),
         };
     }
-    let repo = resolve_repo(None);
+    let repo = resolve_repo_path(None).into_path_buf();
     // manifest は repo file 優先 + embedded fallback。repo 未 clone でも
     // (fresh machine で誤って呼ばれた場合でも) embedded manifest で動作する
     let mn = match ManagedNix::load_prefer_repo(Some(std::path::Path::new(&repo))) {
@@ -850,8 +853,7 @@ fn run_escalated_cli(
             }
         }
     };
-    let repo_dir = resolve_repo(None);
-    let repo_path = std::path::PathBuf::from(&repo_dir);
+    let repo_dir = resolve_repo_path(None).into_path_buf();
 
     let (program, args) = if is_root() {
         let mut args: Vec<String> = match op {
@@ -868,7 +870,7 @@ fn run_escalated_cli(
         }
         (cli_bin, args)
     } else {
-        match escalate_command(&cli_bin, op, &repo_path) {
+        match escalate_command(&cli_bin, op, &repo_dir) {
             Ok(cmd) => cmd,
             Err(e) => {
                 return CommandOutput {
@@ -887,7 +889,7 @@ fn run_escalated_cli(
         .stderr(std::process::Stdio::piped());
     if is_root() {
         // 直接実行時は helper 経由と同じ env を明示する
-        cmd.env("NIX_SETTING_DIR", &repo_dir);
+        cmd.env("NIX_SETTING_DIR", repo_dir.as_os_str());
     }
 
     let mut child = match cmd.spawn() {
@@ -1300,7 +1302,7 @@ mod tests {
         let store = StateStore::new(dir.join("state.json"));
         std::fs::write(store.path(), "{not-json").unwrap();
 
-        let err = load_dashboard_manifest(repo.to_str().unwrap(), &store).unwrap_err();
+        let err = load_dashboard_manifest(repo.as_path(), &store).unwrap_err();
         assert!(err.contains("state error"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1316,7 +1318,7 @@ mod tests {
         let store = StateStore::new(dir.join("state.json"));
 
         let manifest = load_dashboard_manifest(
-            dir.join("missing-repo").to_str().unwrap(),
+            dir.join("missing-repo").as_path(),
             &store,
         )
         .unwrap();
@@ -1753,7 +1755,7 @@ mod tests {
         );
         // escalate_command は repo_dir 引数を取る (core が env へ組み立てる)
         assert!(
-            rs.contains("escalate_command(&cli_bin, EscalatedOp::NixInstall, &repo_path)"),
+            rs.contains("escalate_command(&cli_bin, op, &repo_dir)"),
             "escalation must pass the repo dir to the helper command builder"
         );
         let core = include_str!("../../../../crates/core/src/managed_nix/escalate.rs");
