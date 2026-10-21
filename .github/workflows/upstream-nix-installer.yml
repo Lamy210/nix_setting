@@ -267,6 +267,6 @@ jobs:
           {
             printf '### nix-installer %s bump PR step failed\n\n' "$TARGET_VERSION"
             printf 'Inspect **Create or update bump PR** logs to determine whether the change branch was pushed successfully.\n\n'
-            printf 'If GitHub rejected PR creation, ask a repository admin to review **Settings → Actions → General → Workflow permissions** and organization policy. YAML `pull-requests: write` does not override that restriction.\n\n'
-            printf 'Before opening a recovery PR manually, look for `bump/nix-installer-%s` and any existing PR to avoid duplicates. Follow design.md D3 release-cycle and acceptance gates; do not auto-merge. See issue #240.\n' "$TARGET_VERSION"
+            printf 'If GitHub rejected PR creation, ask a repository admin to review **Settings → Actions → General → Workflow permissions** and organization policy. YAML pull-requests: write does not override that restriction.\n\n'
+            printf 'Before opening a recovery PR manually, look for bump/nix-installer-%s and any existing PR to avoid duplicates. Follow design.md D3 release-cycle and acceptance gates; do not auto-merge. See issue #240.\n' "$TARGET_VERSION"
           } >> "$GITHUB_STEP_SUMMARY"
