@@ -1980,6 +1980,48 @@ mod tests {
         (OperationLock::new(dir.join("operation.lock")), dir)
     }
 
+    #[cfg(unix)]
+    fn fake_git_fixture_dir(name: &str) -> PathBuf {
+        // A PID-only path can be reused by a subsequent test process while
+        // its fake-git executable is still running (ETXTBSY on Unix).
+        // Use a process-local sequence and an absolute timestamp, and do not
+        // delete an existing fixture directory before creating a new one.
+        let sequence = OPERATION_LOCK_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock before Unix epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "sf-{name}-{}-{timestamp}-{sequence}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&dir).expect("create unique fake-git test directory");
+        dir
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fake_git_fixture_directories_do_not_reuse_existing_scripts() {
+        let first = fake_git_fixture_dir("unique-fake-git");
+        let sentinel = first.join("fake-git");
+        std::fs::write(&sentinel, b"original executable").unwrap();
+
+        let second = fake_git_fixture_dir("unique-fake-git");
+        assert_ne!(first, second, "fixture paths must differ");
+        assert!(
+            !second.join("fake-git").exists(),
+            "a fresh fixture must not inherit another test's fake git"
+        );
+        assert_eq!(
+            std::fs::read(&sentinel).unwrap(),
+            b"original executable",
+            "allocating a second fixture must not overwrite the first"
+        );
+
+        std::fs::remove_dir_all(&first).unwrap();
+        std::fs::remove_dir_all(&second).unwrap();
+    }
+
     #[test]
     fn current_branch_is_some_on_branch_checkout() {
         let Some((repo, git_bin)) = git_repo_fixture("branch") else {
@@ -1997,12 +2039,7 @@ mod tests {
     fn sync_fails_closed_when_branch_inspection_command_fails() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = std::env::temp_dir().join(format!(
-            "sf-sync-ref-inspection-error-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = fake_git_fixture_dir("sync-ref-inspection-error");
 
         let fake_git = dir.join("fake-git");
         std::fs::write(
@@ -2042,9 +2079,7 @@ esac
     fn release_update_fails_closed_when_tag_fetch_fails() {
         use std::os::unix::fs::PermissionsExt;
 
-        let repo =
-            std::env::temp_dir().join(format!("sf-release-fetch-error-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&repo);
+        let repo = fake_git_fixture_dir("release-fetch-error");
         std::fs::create_dir_all(repo.join(".git")).unwrap();
 
         let marker = repo.join("continued-after-fetch");
@@ -2088,9 +2123,7 @@ esac
     fn ref_inspection_errors_abort_effectful_consumers_before_mutation() {
         use std::os::unix::fs::PermissionsExt;
 
-        let repo =
-            std::env::temp_dir().join(format!("sf-ref-consumers-error-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&repo);
+        let repo = fake_git_fixture_dir("ref-consumers-error");
         std::fs::create_dir_all(repo.join(".git")).unwrap();
 
         let fake_git = repo.join("fake-git");
