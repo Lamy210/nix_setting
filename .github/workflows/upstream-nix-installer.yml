@@ -198,6 +198,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Create or update bump PR
+        id: bump_pr
         if: steps.slsa.outputs.slsa_failed != 'true' && steps.check.outputs.skip != 'true'
         env:
           TARGET_VERSION: ${{ steps.ver.outputs.version }}
@@ -256,3 +257,16 @@ jobs:
               --title "bump(nix-installer): ${TARGET_VERSION}" \
               --body-file /tmp/pr-body.md
           fi
+
+      - name: Explain bump PR creation failure
+        if: ${{ failure() && steps.bump_pr.outcome == 'failure' }}
+        env:
+          TARGET_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          echo "::error title=Installer bump PR failed::Inspect the branch push and gh pr create log. Repository or organization policy may block PR creation even with pull-requests: write."
+          {
+            printf '### nix-installer %s bump PR step failed\n\n' "$TARGET_VERSION"
+            printf 'Inspect **Create or update bump PR** logs to determine whether the change branch was pushed successfully.\n\n'
+            printf 'If GitHub rejected PR creation, ask a repository admin to review **Settings → Actions → General → Workflow permissions** and organization policy. YAML pull-requests: write does not override that restriction.\n\n'
+            printf 'Before opening a recovery PR manually, look for bump/nix-installer-%s and any existing PR to avoid duplicates. Follow design.md D3 release-cycle and acceptance gates; do not auto-merge. See issue #240.\n' "$TARGET_VERSION"
+          } >> "$GITHUB_STEP_SUMMARY"
