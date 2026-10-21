@@ -22,19 +22,19 @@ fi
 # Reopening that release automatically would override the review decision.
 # The colon separator is safe: both PR number and state have constrained formats.
 if ! matching_prs=$(gh pr list --state all --head "$branch" --base develop \
-    --limit 100 --json number,state --jq '.[] | [.number, .state] | map(tostring) | join(":")'); then
+  --limit 100 --json number,state --jq '.[] | [.number, .state] | map(tostring) | join(":")'); then
   echo "::error::Cannot list existing installer bump PRs; refusing to create a possible duplicate." >&2
   exit 1
 fi
 
 if [ -n "$matching_prs" ]; then
   # Do not guess when a branch has multiple historical pull requests.
-  mapfile -t pr_matches <<< "$matching_prs"
+  mapfile -t pr_matches <<<"$matching_prs"
   if [ "${#pr_matches[@]}" -ne 1 ]; then
     echo "::error::Multiple installer bump PRs found for $branch; review manually." >&2
     exit 1
   fi
-  IFS=: read -r number state <<< "${pr_matches[0]}"
+  IFS=: read -r number state <<<"${pr_matches[0]}"
   if [[ ! $number =~ ^[0-9]+$ ]] ||
     [[ $state != OPEN && $state != CLOSED && $state != MERGED ]]; then
     echo "::error::Unexpected installer bump PR lookup response; refusing create." >&2
