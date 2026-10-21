@@ -886,8 +886,12 @@ mod tests {
         let store = crate::state::StateStore::new(dir.join("state.json"));
 
         // managed でない場合は OS-native checkout を返す
-        let checkout = EffectiveSourceRef::Checkout(RepositoryPath::new(Path::new("/tmp/repo").to_path_buf()));
-        assert_eq!(effective_source_ref(Path::new("/tmp/repo"), &store).unwrap(), checkout);
+        let checkout =
+            EffectiveSourceRef::Checkout(RepositoryPath::new(Path::new("/tmp/repo").to_path_buf()));
+        assert_eq!(
+            effective_source_ref(Path::new("/tmp/repo"), &store).unwrap(),
+            checkout
+        );
 
         let mut state = crate::state::State {
             source: Some(managed_state(SourceKind::ReleaseStable, "v0.2.0", "stable")),
@@ -939,7 +943,10 @@ mod tests {
             revision: None,
         });
         store.save(&state).unwrap();
-        assert_eq!(effective_source_ref(Path::new("/tmp/repo"), &store).unwrap(), checkout);
+        assert_eq!(
+            effective_source_ref(Path::new("/tmp/repo"), &store).unwrap(),
+            checkout
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

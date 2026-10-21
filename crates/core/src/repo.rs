@@ -143,7 +143,10 @@ mod tests {
 
     #[test]
     fn cli_repo_wins() {
-        assert_eq!(resolve_test_repo(Some("/custom"), None, None), PathBuf::from("/custom"));
+        assert_eq!(
+            resolve_test_repo(Some("/custom"), None, None),
+            PathBuf::from("/custom")
+        );
     }
 
     #[test]
@@ -165,7 +168,10 @@ mod tests {
 
     #[test]
     fn relative_home_falls_back_to_current_directory() {
-        assert_eq!(resolve_test_repo(None, None, Some("relative-home")), PathBuf::from("."));
+        assert_eq!(
+            resolve_test_repo(None, None, Some("relative-home")),
+            PathBuf::from(".")
+        );
     }
 
     #[test]

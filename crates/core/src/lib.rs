@@ -144,8 +144,8 @@ pub use profile::{
 };
 pub use release_metadata::{channel_for_version, release_page_url, ReleaseMetadata};
 pub use repo::{
-    current_git_revision, current_git_revision_path, resolve_repo_path, Repo,
-    RepoResolver, RepositoryPath,
+    current_git_revision, current_git_revision_path, resolve_repo_path, Repo, RepoResolver,
+    RepositoryPath,
 };
 pub use self_update::{
     current_platform_asset, expected_sha256, plan as plan_self_update, platform_asset,
@@ -153,8 +153,8 @@ pub use self_update::{
     SelfUpdatePlan, SelfUpdateStatus,
 };
 pub use source::{
-    classify_release_tag, effective_source_ref, github_slug, latest_tag_for_channel,
-    repo_url, EffectiveSourceRef, SourceKind, SourceResolver, SourceState,
+    classify_release_tag, effective_source_ref, github_slug, latest_tag_for_channel, repo_url,
+    EffectiveSourceRef, SourceKind, SourceResolver, SourceState,
 };
 pub use source_files::load_manifest_for;
 pub use state::{State, StateStore};
