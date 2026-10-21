@@ -568,12 +568,17 @@ mod tests {
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
         use std::os::unix::fs::PermissionsExt;
 
+        // Do not overwrite a previously executing fake-git script if a
+        // short-lived test process PID has been reused on the CI runner.
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock before Unix epoch")
+            .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "schneeforge-clone-native-dest-{}",
+            "schneeforge-clone-native-dest-{}-{timestamp}",
             std::process::id()
         ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir(&root).unwrap();
         let capture = root.join("argv-capture");
         let git = root.join("fake-git");
         std::fs::write(
