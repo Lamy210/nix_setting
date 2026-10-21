@@ -298,11 +298,10 @@ mod tests {
         // Exercise the real Git process instead of a newly written fake-git
         // executable: an executable being published on the CI runner can
         // transiently return ETXTBSY, unrelated to path-native handling.
-        let available = std::process::Command::new("git").arg("--version").output();
-        if !available.is_ok_and(|output| output.status.success()) {
+        let Some(git) = crate::tool::ToolResolver::new().resolve_tool("git") else {
             eprintln!("skipping: git not available");
             return;
-        }
+        };
 
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -315,7 +314,7 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
 
         let repo = root.join(std::ffi::OsString::from_vec(b"repo-\xff".to_vec()));
-        let initialized = std::process::Command::new("git")
+        let initialized = std::process::Command::new(&git.path)
             .arg("init")
             .arg("-q")
             .arg(&repo)
@@ -326,7 +325,7 @@ mod tests {
             "git init failed: {}",
             String::from_utf8_lossy(&initialized.stderr)
         );
-        let committed = std::process::Command::new("git")
+        let committed = std::process::Command::new(&git.path)
             .arg("-C")
             .arg(&repo)
             .args([
@@ -348,7 +347,7 @@ mod tests {
             String::from_utf8_lossy(&committed.stderr)
         );
 
-        let expected = std::process::Command::new("git")
+        let expected = std::process::Command::new(&git.path)
             .arg("-C")
             .arg(&repo)
             .args(["rev-parse", "HEAD"])
@@ -364,7 +363,7 @@ mod tests {
         assert_eq!(revision.len(), 40, "expected Git SHA-1 test commit");
 
         assert_eq!(
-            current_git_revision_path(&repo, Path::new("git")).as_deref(),
+            current_git_revision_path(&repo, &git.path).as_deref(),
             Some(revision),
             "path-native git revision lookup must work with non-UTF8 directory bytes"
         );
