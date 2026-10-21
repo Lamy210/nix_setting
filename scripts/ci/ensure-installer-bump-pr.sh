@@ -11,7 +11,7 @@ version=$1
 branch=$2
 body_file=$3
 
-if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
   [ "$branch" != "bump/nix-installer-$version" ] ||
   [ ! -f "$body_file" ]; then
   echo "::error::Invalid installer bump PR input." >&2
