@@ -7,10 +7,10 @@
 ## 2026-10-23: CI / dependency update follow-up
 
 - PR #251 (`fix(ci): respect closed installer bump PR decisions on reruns`) は最終 HEAD `ada7f18` の 26/26 checks が成功した後、`develop` へ squash merge 済み（`e869546`）。fork 同名 PR の誤認、CLOSED/MERGED PR の再作成、事前確認前の branch push を防止。
-- Draft PR #248（2026-10-18 の `flake.lock` 回復）は `develop` を履歴書換えなしで取り込み、HEAD `ec37bcf`。比較差分は `flake.lock` のみ。更新後 CI / upstream 互換性 / リリース受入確認が済むまで Draft を維持し、マージしない。
+- Draft PR #248（2026-10-18 の `flake.lock` 回復）は HEAD `ec37bcf`、当時の `develop` との差分は `flake.lock` のみ。その後 PR #253 が `develop` にマージされたため、再同期と最新版の CI / upstream 互換性 / リリース受入確認が必要。Draft を維持してマージしない。
 - `develop` push run [39811684901](https://github.com/Lamy210/nix_setting/actions/runs/39811684901) で `managed-nix-e2e` の Docker systemd 初期化に失敗（`setup_file`, `docker exec systemctl` exit 127）。musl release build は成功、12件の lifecycle tests は実行前に中止。真因は未確定であり flaky と判定しない。
-- PR #253 でコンテナ停止時の早期失敗、apt/bootstrap エラーログの露出、およびモック Docker Bats 回帰テストを検証中。**既存 lifecycle gate の条件は緩和しない。**
-- Issue #252 に複数の macOS CI run の queue/scheduling と実行 step の実測を記録。Home Manager build と runner 開始待機を分けて評価する。実施前にサンプル数と cache hit 指標を増やす。
+- PR #253（Docker E2E 起動時の fail-fast・apt/systemd ログ診断・モック Docker Bats）は最終 HEAD `cf500975` で 26/26 checks 成功後、`develop` に squash merge 済み（`a46c77c`）。**既存 lifecycle gate の条件は緩和していない。** 以前の `develop` run `39811684901` の apt/systemd 真因は未確定。
+- Issue #252 に macOS CI queue/scheduling と実行 step の実測を記録。PR #254 はオフライン時間計測レポーター・7件の回帰テスト・入力データの収集手順を追加し、PR #253 マージ後の `develop` を HEAD `cd3277a` へ履歴書換えなしで同期。最新版の CI/レビュー待ち。計測は高速化ではなく、着手前に成功実行10件以上・cache provenanceを収集する。
 - Issue #240（定期依存更新 PR 作成の repository/org 権限）は未解決。Draft #244（nix-installer 2.35.3）は macOS lifecycle/配布受入完了までマージ禁止。
 
 
@@ -24,7 +24,7 @@
 - **意図的な制限**: upstream Nix の local flake parser が全 non-UTF-8 path を受理することまでは保証しない。GUI の AppleScript/pkexec による権限昇格は引き続き non-UTF-8 repo path を fail-closed で拒否する。
 - 定期更新ワークフローのPR作成失敗時の診断と復旧案内は PR #245 (`c69f5f4`) で `develop` に squash merge 済み。Issue #240 のrepository/organization側PR作成権限は引き続き未解決。
 - 更新ワークフローの再実行安全性: PR #246 (`a0907be`) を `develop` に squash merge 済み。nix-installer bump branch / 既存PR本文をforce-push・本文上書きから保護。manifest以外の差分、ハッシュ不一致、remote障害、非`develop` manual dispatchはfail-closed。最終HEAD `bd1ca2f` はCI 22/22ジョブ、26/26 checksが成功。
-- CI follow-up: installer PR lookup API 障害時の fail-closed 修正 PR #247 は `develop` にマージ済み。PR #251 ではさらに、fork と同名の head branch の誤認防止（REST `head=OWNER:BRANCH`）、過去の閉鎖/マージ済みPRの owner-qualified 全件検索、ブランチ作成・push 前の preflight 拒否、関連 Bats 回帰テストを追加して検証中。最終HEADのCI/レビュー確認が終わるまではマージしない。issue #240 の GitHub Actions によるPR作成の管理者側設定は未解決。
+- CI follow-up: PR #247（installer lookup API 障害時の fail-closed）と PR #251（fork 同名 branch の誤認防止、閉鎖/マージ済みPR確認、push 前 preflight、Bats 回帰テスト）は `develop` にマージ済み。issue #240 の GitHub Actions による PR 作成の管理者側設定は未解決。
 - リリース readiness: macOS Final Acceptance、production GUI updater activation の手動 gate は別途未完了。CI dependency-update の PR 作成権限問題は issue #240 で追跡中。既存 `bump/nix-installer-2.35.3` branch は Draft PR #244 として救済済み（release-cycle acceptance 未完了のためマージ禁止）。
 
 ## 完成済み
