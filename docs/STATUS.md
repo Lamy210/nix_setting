@@ -14,7 +14,7 @@
 - **意図的な制限**: upstream Nix の local flake parser が全 non-UTF-8 path を受理することまでは保証しない。GUI の AppleScript/pkexec による権限昇格は引き続き non-UTF-8 repo path を fail-closed で拒否する。
 - 定期更新ワークフローのPR作成失敗時の診断と復旧案内は PR #245 (`c69f5f4`) で `develop` に squash merge 済み。Issue #240 のrepository/organization側PR作成権限は引き続き未解決。
 - 更新ワークフローの再実行安全性: PR #246 (`a0907be`) を `develop` に squash merge 済み。nix-installer bump branch / 既存PR本文をforce-push・本文上書きから保護。manifest以外の差分、ハッシュ不一致、remote障害、非`develop` manual dispatchはfail-closed。最終HEAD `bd1ca2f` はCI 22/22ジョブ、26/26 checksが成功。
-- CI follow-up: nix-installer PR検索が失敗しても新規PRの作成へ進まない fail-closed 改善（APIエラー、既存PR、新規PR、入力異常の回帰検証）をtopic PRで検証中。issue #240のrepo設定は未解決。
+- CI follow-up: installer PR lookup API 障害時の fail-closed 修正 PR #247 は `develop` にマージ済み。PR #251 ではさらに、fork と同名の head branch の誤認防止（REST `head=OWNER:BRANCH`）、過去の閉鎖/マージ済みPRの owner-qualified 全件検索、ブランチ作成・push 前の preflight 拒否、関連 Bats 回帰テストを追加して検証中。最終HEADのCI/レビュー確認が終わるまではマージしない。issue #240 の GitHub Actions によるPR作成の管理者側設定は未解決。
 - リリース readiness: macOS Final Acceptance、production GUI updater activation の手動 gate は別途未完了。CI dependency-update の PR 作成権限問題は issue #240 で追跡中。既存 `bump/nix-installer-2.35.3` branch は Draft PR #244 として救済済み（release-cycle acceptance 未完了のためマージ禁止）。
 
 ## 完成済み
