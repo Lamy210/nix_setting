@@ -2,7 +2,17 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-10-22
+最終更新: 2026-10-23
+
+## 2026-10-23: CI / dependency update follow-up
+
+- PR #251 (`fix(ci): respect closed installer bump PR decisions on reruns`) は最終 HEAD `ada7f18` の 26/26 checks が成功した後、`develop` へ squash merge 済み（`e869546`）。fork 同名 PR の誤認、CLOSED/MERGED PR の再作成、事前確認前の branch push を防止。
+- Draft PR #248（2026-10-18 の `flake.lock` 回復）は `develop` を履歴書換えなしで取り込み、HEAD `ec37bcf`。比較差分は `flake.lock` のみ。更新後 CI / upstream 互換性 / リリース受入確認が済むまで Draft を維持し、マージしない。
+- `develop` push run [39811684901](https://github.com/Lamy210/nix_setting/actions/runs/39811684901) で `managed-nix-e2e` の Docker systemd 初期化に失敗（`setup_file`, `docker exec systemctl` exit 127）。musl release build は成功、12件の lifecycle tests は実行前に中止。真因は未確定であり flaky と判定しない。
+- PR #253 でコンテナ停止時の早期失敗、apt/bootstrap エラーログの露出、およびモック Docker Bats 回帰テストを検証中。**既存 lifecycle gate の条件は緩和しない。**
+- Issue #252 に複数の macOS CI run の queue/scheduling と実行 step の実測を記録。Home Manager build と runner 開始待機を分けて評価する。実施前にサンプル数と cache hit 指標を増やす。
+- Issue #240（定期依存更新 PR 作成の repository/org 権限）は未解決。Draft #244（nix-installer 2.35.3）は macOS lifecycle/配布受入完了までマージ禁止。
+
 
 ## 2026-10-21: repository path identity（実装完了・OpenSpec同期）
 
