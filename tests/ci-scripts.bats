@@ -1123,7 +1123,8 @@ SH
     bash "$helper" schneeforge-e2e-bats ubuntu:24.04
   [ "$status" -eq 0 ]
   grep -Fq "exec schneeforge-e2e-bats" "$calls"
-  ! grep -Fq "logs --tail" "$calls"
+  run grep -Fq "logs --tail" "$calls"
+  [ "$status" -ne 0 ]
 
   : > "$calls"
   run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=runfail \
