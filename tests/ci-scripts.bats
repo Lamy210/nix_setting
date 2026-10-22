@@ -857,6 +857,14 @@ PY
   workflow=.github/workflows/upstream-nix-installer.yml
   grep -Fq 'prepare-upstream-bump-branch.sh' "$workflow"
   grep -Fq 'ensure-installer-bump-pr.sh' "$workflow"
+  # A rejected PR must be detected before the branch helper can push it.
+  run python3 - "$workflow" <<'PY'
+import pathlib
+import sys
+workflow = pathlib.Path(sys.argv[1]).read_text()
+assert workflow.index('ensure-installer-bump-pr.sh --preflight') < workflow.index('prepare-upstream-bump-branch.sh')
+PY
+  [ "$status" -eq 0 ]
   grep -Fq 'preserving its current body' scripts/ci/ensure-installer-bump-pr.sh
   run grep -E -- 'git push --force|git checkout -B|gh pr edit' "$workflow"
   [ "$status" -ne 0 ]
@@ -937,6 +945,7 @@ PY
 # PR listing is a remote API request, not a reliable zero-or-one predicate.
 # A failed lookup must never cascade into PR creation on a reviewed branch.
 @test "installer bump PR lookup failure is fail-closed and successful retries are idempotent" {
+  export GITHUB_REPOSITORY=Lamy210/nix_setting
   fixture="$(mktemp -d)"
   mkdir -p "$fixture/bin"
   body="$fixture/body.md"
@@ -948,11 +957,21 @@ PY
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$GH_CALLS"
-if [ "$1" = pr ] && [ "$2" = list ]; then
+if [ "$1" = api ]; then
   if [ "$GH_LIST_FAIL" = 1 ]; then
     exit 43
   fi
-  printf '%s' "$GH_LIST_RESULT"
+  # Simulate a fork-owned same-name PR: an unqualified query returns it,
+  # but the repository-owner-qualified REST head filter excludes it.
+  if [ "${GH_FOREIGN_ONLY:-0}" = 1 ]; then
+    if [[ "$*" == *'head=Lamy210%3Abump/nix-installer-2.35.3'* ]]; then
+      printf ''
+    else
+      printf '999:CLOSED'
+    fi
+  else
+    printf '%s' "$GH_LIST_RESULT"
+  fi
 elif [ "$1" = pr ] && [ "$2" = create ]; then
   echo 'created'
 else
@@ -966,7 +985,8 @@ SH
   [ "$status" -ne 0 ]
   [[ "$output" == *"Cannot list existing installer bump PRs"* ]]
   [ "$(wc -l < "$calls")" -eq 1 ]
-  grep -Fq 'pr list ' "$calls"
+  grep -Fq 'api --paginate repos/Lamy210/nix_setting/pulls?state=all&head=Lamy210%3Abump/nix-installer-2.35.3&base=develop&per_page=100' "$calls"
+  grep -Fq -- '--jq' "$calls"
 
   : > "$calls"
   run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT=244:OPEN \
@@ -989,6 +1009,31 @@ SH
   [ "$status" -ne 0 ]
   [ ! -s "$calls" ]
 
+
+  # The read-only preflight must not create or push anything, even for
+  # a brand-new version. It must fail for reviewed/rejected versions.
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT="" \
+    bash "$helper" --preflight 2.35.3 bump/nix-installer-2.35.3
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"branch preparation may proceed"* ]]
+  [ "$(wc -l < "$calls")" -eq 1 ]
+
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT=244:CLOSED \
+    bash "$helper" --preflight 2.35.3 bump/nix-installer-2.35.3
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"refusing to recreate"* ]]
+  [ "$(wc -l < "$calls")" -eq 1 ]
+
+  # A fork-owned PR with the same branch name must not suppress ours.
+  # The fake returns the foreign closed PR unless head=OWNER:BRANCH is used.
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT="" GH_FOREIGN_ONLY=1 \
+    bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"created"* ]]
+  [ "$(wc -l < "$calls")" -eq 2 ]
 
   # A rejected or already merged bump must never be silently re-created.
   for previous_state in CLOSED MERGED; do
