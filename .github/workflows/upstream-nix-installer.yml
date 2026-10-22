@@ -210,6 +210,12 @@ jobs:
           git config user.name "schneeforge-bump-bot"
           git config user.email "actions@users.noreply.github.com"
 
+          # Read-only release-review gate runs BEFORE preparing or pushing a
+          # branch. A previously rejected version must not be recreated even
+          # as an orphaned remote branch after the old branch was deleted.
+          bash scripts/ci/ensure-installer-bump-pr.sh --preflight \
+            "$TARGET_VERSION" "$branch"
+
           # Preserve existing update branches and human review notes on reruns.
           {
             printf 'bump(nix-installer): %s\n\n' "$TARGET_VERSION"
