@@ -1077,3 +1077,64 @@ ROWS
 
   rm -rf "$fixture"
 }
+# The managed Nix full lifecycle gate must distinguish container provisioning
+# errors from real Nix lifecycle failures and must not idle for 300 seconds
+# after the disposable container exits.
+@test "managed Nix E2E startup fails fast with container diagnostics" {
+  fixture="$(mktemp -d)"
+  mkdir -p "$fixture/bin"
+  helper="$PWD/scripts/ci/start-managed-nix-e2e-container.sh"
+  calls="$fixture/calls.log"
+
+  cat > "$fixture/bin/docker" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$MOCK_CALLS"
+case "$1" in
+  rm) exit 0 ;;
+  run)
+    if [ "$MOCK_MODE" = runfail ]; then
+      echo "mock docker daemon unavailable" >&2
+      exit 61
+    fi
+    echo mock-container-id
+    ;;
+  exec)
+    if [ "$MOCK_MODE" = ready ]; then exit 0; fi
+    exit 127
+    ;;
+  inspect) echo false ;;
+  logs) echo "mock apt update failed" >&2 ;;
+  *) exit 42 ;;
+esac
+SH
+  chmod +x "$fixture/bin/docker"
+
+  run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=exited \
+    bash "$helper" schneeforge-e2e-bats ubuntu:24.04
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"exited before systemd became ready"* ]]
+  [[ "$output" == *"mock apt update failed"* ]]
+  grep -Fq "inspect --format" "$calls"
+  grep -Fq "logs --tail 120" "$calls"
+
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=ready \
+    bash "$helper" schneeforge-e2e-bats ubuntu:24.04
+  [ "$status" -eq 0 ]
+  grep -Fq "exec schneeforge-e2e-bats" "$calls"
+  ! grep -Fq "logs --tail" "$calls"
+
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=runfail \
+    bash "$helper" schneeforge-e2e-bats ubuntu:24.04
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"mock docker daemon unavailable"* ]]
+  [[ "$output" == *"Could not start managed Nix E2E container"* ]]
+
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=ready bash "$helper"
+  [ "$status" -eq 2 ]
+  [ ! -s "$calls" ]
+  rm -rf "$fixture"
+}
