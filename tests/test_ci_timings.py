@@ -62,6 +62,49 @@ class TimingReportTests(unittest.TestCase):
         self.assertIn("release-artifact-check", result.stdout)
         self.assertIn("| — / — |", result.stdout)
 
+    def test_pending_snapshot_followed_by_success_wins(self):
+        pending = job(12)
+        pending.update(status="queued", conclusion=None, started_at=None, completed_at=None, steps=None)
+        result = self.call([pending], [job(12)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("| 1 | 0 | 0 | 0 | 1m 00s / 1m 00s |", result.stdout)
+
+    def test_success_snapshot_followed_by_pending_does_not_regress(self):
+        pending = job(12)
+        pending.update(status="queued", conclusion=None, started_at=None, completed_at=None, steps=None)
+        result = self.call([job(12)], [pending])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("| 1 | 0 | 0 | 0 | 1m 00s / 1m 00s |", result.stdout)
+
+    def test_inconsistent_completed_snapshots_fail_closed(self):
+        other = job(12)
+        other["completed_at"] = "2026-10-22T15:04:00Z"
+        result = self.call([job(12)], [other])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("conflicting completed snapshots", result.stderr)
+
+    def test_duplicate_completed_prefers_snapshot_with_step_details(self):
+        without_steps = job(12)
+        without_steps["steps"] = None
+        result = self.call([without_steps], [job(12)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("1m 10s / 1m 10s", result.stdout)
+
+    def test_successful_job_with_null_steps_is_supported(self):
+        without_steps = job(12)
+        without_steps["steps"] = None
+        result = self.call([without_steps])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("| 1 | 0 | 0 | 0 |", result.stdout)
+        self.assertIn("| — / — |", result.stdout)
+
+    def test_invalid_steps_record_fails_with_input_error(self):
+        bad = job(12)
+        bad["steps"] = "not-a-list"
+        result = self.call([bad])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("expected a steps array", result.stderr)
+
     def test_negative_duration_fails_closed(self):
         run = job(1)
         run["started_at"] = "2026-10-22T14:59:00Z"
