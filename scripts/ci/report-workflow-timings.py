@@ -81,26 +81,26 @@ def report(files):
                 jobs_by_id[job_id] = job
 
     for job_id, job in jobs_by_id.items():
-            row = by_name[job["name"]]
-            if job.get("status") != "completed":
-                row["pending"] += 1
-                continue
-            if job.get("conclusion") == "cancelled":
-                row["cancelled"] += 1
-                continue
-            if job.get("conclusion") != "success":
-                row["other"] += 1
-                continue
-            context = f"job {job_id}"
-            row["lag"].append(seconds_between(job.get("created_at"), job.get("started_at"), context))
-            row["runtime"].append(seconds_between(job.get("started_at"), job.get("completed_at"), context))
-            steps = job.get("steps") or []
-            if not isinstance(steps, list) or any(not isinstance(step, dict) for step in steps):
-                raise ValueError(f"{context}: expected a steps array or null")
-            for step in steps:
-                if step.get("name") == "build macos home-manager" and step.get("conclusion") == "success":
-                    row["home"].append(seconds_between(step.get("started_at"), step.get("completed_at"), f"{context} home-manager"))
-                    break
+        row = by_name[job["name"]]
+        if job.get("status") != "completed":
+            row["pending"] += 1
+            continue
+        if job.get("conclusion") == "cancelled":
+            row["cancelled"] += 1
+            continue
+        if job.get("conclusion") != "success":
+            row["other"] += 1
+            continue
+        context = f"job {job_id}"
+        row["lag"].append(seconds_between(job.get("created_at"), job.get("started_at"), context))
+        row["runtime"].append(seconds_between(job.get("started_at"), job.get("completed_at"), context))
+        steps = job.get("steps") or []
+        if not isinstance(steps, list) or any(not isinstance(step, dict) for step in steps):
+            raise ValueError(f"{context}: expected a steps array or null")
+        for step in steps:
+            if step.get("name") == "build macos home-manager" and step.get("conclusion") == "success":
+                row["home"].append(seconds_between(step.get("started_at"), step.get("completed_at"), f"{context} home-manager"))
+                break
     lines = [
         "| Job | Successful n | Pending | Cancelled | Other conclusions | Created→started p50 / p95 | Started→completed p50 / p95 | Home Manager p50 / p95 |",
         "| --- | ---: | ---: | ---: | ---: | --- | --- | --- |",
