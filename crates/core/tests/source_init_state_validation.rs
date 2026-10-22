@@ -7,12 +7,15 @@ mod unix {
 
     #[test]
     fn source_init_rejects_invalid_managed_state_before_remote_effects() {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = std::env::temp_dir().join(format!(
-            "schneeforge-source-init-invalid-state-{}",
+            "schneeforge-source-init-invalid-state-{}-{timestamp}",
             std::process::id()
         ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir(&dir).unwrap();
 
         let marker = dir.join("remote-invoked");
         let fake_git = dir.join("fake-git");

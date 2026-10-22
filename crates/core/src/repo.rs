@@ -214,10 +214,15 @@ mod tests {
     fn current_git_revision_rejects_blank_success_output() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir =
-            std::env::temp_dir().join(format!("sf-repo-empty-revision-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "sf-repo-empty-revision-{}-{timestamp}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&dir).unwrap();
         let fake_git = dir.join("fake-git");
         std::fs::write(&fake_git, "#!/bin/sh\nexit 0\n").unwrap();
         let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
@@ -289,43 +294,80 @@ mod tests {
     #[test]
     fn current_git_revision_preserves_non_utf8_working_directory() {
         use std::os::unix::ffi::OsStringExt;
-        use std::os::unix::fs::PermissionsExt;
 
-        let root =
-            std::env::temp_dir().join(format!("sf-repo-native-revision-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
+        // Exercise the real Git process instead of a newly written fake-git
+        // executable: an executable being published on the CI runner can
+        // transiently return ETXTBSY, unrelated to path-native handling.
+        let Some(git) = crate::tool::ToolResolver::new().resolve_tool("git") else {
+            eprintln!("skipping: git not available");
+            return;
+        };
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "sf-repo-native-revision-{}-{timestamp}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&root).unwrap();
 
         let repo = root.join(std::ffi::OsString::from_vec(b"repo-\xff".to_vec()));
-        std::fs::create_dir_all(&repo).unwrap();
-        let fake_git = root.join("fake-git");
-        std::fs::write(
-            &fake_git,
-            "#!/bin/sh\nprintf '0123456789012345678901234567890123456789\\n'\n",
-        )
-        .unwrap();
-        let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&fake_git, permissions).unwrap();
-
-        let actual = current_git_revision_path(&repo, &fake_git);
-        if actual.is_none() {
-            // Record the OS-level execution result only when this regression fails.
-            // Re-running the fake executable is diagnostic evidence, not a pass criterion.
-            let direct = std::process::Command::new(&fake_git)
-                .current_dir(&repo)
-                .args(["rev-parse", "HEAD"])
-                .output();
-            panic!(
-                "path-native git revision lookup returned None; repo={:?}, fake_git={:?}, direct_execution={:?}",
-                repo, fake_git, direct
-            );
-        }
-        assert_eq!(
-            actual.as_deref(),
-            Some("0123456789012345678901234567890123456789")
+        let initialized = std::process::Command::new(&git.path)
+            .arg("init")
+            .arg("-q")
+            .arg(&repo)
+            .output()
+            .unwrap();
+        assert!(
+            initialized.status.success(),
+            "git init failed: {}",
+            String::from_utf8_lossy(&initialized.stderr)
+        );
+        let committed = std::process::Command::new(&git.path)
+            .arg("-C")
+            .arg(&repo)
+            .args([
+                "-c",
+                "user.name=SchneeForge Test",
+                "-c",
+                "user.email=test@schneeforge.invalid",
+                "commit",
+                "--allow-empty",
+                "-q",
+                "-m",
+                "test commit",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            committed.status.success(),
+            "git commit failed: {}",
+            String::from_utf8_lossy(&committed.stderr)
         );
 
-        let _ = std::fs::remove_dir_all(&root);
+        let expected = std::process::Command::new(&git.path)
+            .arg("-C")
+            .arg(&repo)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        assert!(
+            expected.status.success(),
+            "git rev-parse failed: {}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let revision = String::from_utf8(expected.stdout).unwrap();
+        let revision = revision.trim();
+        assert_eq!(revision.len(), 40, "expected Git SHA-1 test commit");
+
+        assert_eq!(
+            current_git_revision_path(&repo, &git.path).as_deref(),
+            Some(revision),
+            "path-native git revision lookup must work with non-UTF8 directory bytes"
+        );
+
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

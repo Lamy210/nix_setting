@@ -7,12 +7,16 @@ use std::os::unix::fs::PermissionsExt;
 
 #[test]
 fn detached_source_rejects_blank_head_revision() {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let dir = std::env::temp_dir().join(format!(
-        "sf-source-blank-head-revision-{}",
+        "sf-source-blank-head-revision-{}-{timestamp}",
         std::process::id()
     ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(dir.join(".git")).unwrap();
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::create_dir(dir.join(".git")).unwrap();
 
     let fake_git = dir.join("fake-git");
     std::fs::write(
