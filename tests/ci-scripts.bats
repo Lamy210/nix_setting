@@ -989,6 +989,13 @@ SH
   grep -Fq -- '--jq' "$calls"
 
   : > "$calls"
+  run env -u GITHUB_REPOSITORY PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT="" \
+    bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Missing or invalid GITHUB_REPOSITORY"* ]]
+  [ ! -s "$calls" ]
+
+  : > "$calls"
   run env PATH="$fixture/bin:$PATH" GH_CALLS="$calls" GH_LIST_FAIL=0 GH_LIST_RESULT=244:OPEN \
     bash "$helper" 2.35.3 bump/nix-installer-2.35.3 "$body"
   [ "$status" -eq 0 ]
