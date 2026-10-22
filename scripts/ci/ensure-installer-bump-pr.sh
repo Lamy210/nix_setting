@@ -28,7 +28,7 @@ fi
 # REST head filtering includes the owning repository, unlike gh pr list
 # --head, which can match a fork-owned PR with the same branch name.
 # --paginate prevents silently discarding older closed/merged decisions.
-if [[ ! $GITHUB_REPOSITORY =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+if [[ ! ${GITHUB_REPOSITORY:-} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
   echo "::error::Missing or invalid GITHUB_REPOSITORY; refusing PR lookup." >&2
   exit 2
 fi
