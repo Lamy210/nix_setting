@@ -1,28 +1,41 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Preserve review progress on existing nix-installer bump PRs. A failed lookup
-# must never be interpreted as "no PR": doing so produces duplicate attempts.
-if [ "$#" -ne 3 ]; then
-  echo "usage: ensure-installer-bump-pr.sh VERSION BRANCH PR_BODY_FILE" >&2
+# Run once in read-only preflight mode BEFORE branch preparation/push, then
+# again after preparation to catch intervening PR review decisions.
+preflight=false
+if [ "$#" -eq 3 ] && [ "$1" = --preflight ]; then
+  preflight=true
+  version=$2
+  branch=$3
+  body_file=
+elif [ "$#" -eq 3 ]; then
+  version=$1
+  branch=$2
+  body_file=$3
+else
+  echo "usage: ensure-installer-bump-pr.sh [--preflight] VERSION BRANCH [PR_BODY_FILE]" >&2
   exit 2
 fi
-version=$1
-branch=$2
-body_file=$3
 
 if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
   [ "$branch" != "bump/nix-installer-$version" ] ||
-  [ ! -f "$body_file" ]; then
+  { [ "$preflight" = false ] && [ ! -f "$body_file" ]; }; then
   echo "::error::Invalid installer bump PR input." >&2
   exit 2
 fi
 
-# Include closed and merged PRs: a human may have rejected this exact bump.
-# Reopening that release automatically would override the review decision.
-# The colon separator is safe: both PR number and state have constrained formats.
-if ! matching_prs=$(gh pr list --state all --head "$branch" --base develop \
-  --limit 100 --json number,state --jq '.[] | [.number, .state] | map(tostring) | join(":")'); then
+# REST head filtering includes the owning repository, unlike gh pr list
+# --head, which can match a fork-owned PR with the same branch name.
+# --paginate prevents silently discarding older closed/merged decisions.
+if [[ ! $GITHUB_REPOSITORY =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+  echo "::error::Missing or invalid GITHUB_REPOSITORY; refusing PR lookup." >&2
+  exit 2
+fi
+owner=$(printf '%s\n' "$GITHUB_REPOSITORY" | cut -d/ -f1)
+url="repos/$GITHUB_REPOSITORY/pulls?state=all&head=$owner%3A$branch&base=develop&per_page=100"
+if ! matching_prs=$(gh api --paginate "$url" --jq \
+  '.[] | "\(.number):\(if .merged_at != null then "MERGED" else (.state | ascii_upcase) end)"'); then
   echo "::error::Cannot list existing installer bump PRs; refusing to create a possible duplicate." >&2
   exit 1
 fi
@@ -45,6 +58,8 @@ if [ -n "$matching_prs" ]; then
     exit 1
   fi
   echo "PR #$number already exists; preserving its current body"
+elif [ "$preflight" = true ]; then
+  echo "No existing installer bump PR for $branch; branch preparation may proceed."
 else
   gh pr create \
     --base develop \
