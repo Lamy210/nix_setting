@@ -10,7 +10,7 @@
 - Draft PR #248（2026-10-18 の `flake.lock` 回復）は HEAD `ec37bcf`、当時の `develop` との差分は `flake.lock` のみ。その後 PR #253 が `develop` にマージされたため、再同期と最新版の CI / upstream 互換性 / リリース受入確認が必要。Draft を維持してマージしない。
 - `develop` push run [39811684901](https://github.com/Lamy210/nix_setting/actions/runs/39811684901) で `managed-nix-e2e` の Docker systemd 初期化に失敗（`setup_file`, `docker exec systemctl` exit 127）。musl release build は成功、12件の lifecycle tests は実行前に中止。真因は未確定であり flaky と判定しない。
 - PR #253（Docker E2E 起動時の fail-fast・apt/systemd ログ診断・モック Docker Bats）は最終 HEAD `cf500975` で 26/26 checks 成功後、`develop` に squash merge 済み（`a46c77c`）。**既存 lifecycle gate の条件は緩和していない。** 以前の `develop` run `39811684901` の apt/systemd 真因は未確定。
-- Issue #252 に macOS CI queue/scheduling と実行 step の実測を記録。PR #254 はオフライン時間計測レポーター・7件の回帰テスト・入力データの収集手順を追加し、PR #253 マージ後の `develop` を HEAD `cd3277a` へ履歴書換えなしで同期。最新版の CI/レビュー待ち。計測は高速化ではなく、着手前に成功実行10件以上・cache provenanceを収集する。
+- Issue #252 の macOS CI 計測基盤は PR #254（オフライン時間計測レポーター・7件の回帰テスト・入力データ収集手順）を最終 HEAD `c54a3e2` の 26/26 checks 成功後、`develop` へ squash merge 済み（`f9c5b53`）。追加レビューでは、複数時点で取得した同一 job ID の queued→completed スナップショットを先着優先で集計し、成功結果を落とすリスクを発見。後続 PR で completed 優先・矛盾する完了データの fail-closed・追加回帰テストを実施中。計測は高速化ではなく、成功実行10件以上・cache provenance が次の前提。
 - Issue #240（定期依存更新 PR 作成の repository/org 権限）は未解決。Draft #244（nix-installer 2.35.3）は macOS lifecycle/配布受入完了までマージ禁止。
 
 
