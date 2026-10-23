@@ -113,6 +113,13 @@ trap cleanup EXIT
   fail "this destructive lifecycle helper may run only inside GitHub Actions"
 
 if [ "$MODE" = "local" ]; then
+  # The branch's provider pin is embedded into this local CLI at build time.
+  # Only assert this relationship in local mode: release mode may deliberately
+  # test older tagged assets with a checkout whose manifest has since moved.
+  manifest="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/bootstrap-manifest.toml"
+  EXPECTED_NIX_VERSION="$(awk -F'"' '/^version[[:space:]]*=/ {print $2; exit}' "$manifest")"
+  [[ "$EXPECTED_NIX_VERSION" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]] ||
+    fail "missing or malformed Managed Nix version pin in $manifest"
   [ -n "$LOCAL_BINARY" ] || fail "usage: $0 --local-binary <path>"
   [ -f "$LOCAL_BINARY" ] || fail "local branch CLI not found: $LOCAL_BINARY"
   local_dir="$(cd "$(dirname "$LOCAL_BINARY")" && pwd)"
@@ -196,6 +203,14 @@ sudo grep -Eq '"installer_sha256"[[:space:]]*:[[:space:]]*"[0-9a-f]{64}"' /nix/s
 
 NIX_BIN="/nix/var/nix/profiles/default/bin/nix"
 run_logged store-ping "$NIX_BIN" store ping
+run_logged nix-version "$NIX_BIN" --version
+if [ "$MODE" = "local" ]; then
+  awk -v expected="$EXPECTED_NIX_VERSION" '
+    $1 == "nix" && $2 == "(Nix)" && $3 == expected { found = 1 }
+    END { exit !found }
+  ' "$LOG_DIR/nix-version.log" ||
+    fail "installed Nix client does not match pinned version $EXPECTED_NIX_VERSION"
+fi
 
 # Flakes capability must be verified without consuming the unauthenticated
 # GitHub API rate limit. A self-contained local flake exercises the same
@@ -229,6 +244,14 @@ run_logged reinstall sudo "$ROOT_SF" nix install --yes
 [ -x /nix/var/nix/profiles/default/bin/nix ] ||
   fail "Nix binary missing after reinstall"
 run_logged reinstall-store-ping /nix/var/nix/profiles/default/bin/nix store ping
+run_logged reinstall-nix-version /nix/var/nix/profiles/default/bin/nix --version
+if [ "$MODE" = "local" ]; then
+  awk -v expected="$EXPECTED_NIX_VERSION" '
+    $1 == "nix" && $2 == "(Nix)" && $3 == expected { found = 1 }
+    END { exit !found }
+  ' "$LOG_DIR/reinstall-nix-version.log" ||
+    fail "reinstalled Nix client does not match pinned version $EXPECTED_NIX_VERSION"
+fi
 
 note "performing final cleanup uninstall"
 run_logged uninstall-final sudo "$ROOT_SF" nix uninstall
