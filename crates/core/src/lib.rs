@@ -21,8 +21,8 @@ pub mod operations {
     /// implementation is allowed to discover remote tags, fetch release metadata,
     /// or inspect the checkout. Invalid state therefore remains available for
     /// explicit repair instead of being silently replaced by a new source.
-    pub fn source_init(
-        repo: &str,
+    pub fn source_init<P: AsRef<std::path::Path> + ?Sized>(
+        repo: &P,
         store: &crate::state::StateStore,
         git: &crate::tool::ResolvedTool,
         channel: Option<String>,
@@ -45,8 +45,8 @@ pub mod operations {
     /// Persisted managed-source semantics must be handled before checkout
     /// classification. For unmanaged Git checkouts, require Git before entering
     /// the mutation path so release-integrity warnings cannot be silently skipped.
-    pub fn deps_update(
-        repo: &str,
+    pub fn deps_update<P: AsRef<std::path::Path> + ?Sized>(
+        repo: &P,
         tc: &crate::tool::ToolInventory,
         capture: bool,
     ) -> crate::error::Result<Option<String>> {
@@ -56,7 +56,7 @@ pub mod operations {
             .and_then(|state| state.source.as_ref())
             .is_some_and(|source| source.managed);
 
-        if !managed && std::path::Path::new(repo).join(".git").exists() {
+        if !managed && repo.as_ref().join(".git").exists() {
             tc.require_git()?;
         }
 
@@ -68,8 +68,8 @@ pub mod operations {
     /// Keep the legacy entry point behind the same source-safety boundary as
     /// `source deps update`: managed sources must be rejected and release
     /// checkouts must receive the canonical warning before any flake mutation.
-    pub fn upgrade(
-        repo: &str,
+    pub fn upgrade<P: AsRef<std::path::Path> + ?Sized>(
+        repo: &P,
         tc: &crate::tool::ToolInventory,
         capture: bool,
     ) -> crate::error::Result<Option<String>> {
@@ -80,8 +80,8 @@ pub mod operations {
     ///
     /// The core operation owns HOME-derived filesystem checks so every caller
     /// shares the same OS-native path identity and fail-closed semantics.
-    pub fn verify(
-        repo: &str,
+    pub fn verify<P: AsRef<std::path::Path> + ?Sized>(
+        repo: &P,
         tc: &crate::tool::ToolInventory,
     ) -> crate::operations_impl::VerifyReport {
         crate::operations_impl::verify(repo, tc)
@@ -143,15 +143,18 @@ pub use profile::{
     resolve as resolve_profile, save_selection, set_selection, write_profile_input, ProfileList,
 };
 pub use release_metadata::{channel_for_version, release_page_url, ReleaseMetadata};
-pub use repo::{current_git_revision, resolve_repo, Repo, RepoResolver};
+pub use repo::{
+    current_git_revision, current_git_revision_path, resolve_repo_path, Repo, RepoResolver,
+    RepositoryPath,
+};
 pub use self_update::{
     current_platform_asset, expected_sha256, plan as plan_self_update, platform_asset,
     release_asset_url, run as run_self_update, verify_and_replace, SelfUpdateAction,
     SelfUpdatePlan, SelfUpdateStatus,
 };
 pub use source::{
-    classify_release_tag, effective_ref, github_slug, latest_tag_for_channel, repo_url, SourceKind,
-    SourceResolver, SourceState,
+    classify_release_tag, effective_source_ref, github_slug, latest_tag_for_channel, repo_url,
+    EffectiveSourceRef, SourceKind, SourceResolver, SourceState,
 };
 pub use source_files::load_manifest_for;
 pub use state::{State, StateStore};

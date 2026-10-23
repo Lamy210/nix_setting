@@ -208,8 +208,11 @@ pub fn decode_wsl_output(bytes: &[u8]) -> Result<String> {
             ));
         }
         let units = payload
-            .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .copied()
+            .map(u16::from_le_bytes)
             .collect::<Vec<_>>();
         String::from_utf16(&units)
             .map_err(|e| Error::Precondition(format!("invalid UTF-16LE WSL output: {e}")))?
@@ -429,6 +432,21 @@ mod tests {
         }
 
         assert_eq!(decode_wsl_output(&bytes).unwrap(), "Ubuntu\n");
+    }
+
+    #[test]
+    fn rejects_odd_length_utf16le_wsl_output() {
+        let bytes = [0xff, 0xfe, b'U', 0, b'b'];
+        let error = decode_wsl_output(&bytes).unwrap_err();
+        assert!(error.to_string().contains("odd byte count"));
+    }
+
+    #[test]
+    fn rejects_unpaired_utf16_surrogate_in_wsl_output() {
+        // UTF-16LE BOM followed by one unpaired high surrogate (D800).
+        let bytes = [0xff, 0xfe, 0x00, 0xd8];
+        let error = decode_wsl_output(&bytes).unwrap_err();
+        assert!(error.to_string().contains("invalid UTF-16LE WSL output"));
     }
 
     #[test]

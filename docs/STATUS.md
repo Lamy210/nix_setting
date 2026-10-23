@@ -2,7 +2,30 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-10-03
+最終更新: 2026-10-23
+
+## 2026-10-23: CI / dependency update follow-up
+
+- PR #251 (`fix(ci): respect closed installer bump PR decisions on reruns`) は最終 HEAD `ada7f18` の 26/26 checks が成功した後、`develop` へ squash merge 済み（`e869546`）。fork 同名 PR の誤認、CLOSED/MERGED PR の再作成、事前確認前の branch push を防止。
+- Draft PR #248（2026-10-18 の `flake.lock` 回復）は HEAD `ec37bcf`、当時の `develop` との差分は `flake.lock` のみ。その後 PR #253 が `develop` にマージされたため、再同期と最新版の CI / upstream 互換性 / リリース受入確認が必要。Draft を維持してマージしない。
+- `develop` push run [39811684901](https://github.com/Lamy210/nix_setting/actions/runs/39811684901) で `managed-nix-e2e` の Docker systemd 初期化に失敗（`setup_file`, `docker exec systemctl` exit 127）。musl release build は成功、12件の lifecycle tests は実行前に中止。真因は未確定であり flaky と判定しない。
+- PR #253（Docker E2E 起動時の fail-fast・apt/systemd ログ診断・モック Docker Bats）は最終 HEAD `cf500975` で 26/26 checks 成功後、`develop` に squash merge 済み（`a46c77c`）。**既存 lifecycle gate の条件は緩和していない。** 以前の `develop` run `39811684901` の apt/systemd 真因は未確定。
+- Issue #252 の macOS CI 計測基盤は PR #254（オフライン時間計測レポーター・7件の回帰テスト・入力データ収集手順）を最終 HEAD `c54a3e2` の 26/26 checks 成功後、`develop` へ squash merge 済み（`f9c5b53`）。追加レビューでは、複数時点で取得した同一 job ID の queued→completed スナップショットを先着優先で集計し、成功結果を落とすリスクを発見。後続 PR で completed 優先・矛盾する完了データの fail-closed・追加回帰テストを実施中。計測は高速化ではなく、成功実行10件以上・cache provenance が次の前提。
+- Issue #240（定期依存更新 PR 作成の repository/org 権限）は未解決。Draft #244（nix-installer 2.35.3）は macOS lifecycle/配布受入完了までマージ禁止。
+
+
+## 2026-10-21: repository path identity（実装完了・OpenSpec同期）
+
+- 設計 PR #237、OpenSpec strict 検証修正 PR #241 (`03e750c`)、実装 PR #238 (`2ffcf1e`) を `develop` に squash merge 済み。
+- Rust Core の `RepositoryPath` / typed `EffectiveSourceRef`、`OsString` 対応プロセス引数、CLI `--repo: PathBuf`、Desktop/Tauri の OS-native repository 解決に移行した。Linux の non-UTF-8 repository path と fake process argv を regression test で検証。
+- PR #238 の最終 HEAD `505b968` は Actions run `39519506446` で required CI、Rust、OpenSpec、macOS 15/26、Windows、CodeQL、release-artifact を含め全ジョブ成功。OpenSpec strict 問題 #239 も PR #241 で修正・close 済み。
+- 設計の migration step 8 に基づく旧 String-based `resolve_repo` / `resolve_repo_with` / `effective_ref` の撤去と公開 exports・テスト移行は PR #242 (`98e6c5e`) で squash merge 済み。PR #242 の最終 HEAD `ea7399e` では 22 CI jobs と 26 checks が成功。
+- OpenSpec の `refactor-repository-path-identity` proposal/design/tasks/差分仕様は PR #243 (`e5ca7e1`) で archive 済み。canonical `core-operations` / `gui-diagnostics` / `managed-nix-bootstrap` を同期し、最終 HEAD `1130fda` の CI 22 jobs / 26 checks が成功。
+- **意図的な制限**: upstream Nix の local flake parser が全 non-UTF-8 path を受理することまでは保証しない。GUI の AppleScript/pkexec による権限昇格は引き続き non-UTF-8 repo path を fail-closed で拒否する。
+- 定期更新ワークフローのPR作成失敗時の診断と復旧案内は PR #245 (`c69f5f4`) で `develop` に squash merge 済み。Issue #240 のrepository/organization側PR作成権限は引き続き未解決。
+- 更新ワークフローの再実行安全性: PR #246 (`a0907be`) を `develop` に squash merge 済み。nix-installer bump branch / 既存PR本文をforce-push・本文上書きから保護。manifest以外の差分、ハッシュ不一致、remote障害、非`develop` manual dispatchはfail-closed。最終HEAD `bd1ca2f` はCI 22/22ジョブ、26/26 checksが成功。
+- CI follow-up: PR #247（installer lookup API 障害時の fail-closed）と PR #251（fork 同名 branch の誤認防止、閉鎖/マージ済みPR確認、push 前 preflight、Bats 回帰テスト）は `develop` にマージ済み。issue #240 の GitHub Actions による PR 作成の管理者側設定は未解決。
+- リリース readiness: macOS Final Acceptance、production GUI updater activation の手動 gate は別途未完了。CI dependency-update の PR 作成権限問題は issue #240 で追跡中。既存 `bump/nix-installer-2.35.3` branch は Draft PR #244 として救済済み（release-cycle acceptance 未完了のためマージ禁止）。
 
 ## 完成済み
 

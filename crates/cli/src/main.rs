@@ -26,7 +26,7 @@ mod native_cli {
         let matches = command.get_matches_from(args);
         let _wsl_distro = matches.get_one::<String>("wsl-distro").cloned();
         let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
-        let repo = schneeforge_core::resolve_repo(cli.repo.as_deref());
+        let repo = schneeforge_core::resolve_repo_path(cli.repo.as_deref()).into_path_buf();
 
         // Keep the existing native dispatch unchanged. Windows interception is
         // layered in front of this boundary before repo/tool/state discovery.

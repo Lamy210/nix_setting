@@ -1,7 +1,44 @@
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
+
+/// OS-native repository filesystem identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepositoryPath(PathBuf);
+
+impl RepositoryPath {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self(path.into())
+    }
+
+    pub fn as_path(&self) -> &Path {
+        &self.0
+    }
+
+    pub fn into_path_buf(self) -> PathBuf {
+        self.0
+    }
+
+    pub fn display_lossy(&self) -> String {
+        self.0.to_string_lossy().into_owned()
+    }
+}
+
+impl AsRef<Path> for RepositoryPath {
+    fn as_ref(&self) -> &Path {
+        self.as_path()
+    }
+}
+
+impl From<PathBuf> for RepositoryPath {
+    fn from(path: PathBuf) -> Self {
+        Self::new(path)
+    }
+}
+
 /// 解決済み repository (パス + 存在有無)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Repo {
-    pub path: String,
+    pub path: RepositoryPath,
     pub exists: bool,
 }
 
@@ -15,18 +52,15 @@ impl RepoResolver {
     }
 
     /// repository path を解決し、存在有無も返す
-    pub fn resolve(&self, cli_repo: Option<&str>) -> Repo {
-        let path = resolve_repo(cli_repo);
-        let exists = std::path::Path::new(&path).is_dir();
+    pub fn resolve(&self, cli_repo: Option<&Path>) -> Repo {
+        let path = resolve_repo_path(cli_repo);
+        let exists = path.as_path().is_dir();
         Repo { path, exists }
     }
 }
 
-/// repository path から現在の git revision (HEAD) を取得する。
-///
-/// `git` は解決済みの ToolInventory パスを `git_bin` で受け取る（文字列リテラル
-/// `Command::new("git")` は CI の forbid-raw-spawn lint で禁止）。
-pub fn current_git_revision(repo: &str, git_bin: &std::path::Path) -> Option<String> {
+/// repository path から現在の git revision (HEAD) を取得する path-native API。
+pub fn current_git_revision_path(repo: &Path, git_bin: &Path) -> Option<String> {
     let out = std::process::Command::new(git_bin)
         .current_dir(repo)
         .args(["rev-parse", "HEAD"])
@@ -42,35 +76,43 @@ pub fn current_git_revision(repo: &str, git_bin: &std::path::Path) -> Option<Str
     }
 }
 
-/// リポジトリパスを解決する
+/// repository path から現在の git revision (HEAD) を取得する。
+/// migration 中は `&str` caller も `AsRef<Path>` 経由で受けるが、内部では
+/// OS-native path identity を保ったまま `current_dir` へ渡す。
+pub fn current_git_revision<P: AsRef<Path> + ?Sized>(repo: &P, git_bin: &Path) -> Option<String> {
+    current_git_revision_path(repo.as_ref(), git_bin)
+}
+
+/// リポジトリパスを OS-native path として解決する。
 /// 優先順: CLI 引数 > NIX_SETTING_DIR > ~/nix_setting > "."
-pub fn resolve_repo(cli_repo: Option<&str>) -> String {
-    resolve_repo_with(
+pub fn resolve_repo_path(cli_repo: Option<&Path>) -> RepositoryPath {
+    resolve_repo_path_with(
         cli_repo,
-        std::env::var("NIX_SETTING_DIR").ok().as_deref(),
-        std::env::var("HOME").ok().as_deref(),
+        std::env::var_os("NIX_SETTING_DIR").as_deref(),
+        std::env::var_os("HOME").as_deref(),
     )
 }
 
-/// テスト可能な純関数版
-pub fn resolve_repo_with(
-    cli_repo: Option<&str>,
-    env_dir: Option<&str>,
-    home: Option<&str>,
-) -> String {
-    if let Some(r) = cli_repo.filter(|r| !r.is_empty()) {
-        return r.to_string();
+/// path-native のテスト可能な純関数版。
+pub fn resolve_repo_path_with(
+    cli_repo: Option<&Path>,
+    env_dir: Option<&OsStr>,
+    home: Option<&OsStr>,
+) -> RepositoryPath {
+    if let Some(repo) = cli_repo.filter(|path| !path.as_os_str().is_empty()) {
+        return RepositoryPath::new(repo.to_path_buf());
     }
-    if let Some(r) = env_dir.filter(|r| !r.is_empty()) {
-        return r.to_string();
+    if let Some(repo) = env_dir.filter(|value| !value.is_empty()) {
+        return RepositoryPath::new(PathBuf::from(repo));
     }
-    if let Some(h) = home
-        .filter(|h| !h.is_empty())
-        .filter(|h| std::path::Path::new(h).is_absolute())
+    if let Some(home) = home
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
     {
-        return format!("{h}/nix_setting");
+        return RepositoryPath::new(home.join("nix_setting"));
     }
-    ".".to_string()
+    RepositoryPath::new(PathBuf::from("."))
 }
 
 #[cfg(test)]
@@ -88,16 +130,30 @@ mod tests {
         }
     }
 
+    // UTF-8 examples exercise the same OS-native API used by the CLI/Desktop.
+    // Non-UTF-8 inputs are covered below with OsString/OsStr byte checks.
+    fn resolve_test_repo(cli: Option<&str>, env: Option<&str>, home: Option<&str>) -> PathBuf {
+        resolve_repo_path_with(
+            cli.map(Path::new),
+            env.map(OsStr::new),
+            home.map(OsStr::new),
+        )
+        .into_path_buf()
+    }
+
     #[test]
     fn cli_repo_wins() {
-        assert_eq!(resolve_repo_with(Some("/custom"), None, None), "/custom");
+        assert_eq!(
+            resolve_test_repo(Some("/custom"), None, None),
+            PathBuf::from("/custom")
+        );
     }
 
     #[test]
     fn env_dir_second() {
         assert_eq!(
-            resolve_repo_with(None, Some("/from/env"), Some("/home/u")),
-            "/from/env"
+            resolve_test_repo(None, Some("/from/env"), Some("/home/u")),
+            PathBuf::from("/from/env")
         );
     }
 
@@ -105,34 +161,37 @@ mod tests {
     fn home_fallback() {
         let home = absolute_home();
         assert_eq!(
-            resolve_repo_with(None, None, Some(home)),
-            format!("{home}/nix_setting")
+            resolve_test_repo(None, None, Some(home)),
+            Path::new(home).join("nix_setting")
         );
     }
 
     #[test]
     fn relative_home_falls_back_to_current_directory() {
-        assert_eq!(resolve_repo_with(None, None, Some("relative-home")), ".");
+        assert_eq!(
+            resolve_test_repo(None, None, Some("relative-home")),
+            PathBuf::from(".")
+        );
     }
 
     #[test]
     fn default_dot() {
-        assert_eq!(resolve_repo_with(None, None, None), ".");
+        assert_eq!(resolve_test_repo(None, None, None), PathBuf::from("."));
     }
 
     #[test]
     fn cli_repo_overrides_all() {
         assert_eq!(
-            resolve_repo_with(Some("/custom"), Some("/env"), Some("/home/u")),
-            "/custom"
+            resolve_test_repo(Some("/custom"), Some("/env"), Some("/home/u")),
+            PathBuf::from("/custom")
         );
     }
 
     #[test]
     fn empty_cli_repo_falls_back_to_env_dir() {
         assert_eq!(
-            resolve_repo_with(Some(""), Some("/from/env"), Some("/home/u")),
-            "/from/env"
+            resolve_test_repo(Some(""), Some("/from/env"), Some("/home/u")),
+            PathBuf::from("/from/env")
         );
     }
 
@@ -140,14 +199,14 @@ mod tests {
     fn empty_env_dir_falls_back_to_home() {
         let home = absolute_home();
         assert_eq!(
-            resolve_repo_with(None, Some(""), Some(home)),
-            format!("{home}/nix_setting")
+            resolve_test_repo(None, Some(""), Some(home)),
+            Path::new(home).join("nix_setting")
         );
     }
 
     #[test]
     fn empty_home_falls_back_to_current_directory() {
-        assert_eq!(resolve_repo_with(None, None, Some("")), ".");
+        assert_eq!(resolve_test_repo(None, None, Some("")), PathBuf::from("."));
     }
 
     #[cfg(unix)]
@@ -155,10 +214,15 @@ mod tests {
     fn current_git_revision_rejects_blank_success_output() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir =
-            std::env::temp_dir().join(format!("sf-repo-empty-revision-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "sf-repo-empty-revision-{}-{timestamp}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&dir).unwrap();
         let fake_git = dir.join("fake-git");
         std::fs::write(&fake_git, "#!/bin/sh\nexit 0\n").unwrap();
         let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
@@ -166,7 +230,7 @@ mod tests {
         std::fs::set_permissions(&fake_git, permissions).unwrap();
 
         assert_eq!(
-            current_git_revision(dir.to_str().unwrap(), &fake_git),
+            current_git_revision_path(&dir, &fake_git),
             None,
             "successful git inspection without a usable revision must not produce Some(\"\")"
         );
@@ -177,8 +241,11 @@ mod tests {
     #[test]
     fn repo_resolver_reports_missing_repo() {
         let resolver = RepoResolver::new();
-        let repo = resolver.resolve(Some("/definitely/not/a/real/repo"));
-        assert_eq!(repo.path, "/definitely/not/a/real/repo");
+        let repo = resolver.resolve(Some(Path::new("/definitely/not/a/real/repo")));
+        assert_eq!(
+            repo.path.as_path(),
+            Path::new("/definitely/not/a/real/repo")
+        );
         assert!(!repo.exists);
     }
 
@@ -187,8 +254,120 @@ mod tests {
         let dir = std::env::temp_dir().join("sf-repo-exists");
         std::fs::create_dir_all(&dir).unwrap();
         let resolver = RepoResolver::new();
-        let repo = resolver.resolve(Some(dir.to_str().unwrap()));
+        let repo = resolver.resolve(Some(&dir));
         assert!(repo.exists);
+        assert_eq!(repo.path.as_path(), dir.as_path());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_repo_with_preserves_non_utf8_cli_path() {
+        use std::os::unix::ffi::OsStringExt;
+        let cli = PathBuf::from(std::ffi::OsString::from_vec(
+            b"/tmp/schneeforge-cli-\xff".to_vec(),
+        ));
+        let resolved = resolve_repo_path_with(Some(cli.as_path()), None, None);
+        assert_eq!(resolved.as_path().as_os_str(), cli.as_os_str());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_repo_with_preserves_non_utf8_env_dir() {
+        use std::os::unix::ffi::OsStringExt;
+        let env_dir = std::ffi::OsString::from_vec(b"/tmp/schneeforge-env-\xff".to_vec());
+        let resolved = resolve_repo_path_with(None, Some(env_dir.as_os_str()), None);
+        assert_eq!(resolved.as_path().as_os_str(), env_dir.as_os_str());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_repo_with_preserves_non_utf8_absolute_home() {
+        use std::os::unix::ffi::OsStringExt;
+        let home = std::ffi::OsString::from_vec(b"/tmp/schneeforge-home-\xff".to_vec());
+        let resolved = resolve_repo_path_with(None, None, Some(home.as_os_str()));
+        let expected = PathBuf::from(home).join("nix_setting");
+        assert_eq!(resolved.as_path(), expected.as_path());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn current_git_revision_preserves_non_utf8_working_directory() {
+        use std::os::unix::ffi::OsStringExt;
+
+        // Exercise the real Git process instead of a newly written fake-git
+        // executable: an executable being published on the CI runner can
+        // transiently return ETXTBSY, unrelated to path-native handling.
+        let Some(git) = crate::tool::ToolResolver::new().resolve_tool("git") else {
+            eprintln!("skipping: git not available");
+            return;
+        };
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "sf-repo-native-revision-{}-{timestamp}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&root).unwrap();
+
+        let repo = root.join(std::ffi::OsString::from_vec(b"repo-\xff".to_vec()));
+        let initialized = std::process::Command::new(&git.path)
+            .arg("init")
+            .arg("-q")
+            .arg(&repo)
+            .output()
+            .unwrap();
+        assert!(
+            initialized.status.success(),
+            "git init failed: {}",
+            String::from_utf8_lossy(&initialized.stderr)
+        );
+        let committed = std::process::Command::new(&git.path)
+            .arg("-C")
+            .arg(&repo)
+            .args([
+                "-c",
+                "user.name=SchneeForge Test",
+                "-c",
+                "user.email=test@schneeforge.invalid",
+                "commit",
+                "--allow-empty",
+                "-q",
+                "-m",
+                "test commit",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            committed.status.success(),
+            "git commit failed: {}",
+            String::from_utf8_lossy(&committed.stderr)
+        );
+
+        let expected = std::process::Command::new(&git.path)
+            .arg("-C")
+            .arg(&repo)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        assert!(
+            expected.status.success(),
+            "git rev-parse failed: {}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        let revision = String::from_utf8(expected.stdout).unwrap();
+        let revision = revision.trim();
+        assert_eq!(revision.len(), 40, "expected Git SHA-1 test commit");
+
+        assert_eq!(
+            current_git_revision_path(&repo, &git.path).as_deref(),
+            Some(revision),
+            "path-native git revision lookup must work with non-UTF8 directory bytes"
+        );
+
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

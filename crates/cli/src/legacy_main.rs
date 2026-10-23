@@ -1,5 +1,7 @@
 mod nix_cmd;
 
+use std::path::{Path, PathBuf};
+
 use clap::{Parser, Subcommand};
 use nix_cmd::{NixArgs, NixSub};
 use schneeforge_core::{
@@ -12,7 +14,7 @@ use schneeforge_core::{
 struct Cli {
     /// リポジトリのパス (default: $NIX_SETTING_DIR or ~/nix_setting)
     #[arg(long, global = true)]
-    repo: Option<String>,
+    repo: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Cmd,
@@ -106,7 +108,7 @@ struct SourceArgs {
 
 fn main() {
     let cli = Cli::parse();
-    let repo = schneeforge_core::resolve_repo(cli.repo.as_deref());
+    let repo = schneeforge_core::resolve_repo_path(cli.repo.as_deref()).into_path_buf();
 
     // Nix/Git を必要とするコマンドでは起動直後に ToolInventory を1回 discover する。
     // status / uninstall のような info 系コマンドは ToolInventory 無しで動かし、
@@ -141,7 +143,7 @@ type Result = std::result::Result<(), String>;
 ///
 /// `ToolInventory::discover` は infallible (未検出ツールは None になる) なので、
 /// ここでは1回 discover した inventory を渡すだけ。Nix が無くても doctor は動く。
-fn with_tool_inventory<F>(f: F, _repo: &str) -> Result
+fn with_tool_inventory<F>(f: F, _repo: &Path) -> Result
 where
     F: FnOnce(&ToolInventory) -> Result,
 {
@@ -149,7 +151,7 @@ where
     f(&tc)
 }
 
-fn doctor(repo: &str, tc: &ToolInventory) -> Result {
+fn doctor(repo: &Path, tc: &ToolInventory) -> Result {
     let r = schneeforge_core::doctor(tc);
     println!("=== doctor ===");
     println!();
@@ -220,7 +222,7 @@ fn doctor(repo: &str, tc: &ToolInventory) -> Result {
     Ok(())
 }
 
-fn scan(repo: &str, tc: &ToolInventory) -> Result {
+fn scan(repo: &Path, tc: &ToolInventory) -> Result {
     let target = detect_target();
     let manifest = load_manifest(repo)?;
     println!("=== scan ===");
@@ -239,7 +241,7 @@ fn scan(repo: &str, tc: &ToolInventory) -> Result {
     Ok(())
 }
 
-fn status(repo: &str) -> Result {
+fn status(repo: &Path) -> Result {
     let target = detect_target();
     let state = StateStore::default()
         .load()
@@ -262,7 +264,7 @@ fn status(repo: &str) -> Result {
             let origin = if from_state { "selected" } else { "default" };
             println!("  profile: {p} ({origin})");
         }
-        Err(_) if !std::path::Path::new(&format!("{repo}/schneeforge.toml")).exists() => {
+        Err(_) if !repo.join("schneeforge.toml").exists() => {
             // managed source は local に manifest file が無くても cache/fetch で
             // 読めるため、実態に応じた表示にする
             let managed = state
@@ -291,7 +293,7 @@ fn status(repo: &str) -> Result {
     Ok(())
 }
 
-fn apply(repo: &str, tc: &ToolInventory) -> Result {
+fn apply(repo: &Path, tc: &ToolInventory) -> Result {
     let target = detect_target();
     println!("applying host: {target}");
     schneeforge_core::apply(&target, repo, &StateStore::default(), tc, false)
@@ -300,14 +302,14 @@ fn apply(repo: &str, tc: &ToolInventory) -> Result {
     Ok(())
 }
 
-fn setup(repo: &str, tc: &ToolInventory) -> Result {
+fn setup(repo: &Path, tc: &ToolInventory) -> Result {
     println!("=== setup ===");
     schneeforge_core::setup(repo, &StateStore::default(), tc).map_err(|e| e.to_string())?;
     println!("state saved");
     Ok(())
 }
 
-fn plan(repo: &str, tc: &ToolInventory) -> Result {
+fn plan(repo: &Path, tc: &ToolInventory) -> Result {
     let t = schneeforge_core::plan_target(repo).map_err(|e| e.to_string())?;
     println!("=== plan ===");
     println!();
@@ -319,7 +321,7 @@ fn plan(repo: &str, tc: &ToolInventory) -> Result {
     Ok(())
 }
 
-fn rollback(repo: &str, tc: &ToolInventory) -> Result {
+fn rollback(repo: &Path, tc: &ToolInventory) -> Result {
     let target = detect_target();
     println!("rolling back host: {target}");
     schneeforge_core::rollback(&target, repo, &StateStore::default(), tc, false)
@@ -327,21 +329,21 @@ fn rollback(repo: &str, tc: &ToolInventory) -> Result {
     Ok(())
 }
 
-fn upgrade(repo: &str, tc: &ToolInventory) -> Result {
+fn upgrade(repo: &Path, tc: &ToolInventory) -> Result {
     println!("note: `schneeforge upgrade` is deprecated; use `schneeforge source deps update`");
     println!("updating flake.lock...");
     schneeforge_core::upgrade(repo, tc, false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn sync(repo: &str, tc: &ToolInventory) -> Result {
+fn sync(repo: &Path, tc: &ToolInventory) -> Result {
     println!("note: `schneeforge sync` is deprecated; use `schneeforge source sync`");
     println!("pulling remote config...");
     schneeforge_core::sync(repo, tc, false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn update(repo: &str, tc: &ToolInventory) -> Result {
+fn update(repo: &Path, tc: &ToolInventory) -> Result {
     let store = StateStore::default();
     let result = schneeforge_core::update(repo, &store, tc, false).map_err(|e| e.to_string())?;
     if let Some(source) = &result.source {
@@ -393,7 +395,7 @@ fn self_update(tc: &ToolInventory) -> Result {
     Ok(())
 }
 
-fn run_profile(sub: ProfileSub, repo: &str) -> Result {
+fn run_profile(sub: ProfileSub, repo: &Path) -> Result {
     match sub {
         ProfileSub::List => {
             let profiles = schneeforge_core::list_profiles(repo).map_err(|e| e.to_string())?;
@@ -441,7 +443,7 @@ fn run_profile(sub: ProfileSub, repo: &str) -> Result {
     }
 }
 
-fn run_source(sub: SourceSub, repo: &str, tc: &ToolInventory) -> Result {
+fn run_source(sub: SourceSub, repo: &Path, tc: &ToolInventory) -> Result {
     match sub {
         SourceSub::Status => source_status(repo, tc),
         SourceSub::Init { channel, tag } => source_init(repo, tc, channel, tag),
@@ -459,7 +461,7 @@ fn run_source(sub: SourceSub, repo: &str, tc: &ToolInventory) -> Result {
 
 /// `schneeforge source init`: managed source を state に設定する
 fn source_init(
-    repo: &str,
+    repo: &Path,
     tc: &ToolInventory,
     channel: Option<String>,
     tag: Option<String>,
@@ -507,7 +509,7 @@ fn source_metadata(tag: &str) -> Result {
     Ok(())
 }
 
-fn source_status(repo: &str, tc: &ToolInventory) -> Result {
+fn source_status(repo: &Path, tc: &ToolInventory) -> Result {
     println!("=== source status ===");
     println!();
     let state = StateStore::default()
@@ -590,7 +592,7 @@ fn print_state_source(state: Option<&schneeforge_core::State>) {
 /// doctor 用: source kind を 1 行で返す (検出失敗は None)。
 /// state が managed source を示す場合は checkout を見ずにそれを表示する
 fn source_kind_line(
-    repo: &str,
+    repo: &Path,
     tc: &ToolInventory,
 ) -> std::result::Result<Option<String>, String> {
     let stored = StateStore::default()
@@ -613,7 +615,7 @@ fn source_kind_line(
     Ok(Some(format!("{} ({})", state.kind, display_ref)))
 }
 
-fn verify(repo: &str, tc: &ToolInventory) -> Result {
+fn verify(repo: &Path, tc: &ToolInventory) -> Result {
     let report = schneeforge_core::verify(repo, tc);
     println!("=== verify ===");
     println!();
@@ -659,14 +661,14 @@ fn uninstall() -> Result {
 /// それ以外は local filesystem。local manifest が単に存在しない場合だけ
 /// `None` を返し、state corruption / managed source inconsistency / parse・fetch
 /// failure は read-only surface でも明示的な error として伝播する。
-fn load_manifest(repo: &str) -> std::result::Result<Option<Manifest>, String> {
+fn load_manifest(repo: &Path) -> std::result::Result<Option<Manifest>, String> {
     let store = StateStore::default();
     let state = store.load().map_err(|e| e.to_string())?;
     let managed = state
         .as_ref()
         .and_then(|s| s.source.as_ref())
         .is_some_and(|source| source.managed);
-    let manifest_path = std::path::Path::new(repo).join("schneeforge.toml");
+    let manifest_path = repo.join("schneeforge.toml");
 
     if !managed && !manifest_path.exists() {
         return Ok(None);
@@ -677,7 +679,7 @@ fn load_manifest(repo: &str) -> std::result::Result<Option<Manifest>, String> {
         .map_err(|e| e.to_string())
 }
 
-fn run_nix(sub: NixSub, repo: &str) -> Result {
+fn run_nix(sub: NixSub, repo: &Path) -> Result {
     let tc = ToolInventory::discover();
     match sub {
         NixSub::Install(args) => nix_cmd::run_install(repo, args),
