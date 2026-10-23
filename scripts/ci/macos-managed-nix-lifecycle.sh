@@ -118,7 +118,7 @@ if [ "$MODE" = "local" ]; then
   # test older tagged assets with a checkout whose manifest has since moved.
   manifest="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/bootstrap-manifest.toml"
   EXPECTED_NIX_VERSION="$(awk -F'"' '/^version[[:space:]]*=/ {print $2; exit}' "$manifest")"
-  [[ "$EXPECTED_NIX_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+  [[ $EXPECTED_NIX_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
     fail "missing or malformed Managed Nix version pin in $manifest"
   [ -n "$LOCAL_BINARY" ] || fail "usage: $0 --local-binary <path>"
   [ -f "$LOCAL_BINARY" ] || fail "local branch CLI not found: $LOCAL_BINARY"
