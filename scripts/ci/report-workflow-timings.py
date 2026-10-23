@@ -48,7 +48,7 @@ def target(name):
 
 def report(files):
     by_name = defaultdict(lambda: {"lag": [], "runtime": [], "home": [], "pending": 0, "cancelled": 0, "other": 0})
-    seen = set()
+    jobs_by_id = {}
     for filename in files:
         obj = json.loads(Path(filename).read_text(encoding="utf-8"))
         if not isinstance(obj, dict) or not isinstance(obj.get("jobs"), list):
@@ -61,26 +61,46 @@ def report(files):
             job_id = job.get("id")
             if not isinstance(job_id, int) or isinstance(job_id, bool):
                 raise ValueError(f"{filename}: job missing integer id")
-            if job_id in seen:
-                continue  # Same API page imported twice must not skew percentiles.
-            seen.add(job_id)
-            row = by_name[job["name"]]
-            if job.get("status") != "completed":
-                row["pending"] += 1
-                continue
-            if job.get("conclusion") == "cancelled":
-                row["cancelled"] += 1
-                continue
-            if job.get("conclusion") != "success":
-                row["other"] += 1
-                continue
-            context = f"job {job_id}"
-            row["lag"].append(seconds_between(job.get("created_at"), job.get("started_at"), context))
-            row["runtime"].append(seconds_between(job.get("started_at"), job.get("completed_at"), context))
-            for step in job.get("steps", []):
-                if step.get("name") == "build macos home-manager" and step.get("conclusion") == "success":
-                    row["home"].append(seconds_between(step.get("started_at"), step.get("completed_at"), f"{context} home-manager"))
-                    break
+            previous = jobs_by_id.get(job_id)
+            if previous is not None:
+                if previous["name"] != job["name"]:
+                    raise ValueError(f"job {job_id}: conflicting job names in saved snapshots")
+                prev_done = previous.get("status") == "completed"
+                next_done = job.get("status") == "completed"
+                if prev_done and next_done:
+                    for field in ("conclusion", "created_at", "started_at", "completed_at"):
+                        if previous.get(field) != job.get(field):
+                            raise ValueError(f"job {job_id}: conflicting completed snapshots ({field})")
+                    # Prefer richer final snapshots when the API initially
+                    # omits some steps. Equal duplicates have no effect.
+                    if len(job.get("steps") or []) > len(previous.get("steps") or []):
+                        jobs_by_id[job_id] = job
+                elif next_done:
+                    jobs_by_id[job_id] = job
+            else:
+                jobs_by_id[job_id] = job
+
+    for job_id, job in jobs_by_id.items():
+        row = by_name[job["name"]]
+        if job.get("status") != "completed":
+            row["pending"] += 1
+            continue
+        if job.get("conclusion") == "cancelled":
+            row["cancelled"] += 1
+            continue
+        if job.get("conclusion") != "success":
+            row["other"] += 1
+            continue
+        context = f"job {job_id}"
+        row["lag"].append(seconds_between(job.get("created_at"), job.get("started_at"), context))
+        row["runtime"].append(seconds_between(job.get("started_at"), job.get("completed_at"), context))
+        steps = job.get("steps") or []
+        if not isinstance(steps, list) or any(not isinstance(step, dict) for step in steps):
+            raise ValueError(f"{context}: expected a steps array or null")
+        for step in steps:
+            if step.get("name") == "build macos home-manager" and step.get("conclusion") == "success":
+                row["home"].append(seconds_between(step.get("started_at"), step.get("completed_at"), f"{context} home-manager"))
+                break
     lines = [
         "| Job | Successful n | Pending | Cancelled | Other conclusions | Created→started p50 / p95 | Started→completed p50 / p95 | Home Manager p50 / p95 |",
         "| --- | ---: | ---: | ---: | ---: | --- | --- | --- |",
@@ -92,6 +112,7 @@ def report(files):
         "",
         "Times are from GitHub's job/step timestamps. Created→started includes scheduling and runner acquisition; it does not prove runner queueing alone.",
         "Percentiles use nearest-rank; only successful completed jobs contribute to timing distributions. Cancelled/failed/pending jobs are counted separately.",
+        "If duplicate job IDs contain both pending and completed snapshots, the completed record wins; inconsistent completed snapshots fail closed.",
         "Samples with n<10 are exploratory. Compare equivalent workflows, OS/Xcode configurations, run attempts and cache states; no cache hit rates are inferred.",
     ])
     return "\n".join(lines)

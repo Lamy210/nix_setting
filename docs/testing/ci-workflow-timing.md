@@ -13,7 +13,7 @@ python3 scripts/ci/report-workflow-timings.py /tmp/jobs-39801714239.json /tmp/jo
 python3 -m unittest discover -s tests -p 'test_ci_timings.py'
 ```
 
-If a workflow grows beyond one API page, save every page (`?per_page=100&page=N`) and pass every downloaded JSON file as an argument. The script deduplicates identical GitHub job IDs across files.
+If a workflow grows beyond one API page, save every page (`?per_page=100&page=N`) and pass every downloaded JSON file as an argument. The script deduplicates identical GitHub job IDs across files. If multiple captures of the same ID include both queued and completed snapshots, the completed snapshot takes precedence regardless of argument order. Two completed snapshots with conflicting job conclusion or timestamps are rejected rather than silently skewing measurements.
 
 ## Interpretation
 
