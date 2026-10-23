@@ -167,11 +167,16 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
+      # Collect and summarize CI timing data offline, independent of GitHub API
+      # tokens or network calls. Do not affect the macOS/release acceptance gates.
+      - name: CI timing report unit tests
+        run: python3 -m unittest discover -s tests -p 'test_ci_timings.py'
+
       - name: actionlint
         run: nix run nixpkgs#actionlint
 
       - name: shellcheck
-        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh scripts/ci/build-release-macos-cli.sh scripts/ci/build-release-linux-cli.sh scripts/ci/build-release-macos-dmg.sh scripts/ci/check-macos-portability.sh scripts/ci/attest-release-assets.sh scripts/ci/macos-managed-nix-lifecycle.sh scripts/ci/prepare-upstream-bump-branch.sh scripts/ci/ensure-installer-bump-pr.sh tests/managed-nix-e2e.bats tests/install-sh.bats tests/ci-scripts.bats
+        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh scripts/ci/build-release-macos-cli.sh scripts/ci/build-release-linux-cli.sh scripts/ci/build-release-macos-dmg.sh scripts/ci/check-macos-portability.sh scripts/ci/attest-release-assets.sh scripts/ci/macos-managed-nix-lifecycle.sh scripts/ci/prepare-upstream-bump-branch.sh scripts/ci/ensure-installer-bump-pr.sh scripts/ci/start-managed-nix-e2e-container.sh tests/managed-nix-e2e.bats tests/install-sh.bats tests/ci-scripts.bats
 
       - name: statix check
         run: nix run nixpkgs#statix -- check .

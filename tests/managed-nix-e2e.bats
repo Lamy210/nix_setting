@@ -37,19 +37,9 @@ setup_file() {
     echo "managed Nix version not found in bootstrap-manifest.toml" >&2
     return 1
   fi
-  # systemd を install して PID 1 として起動 (nix-installer の default
-  # planner は systemd を要求するため)
-  docker rm -f "$CT_NAME" >/dev/null 2>&1 || true
-  docker run -d --privileged --name "$CT_NAME" "$UBUNTU_IMAGE" \
-    bash -c 'apt-get update -qq >/dev/null 2>&1; apt-get install -y -qq systemd systemd-sysv >/dev/null 2>&1; mkdir -p /opt/repo; exec /sbin/init' >/dev/null
-  # systemd が起動するまで待つ (最大 300s)
-  for _ in $(seq 1 60); do
-    if docker exec "$CT_NAME" bash -c 'systemctl is-system-running 2>/dev/null | grep -qE "running|degraded"'; then
-      break
-    fi
-    sleep 5
-  done
-  docker exec "$CT_NAME" systemctl is-system-running >/dev/null
+  # Fail fast and print container logs when apt/systemd bootstrap fails.
+  # A failed startup is not a test skip or a generic five-minute timeout.
+  bash "$REPO_DIR/scripts/ci/start-managed-nix-e2e-container.sh" "$CT_NAME" "$UBUNTU_IMAGE"
   docker cp "$REPO_DIR/bootstrap-manifest.toml" "$CT_NAME:/opt/repo/bootstrap-manifest.toml"
   docker cp "$SCHNEEFORGE_BIN" "$CT_NAME:/usr/local/bin/schneeforge"
   docker exec "$CT_NAME" chmod +x /usr/local/bin/schneeforge
