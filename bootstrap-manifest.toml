@@ -8,9 +8,9 @@
 # (SLSA provenance は CI 側でのみ検証、利用者 PC は sha256 比較のみで保護)
 
 [managed_nix]
-version = "2.35.2"
+version = "2.35.3"
 
 [managed_nix.sha256_by_arch]
-x86_64-linux = "5448a1cd70ad945cb4d36365defbaf3731eba38e23859f3dc8bd7418e1946acc"
-aarch64-linux = "a1b35e56da5adadbc117c3cf17b83948ac657f3c0bd79d47bbe0aa70832b5c8e"
-aarch64-darwin = "6314b195321b3acc6826b1c5d66bb9cf9306c8231c6dbb745f51a04c3bcee235"
+x86_64-linux = "59a1841db7d41d5127163cc8acad45a04b0d73e95a022269d4b9e7ae2ad7fab2"
+aarch64-linux = "633bc7451945922e57f0912000f9876d0bfa001b92416dab853735be8cd64743"
+aarch64-darwin = "c4991562a71a7ef2dc52d9760545c8541db4a468bbcc91dcafd57175638bf17e"
