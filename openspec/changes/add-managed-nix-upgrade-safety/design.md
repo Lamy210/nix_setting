@@ -20,9 +20,9 @@
 
 1. **Core `upgrade_inspect`** collects observations from injected resolvers and filesystem probes; `CLI` renders text or JSON, has no independent policy logic.
 2. **Observed installation owner** is not inferred solely from checked-out Nix config. Record separate `repo_declares_nix_darwin` and `host_manager`. A declaration is evidence of intended configuration, *not proof of currently active host ownership*.
-3. `OwnershipRecord::load` validates schema/provider/SHA/path. Receipt read errors are distinguished: missing, parse error, permission denied, other I/O. Never interpret invalid record as unmanaged.
+3. `OwnershipRecord::load` validates the JSON schema, provider label, stored checksum *format*, and recorded receipt path. It does **not** authenticate the record's filesystem provenance, current Nix package, daemon or binary signature. Name this result `ownership_record_valid` (not `schneeforge-verified`); even a structurally valid record cannot by itself authorize an upgrade. Receipt errors are distinguished: missing, parse error, permission denied, other I/O. Never interpret an invalid record as unmanaged.
 4. Tool paths are resolved with `ToolInventory` using OS-native `PathBuf`, not shell strings or PATH-only. Direct `Command` subprocess with fixed argv, sanitized external output; no command interpolation.
-5. `client_version` comes from resolved `nix --version` (strict prefix/semver parse only if recognized); `daemon_reachable` uses `nix store ping --store daemon` where supported. `daemon_version` must be `unknown` unless an independently verified stable extraction method is demonstrated for the installed Nix family. Do not reuse `client_version` as daemon version.
+5. `client_version` comes from resolved `nix --version` (strict prefix/semver parse only if recognized). For verified Nix versions, probe local daemon reachability with `nix store info --store daemon` (documented in Nix 2.35.2) or legacy `nix store ping --store daemon` where applicable; select a known command according to **observed CLI capabilities**, not unvalidated assumptions. These commands confirm reachability, **not daemon version**; on success the 2.35.2 `store info` manual documents exit 0 with no output. Keep `daemon_version` unknown unless an independently verified version probe is implemented. Do not copy `client_version` to it.
 6. Nix `2.35.2` detection is informational only: `client_version` may match a vulnerable build, but remediation policy must consider daemon and installation manager. Unknown remains Unknown instead of claiming patched/secure.
 7. Serialized report must be schema-versioned and machine-readable; confidence and reasons are explicit. Structured result distinguishes `unknown` / `unsupported` / `manual` / `not-installed`. Reports must not leak usernames, `HOME`, environment variables, auth secrets or receipt contents.
 
@@ -38,14 +38,23 @@ Suggested report shape:
   "client_version": {"state": "known", "value": "2.35.2"},
   "daemon_reachable": {"state": "known", "value": true},
   "daemon_version": {"state": "unknown", "reason": "stable-probe-unverified"},
-  "installation_ownership": "schneeforge-verified",
+  "installation_ownership": "schneeforge-record-valid",
   "host_manager": "unknown",
   "upgrade_route": "manual",
   "automation_eligible": false,
   "reasons": ["host-manager-not-verified", "daemon-version-unknown"]
 }
 ```
-This is a **sample shape, not a sample measured host**; actual schema fields and labels require implementation review. Avoid values borrowed from the sample when reporting a real host.
+This is a **sample shape, not a sample measured host**; actual schema fields and labels require implementation review. `schneeforge-record-valid` means structural consistency only, **not authenticated authority** or update eligibility. Avoid values borrowed from the sample when reporting a real host.
+
+## 4.1. Design review: confirmed trust and observation boundaries
+
+- **Confirmed — record authenticity:** `OwnershipRecord::load` parses JSON and validates declared fields (including 64-character hex checksum format) but does not inspect the actual cache binary or prove which process wrote the record. The initial report must say `record-valid`, never `owner-authenticated`.
+- **Confirmed — daemon reachability is not its version:** Official Nix 2.35.2 docs describe `nix store info --store daemon` as a store-access probe with no output when successful. Never parse daemon version from its success or from the Nix CLI version.
+- **Confirmed — nix-darwin settings can own the daemon:** upstream nix-darwin `nix.enable` controls system Nix, nix-daemon and `/etc/nix/nix.conf`. A checked-out `nix.enable = true` alone does not attest which generation is activated on this host.
+- **Likely — inherited Nix environment can redirect the daemon:** Nix's `daemon` store may honor `NIX_DAEMON_SOCKET_PATH` and other store/environment overrides. An implementation claiming a *local* check must explicitly classify or reject nondefault socket overrides and never connect to an arbitrary remote store. A reachable socket alone does not establish host-manager identity.
+- **Design constraint — read-only is not zero side effects:** Even a diagnostic CLI may write Nix caches/logs or trigger lazy daemon launch depending on host configuration. Phase A MUST avoid intentionally mutating configuration/store/profile/receipt, forbid downloads and remote endpoints, and record the limitations; claiming mathematically zero filesystem writes by every downstream subprocess would be unverified. Test explicit no-write contracts at SchneeForge boundaries.
+- **Operational risk:** `std::process::Command::output` is unbounded and may leak uncontrolled stderr; use a bounded observation runner with timeout, maximum capture, output suppression/redaction and child cleanup, without shell interpolation. Permit ordinary timeout/unsupported statuses as structured unknowns; reserve nonzero CLI exit for malformed invocation or unexpected inspection failure.
 
 ## 5. Phase B gate (future change, NOT authorized here)
 
@@ -93,6 +102,8 @@ Before any mutating command:
 - https://github.com/NixOS/nix-installer/blob/main/README.md#upgrading-nix
 - https://nix.dev/manual/nix/2.28/command-ref/new-cli/nix3-upgrade-nix
 - https://nix.dev/manual/nix/2.35/command-ref/new-cli/nix3-store-info.html
+- https://nix.dev/manual/nix/2.35/store/types/local-daemon-store.html
+- https://github.com/nix-darwin/nix-darwin/blob/master/modules/nix/default.nix
 - https://discourse.nixos.org/t/security-advisory-for-nix-and-lix-october-2026/80547
 - `nix-darwin/config/nix-config.nix` (`nix.enable = true`)
 - `crates/core/src/{diagnostics.rs,tool.rs,managed_nix/{mod.rs,receipt.rs,ownership.rs,status.rs}}`
