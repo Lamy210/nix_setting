@@ -18,7 +18,7 @@ Issue #256: `bootstrap-manifest.toml` の nix-installer bump（PR #244）は新�
 ## Scope / Out of Scope
 
 - 本 change の **実装対象は read-only inventory / inspect のみ**。更新処理 `nix upgrade-nix` 自体、daemon restart、profile switch、`nix-darwin switch`、`/nix` の削除や再インストールは実装しない。
-- GUI は後続 change。外部 OS の構成、既存 Nix daemon のセキュリティ状態やユーザーの端末のバージョンは本調査では unknown。
+- GUI は後続 change。Windows native CLI では既存の WSL2 helper 委譲契約をそのまま使用し、Windows ネイティブのNix診断を増やさない。外部 OS の構成、既存 Nix daemon のセキュリティ状態やユーザーの端末のバージョンは本調査では unknown。
 - installer provider 2.35.3 と Nix daemon の fixed version 2.35.3 は同一であると推定しない。
 - CI / release artifact の required gates は弱めない。
 
