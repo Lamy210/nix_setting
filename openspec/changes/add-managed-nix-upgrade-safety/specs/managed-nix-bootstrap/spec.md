@@ -48,6 +48,20 @@ SchneeForge SHALL record whether installer receipt and SchneeForge ownership are
 - **THEN** inspection returns an explicit unknown/manual-review route
 - **AND** no privileged upgrade is attempted
 
+### Requirement: Windows delegates Nix inspection to its selected WSL2 helper
+
+SchneeForge MUST preserve the existing Windows native-launcher / WSL2 execution boundary for `nix upgrade inspect`. It MUST NOT perform native Windows Nix inspection, silently select another distro, or interpret helper stdout as trusted host evidence without the established handshake.
+
+#### Scenario: inspect from compatible Windows launcher
+- **WHEN** a Windows launcher receives `nix upgrade inspect --json` with a selected and compatible WSL2 helper
+- **THEN** it forwards the exact argv to the Linux helper through the existing shell-free transport
+- **AND** preserves JSON stdout and process exit semantics without adding non-JSON launcher output
+
+#### Scenario: unavailable or incompatible WSL2 helper
+- **WHEN** the selected distro is WSL1, missing, or uses an incompatible helper
+- **THEN** the native launcher fails closed and does not run a Windows Nix probe
+- **AND** it does not silently fall back to a different distro
+
 ### Requirement: ownership evidence is not upgrade authorization
 
 SchneeForge SHALL distinguish a structurally valid `OwnershipRecord` from authenticated control of the current Nix runtime. A valid JSON ownership record alone SHALL NOT authorize mutation, prove host manager identity, or establish the installed Nix/daemon version.
