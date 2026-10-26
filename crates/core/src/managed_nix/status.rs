@@ -98,6 +98,14 @@ pub fn repair_action(probe: &StatusProbe) -> RepairAction {
     RepairAction::NoActionNeeded
 }
 
+/// metadata の検査が拒否された場合も「marker なし」として所有権を消さない。
+fn receipt_marker_present(path: &Path) -> bool {
+    match path.symlink_metadata() {
+        Ok(_) => true,
+        Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+    }
+}
+
 /// 分類に必要な実環境の観測結果。実 path 群を差し替え可能にすることで
 /// unit test は実 `/nix` に依存しない (spec: 分類 input は injectable)。
 #[derive(Debug, Clone)]
@@ -106,7 +114,7 @@ pub struct StatusProbe {
     pub store_marker: bool,
     /// installation marker (`/nix/var/nix`) の実在
     pub var_marker: bool,
-    /// receipt path の実在 (破損 JSON / dangling symlink も marker として扱う)
+    /// receipt marker の存在 (破損・symlink・metadata 検査不能も安全側で扱う)
     pub receipt_exists: bool,
     /// receipt (`/nix/receipt.json`) を parse できるか
     pub receipt_readable: bool,
@@ -129,7 +137,7 @@ impl StatusProbe {
         Self {
             store_marker: Path::new("/nix/store").exists(),
             var_marker: Path::new("/nix/var/nix").exists(),
-            receipt_exists: receipt_path.symlink_metadata().is_ok(),
+            receipt_exists: receipt_marker_present(&receipt_path),
             receipt_readable: Receipt::load(&receipt_path).is_ok(),
             ownership_exists: default_ownership_path().exists(),
             store_ping_ok,
@@ -142,7 +150,7 @@ impl StatusProbe {
         Self {
             store_marker: root.join("store").exists(),
             var_marker: root.join("var/nix").exists(),
-            receipt_exists: receipt_path.symlink_metadata().is_ok(),
+            receipt_exists: receipt_marker_present(&receipt_path),
             receipt_readable: Receipt::load(&receipt_path).is_ok(),
             ownership_exists: root.join("schneeforge-managed.json").exists(),
             store_ping_ok,
