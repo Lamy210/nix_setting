@@ -16,6 +16,7 @@
 - [ ] 1.4 Probe daemon reachability separately; only parse version with verified per-version contract, else mark unknown.
 - [ ] 1.5 Determine upgrade owner using actual host evidence, never only a repository declaration.
 - [ ] 1.6 Add human-readable and `--json` CLI display as a thin Core adapter.
+- [ ] 1.7 Preserve Windows native launcher → WSL2 helper routing, exact `--json` stdout, and error exit propagation without adding a Windows Nix execution backend.
 
 ## 2. Tests and safety gate
 
