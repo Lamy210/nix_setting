@@ -24,6 +24,7 @@
 - [ ] 2.2 Tool/path tests for version output, daemon probe failure, timeout, non-UTF-8 and failure reporting.
 - [ ] 2.3 Test that inspect never invokes upgrade/switch/uninstall/daemon restart or writes/contacts network.
 - [ ] 2.4 CLI integration JSON schema and non-zero error behavior.
+- [ ] 2.4a Windows launcher transport/handshake failure and JSON output purity contract tests (Nix execution remains on Linux helper).
 - [ ] 2.5 Run full Rust/Nix/OpenSpec CI; review macOS 15/26 outcomes and release artifacts.
 - [ ] 2.6 Document supported environment matrix, remaining unknowns, operational use and Issue #256 linkage.
 
