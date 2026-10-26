@@ -11,6 +11,7 @@
 - 公開 `StatusProbe` に `receipt_exists` を追加したため、外部クレートが struct literal を直接作成する場合にはソース互換性への影響がある。リポジトリ内の呼び出しは更新済み。外部利用状況は unknown。
 - PR [#259](https://github.com/Lamy210/nix_setting/pull/259) は `add-managed-nix-upgrade-safety` の **OpenSpec設計 Draft**。read-only 診断の提案承認前に新機能を実装しない。PR #259 のCIと実機の管理主体確認は別の gate。
 - Issue [#256](https://github.com/Lamy210/nix_setting/issues/256) は未完了。PR #258 は既存Nix daemonの更新や脆弱性修正の実機適用を意味しない。
+- PR [#261](https://github.com/Lamy210/nix_setting/pull/261) は 26/26 checks 成功後、`develop` へ squash merge（`eefb87629e5637330a52008808875e44c8d9aeb9`）。`/nix/store` と `/nix/var/nix` の dangling symlink を installation marker とみなし、`existing_nix_detected()` の再インストール拒否にも同じ fail-closed policy を適用。回帰テスト3件を追加。
 - Draft #244 / #257 は引き続き release / compatibility acceptance 待ち。未承認の Draft を自動マージしない。
 
 ## 2026-10-23: CI / dependency update follow-up
