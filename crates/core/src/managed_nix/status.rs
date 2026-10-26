@@ -98,6 +98,14 @@ pub fn repair_action(probe: &StatusProbe) -> RepairAction {
     RepairAction::NoActionNeeded
 }
 
+/// metadata の検査が拒否された場合も「marker なし」として所有権を消さない。
+fn receipt_marker_present(path: &Path) -> bool {
+    match path.symlink_metadata() {
+        Ok(_) => true,
+        Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+    }
+}
+
 /// 分類に必要な実環境の観測結果。実 path 群を差し替え可能にすることで
 /// unit test は実 `/nix` に依存しない (spec: 分類 input は injectable)。
 #[derive(Debug, Clone)]
@@ -106,7 +114,9 @@ pub struct StatusProbe {
     pub store_marker: bool,
     /// installation marker (`/nix/var/nix`) の実在
     pub var_marker: bool,
-    /// receipt (`/nix/receipt.json`) が存在し parse 可能か
+    /// receipt marker の存在 (破損・symlink・metadata 検査不能も安全側で扱う)
+    pub receipt_exists: bool,
+    /// receipt (`/nix/receipt.json`) を parse できるか
     pub receipt_readable: bool,
     /// ownership record (`/nix/schneeforge-managed.json`) の存在
     pub ownership_exists: bool,
@@ -115,18 +125,20 @@ pub struct StatusProbe {
 }
 
 impl StatusProbe {
-    /// marker 群 (receipt 含む) のいずれかが存在するか
+    /// marker 群 (receipt の parse 成否に依存しない) のいずれかが存在するか
     fn any_marker(&self) -> bool {
-        self.store_marker || self.var_marker || self.receipt_readable
+        self.store_marker || self.var_marker || self.receipt_exists
     }
 
     /// 実環境の既定 path から観測する。`store_ping_ok` は caller 側で解決済み
     /// nix binary の実行結果を渡す (path の spawn を本 module に持ち込まない)。
     pub fn detect(store_ping_ok: bool) -> Self {
+        let receipt_path = default_receipt_path();
         Self {
             store_marker: Path::new("/nix/store").exists(),
             var_marker: Path::new("/nix/var/nix").exists(),
-            receipt_readable: Receipt::load(&default_receipt_path()).is_ok(),
+            receipt_exists: receipt_marker_present(&receipt_path),
+            receipt_readable: Receipt::load(&receipt_path).is_ok(),
             ownership_exists: default_ownership_path().exists(),
             store_ping_ok,
         }
@@ -134,10 +146,12 @@ impl StatusProbe {
 
     /// test 用: `root` を `/nix` に見立てて観測する
     pub fn detect_at(root: &Path, store_ping_ok: bool) -> Self {
+        let receipt_path = root.join("receipt.json");
         Self {
             store_marker: root.join("store").exists(),
             var_marker: root.join("var/nix").exists(),
-            receipt_readable: Receipt::load(&root.join("receipt.json")).is_ok(),
+            receipt_exists: receipt_marker_present(&receipt_path),
+            receipt_readable: Receipt::load(&receipt_path).is_ok(),
             ownership_exists: root.join("schneeforge-managed.json").exists(),
             store_ping_ok,
         }
@@ -305,6 +319,51 @@ mod tests {
         write_receipt(&tmp);
         let report = classify(&StatusProbe::detect_at(&tmp, true));
         assert_eq!(report.status, NixStatus::Healthy);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// 破損 receipt が単独で残っていても Missing / Broken に誤分類しない。
+    /// 特に ownership record がある場合の stale record 自動削除を防止する。
+    #[test]
+    fn corrupt_receipt_is_a_marker_and_blocks_ownership_removal() {
+        let tmp = temp_root("corrupt_receipt");
+        std::fs::write(tmp.join("receipt.json"), "{invalid").unwrap();
+        write_ownership(&tmp);
+
+        let probe = StatusProbe::detect_at(&tmp, false);
+        assert!(probe.receipt_exists);
+        assert!(!probe.receipt_readable);
+        assert!(!probe.store_marker);
+        assert!(!probe.var_marker);
+        assert_eq!(classify(&probe).status, NixStatus::Degraded);
+        assert_eq!(repair_action(&probe), RepairAction::SuggestManualCleanup);
+        assert!(tmp.join("schneeforge-managed.json").exists());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn corrupt_receipt_without_ownership_is_not_missing() {
+        let tmp = temp_root("corrupt_receipt_unmanaged");
+        std::fs::write(tmp.join("receipt.json"), "not json").unwrap();
+        let probe = StatusProbe::detect_at(&tmp, false);
+        assert_eq!(classify(&probe).status, NixStatus::Degraded);
+        assert_eq!(repair_action(&probe), RepairAction::SuggestManualCleanup);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dangling_receipt_symlink_is_a_marker() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = temp_root("dangling_receipt");
+        symlink(tmp.join("missing-receipt"), tmp.join("receipt.json")).unwrap();
+        write_ownership(&tmp);
+        let probe = StatusProbe::detect_at(&tmp, false);
+        assert!(probe.receipt_exists);
+        assert!(!probe.receipt_readable);
+        assert_eq!(classify(&probe).status, NixStatus::Degraded);
+        assert_eq!(repair_action(&probe), RepairAction::SuggestManualCleanup);
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

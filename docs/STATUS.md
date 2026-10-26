@@ -2,7 +2,16 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-10-23
+最終更新: 2026-10-27
+
+## 2026-10-27: Managed Nix receipt marker の安全な状態分類 (実装 PR 作業中)
+
+- `crates/core/src/managed_nix/status.rs` の `StatusProbe` で、receipt が存在しても JSON parse に失敗する場合、receipt 単独残存を installation marker と見なさず `Missing` / `Broken` と誤分類していた。
+- `schneeforge nix repair` は `Broken` で ownership record を自動削除するため、破損 receipt が残っているのに record を stale と誤判断するリスクがあった。Core が receipt の存在（symlink を含む）と parse 可否を別々に保持し、metadata 検査不能時も安全側へ倒す修正を作業ブランチ `fix/managed-nix-corrupt-receipt-marker` に実装。
+- 破損 receipt + ownership、破損 receipt 単独、dangling symlink receipt の回帰テストを追加。Rust `StatusProbe` 公開 struct に新 field を加える互換性影響について PR review で確認する。
+- 当セッション環境には Rust/Nix ツールチェーンが無く、ローカル `cargo test` / `nix flake check` は未実施。PR の CI と diff 再レビュー完了までは **マージしない**。
+- Issue #256（既存 Nix の安全な upgrade）は未完了。これは破損 receipt 安全性の bug fix であり、Nix 2.35.3 への in-place upgrade や daemon 更新機能は追加しない。
+- Draft #244 / #257 は引き続き release / compatibility acceptance 待ち。未承認の Draft を自動マージしない。
 
 ## 2026-10-23: CI / dependency update follow-up
 
