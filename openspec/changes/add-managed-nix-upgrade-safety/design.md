@@ -56,6 +56,14 @@ This is a **sample shape, not a sample measured host**; actual schema fields and
 - **Design constraint — read-only is not zero side effects:** Even a diagnostic CLI may write Nix caches/logs or trigger lazy daemon launch depending on host configuration. Phase A MUST avoid intentionally mutating configuration/store/profile/receipt, forbid downloads and remote endpoints, and record the limitations; claiming mathematically zero filesystem writes by every downstream subprocess would be unverified. Test explicit no-write contracts at SchneeForge boundaries.
 - **Operational risk:** `std::process::Command::output` is unbounded and may leak uncontrolled stderr; use a bounded observation runner with timeout, maximum capture, output suppression/redaction and child cleanup, without shell interpolation. Permit ordinary timeout/unsupported statuses as structured unknowns; reserve nonzero CLI exit for malformed invocation or unexpected inspection failure.
 
+## 4.2. Windows / WSL2 contract
+
+Existing `docs/windows-wsl2.md` treats Windows as a native launcher/control-plane, and executes Nix/repository/tool operations **only in a selected WSL2 Linux helper** via shell-free `wsl.exe --exec`. Phase A MUST preserve this boundary:
+- On native Windows, `nix upgrade inspect` is forwarded to the selected, version-matched WSL2 helper; never inspect a Windows filesystem or invent a native-Windows Nix platform.
+- Keep argument tokens intact (including `--json`) and preserve the helper's exit status and JSON stdout without launcher commentary. Diagnostics on stderr must not pollute machine-readable stdout.
+- Missing helper, WSL1, unmatched helper version, no selected distro or Windows-native `--repo` path remains a fail-closed transport error; no fallback to a different distribution.
+- Windows CI must check routing/handshake/argv transport; the Nix inspection semantics remain Linux helper tests. Do not silently upgrade the non-required Windows lane to a release gate.
+
 ## 5. Phase B gate (future change, NOT authorized here)
 
 Before any mutating command:
