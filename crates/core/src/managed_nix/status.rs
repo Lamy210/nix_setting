@@ -100,7 +100,7 @@ pub fn repair_action(probe: &StatusProbe) -> RepairAction {
 
 /// symlink が dangling でも、metadata の検査が拒否されても、
 /// marker が存在しないと断定せずに ownership record の自動削除を防ぐ。
-fn installation_marker_present(path: &Path) -> bool {
+pub(super) fn installation_marker_present(path: &Path) -> bool {
     match path.symlink_metadata() {
         Ok(_) => true,
         Err(e) => e.kind() != std::io::ErrorKind::NotFound,
