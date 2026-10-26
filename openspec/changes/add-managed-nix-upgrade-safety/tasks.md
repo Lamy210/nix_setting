@@ -26,13 +26,16 @@
 - [ ] 2.5 Run full Rust/Nix/OpenSpec CI; review macOS 15/26 outcomes and release artifacts.
 - [ ] 2.6 Document supported environment matrix, remaining unknowns, operational use and Issue #256 linkage.
 
-## 3. Follow-up Phase B (OUT OF SCOPE: new OpenSpec change / review)
+## 3. Follow-up Phase B (informational only; separate OpenSpec change)
 
-- [ ] 3.1 Confirm supported in-place upgrades per effective host owner (Linux systemd and macOS nix-darwin).
-- [ ] 3.2 Pin verified target artifact and independent signature/attestation trust root.
-- [ ] 3.3 Design privileged lock, approval, two-stage commit/journal, recoverability and interrupted-host safety.
-- [ ] 3.4 Implement platform-specific update only after disposable acceptance/rollback evidence.
-- [ ] 3.5 Verify actual daemon version and CVE remediation; add release acceptance communications.
+The items below are **not acceptance tasks for this Phase A change**. They must
+be tracked as a separate future proposal after Phase A acceptance.
+
+- Confirm supported in-place upgrades per effective host owner (Linux systemd and macOS nix-darwin).
+- Pin verified target artifact and independent signature/attestation trust root.
+- Design privileged lock, approval, two-stage commit/journal, recoverability and interrupted-host safety.
+- Implement platform-specific update only after disposable acceptance/rollback evidence.
+- Verify actual daemon version and CVE remediation; add release acceptance communications.
 
 ## 4. Archive (after Phase A implementation PR merge)
 
