@@ -7,8 +7,9 @@ SchneeForge SHALL provide a `schneeforge nix upgrade inspect` CLI command whose 
 #### Scenario: user requests inspection
 - **WHEN** a user invokes `schneeforge nix upgrade inspect` on a supported host
 - **THEN** SchneeForge reports observed installation state, resolved Nix client version, daemon reachability, independently verified daemon version if available, ownership, and unknowns
-- **AND** no Nix profile, receipt, ownership record, daemon, or system configuration is modified
-- **AND** the command does not require elevated privileges or network access
+- **AND** SchneeForge does not intentionally modify Nix profiles, receipt, ownership record, system configuration or daemon lifecycle
+- **AND** the command does not require elevated privileges, download dependencies, or contact a remote service
+- **AND** an explicitly local daemon reachability check SHALL NOT be treated as proof of its version or host ownership
 
 #### Scenario: JSON output
 - **WHEN** a user invokes `schneeforge nix upgrade inspect --json`
@@ -47,13 +48,27 @@ SchneeForge SHALL record whether installer receipt and SchneeForge ownership are
 - **THEN** inspection returns an explicit unknown/manual-review route
 - **AND** no privileged upgrade is attempted
 
+### Requirement: ownership evidence is not upgrade authorization
+
+SchneeForge SHALL distinguish a structurally valid `OwnershipRecord` from authenticated control of the current Nix runtime. A valid JSON ownership record alone SHALL NOT authorize mutation, prove host manager identity, or establish the installed Nix/daemon version.
+
+#### Scenario: valid ownership JSON but unverified executable or daemon
+- **WHEN** the recorded provider, expected checksum format and receipt path validate but effective package and daemon provenance have not been independently established
+- **THEN** inspection reports `record-valid` as diagnostic evidence only
+- **AND** upgrade automation remains ineligible
+
 ### Requirement: inspect failures are bounded and fail closed
 
-SchneeForge SHALL run observational subprocesses through the OS-native resolved binary path with fixed arguments, a finite timeout and bounded output. A failed observation MUST NOT be silently converted into a healthy or patched state.
+SchneeForge SHALL run observational subprocesses through the OS-native resolved binary path with fixed arguments, a finite timeout and bounded output. A failed observation MUST NOT be silently converted into a healthy or patched state. It SHALL use only a verified local daemon endpoint and MUST NOT contact arbitrary external stores to inspect a host.
 
 #### Scenario: tool resolver cannot find Nix
 - **WHEN** no resolved Nix binary is available but Nix installation markers remain
 - **THEN** inspection records an inconsistent or unknown state rather than declaring a fully absent installation
+
+#### Scenario: local daemon endpoint override
+- **WHEN** the environment redirects the `daemon` store to an endpoint whose locality or identity cannot be established
+- **THEN** inspection records the daemon probe as unknown or unsupported
+- **AND** no remote endpoint or upgrade command is contacted
 
 #### Scenario: daemon query times out or errors
 - **WHEN** the daemon probe times out, exits non-zero, or returns an unrecognized format
