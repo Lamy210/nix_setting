@@ -98,8 +98,9 @@ pub fn repair_action(probe: &StatusProbe) -> RepairAction {
     RepairAction::NoActionNeeded
 }
 
-/// metadata の検査が拒否された場合も「marker なし」として所有権を消さない。
-fn receipt_marker_present(path: &Path) -> bool {
+/// symlink が dangling でも、metadata の検査が拒否されても、
+/// marker が存在しないと断定せずに ownership record の自動削除を防ぐ。
+fn installation_marker_present(path: &Path) -> bool {
     match path.symlink_metadata() {
         Ok(_) => true,
         Err(e) => e.kind() != std::io::ErrorKind::NotFound,
@@ -135,9 +136,9 @@ impl StatusProbe {
     pub fn detect(store_ping_ok: bool) -> Self {
         let receipt_path = default_receipt_path();
         Self {
-            store_marker: Path::new("/nix/store").exists(),
-            var_marker: Path::new("/nix/var/nix").exists(),
-            receipt_exists: receipt_marker_present(&receipt_path),
+            store_marker: installation_marker_present(Path::new("/nix/store")),
+            var_marker: installation_marker_present(Path::new("/nix/var/nix")),
+            receipt_exists: installation_marker_present(&receipt_path),
             receipt_readable: Receipt::load(&receipt_path).is_ok(),
             ownership_exists: default_ownership_path().exists(),
             store_ping_ok,
@@ -148,9 +149,9 @@ impl StatusProbe {
     pub fn detect_at(root: &Path, store_ping_ok: bool) -> Self {
         let receipt_path = root.join("receipt.json");
         Self {
-            store_marker: root.join("store").exists(),
-            var_marker: root.join("var/nix").exists(),
-            receipt_exists: receipt_marker_present(&receipt_path),
+            store_marker: installation_marker_present(&root.join("store")),
+            var_marker: installation_marker_present(&root.join("var/nix")),
+            receipt_exists: installation_marker_present(&receipt_path),
             receipt_readable: Receipt::load(&receipt_path).is_ok(),
             ownership_exists: root.join("schneeforge-managed.json").exists(),
             store_ping_ok,
@@ -364,6 +365,45 @@ mod tests {
         assert!(!probe.receipt_readable);
         assert_eq!(classify(&probe).status, NixStatus::Degraded);
         assert_eq!(repair_action(&probe), RepairAction::SuggestManualCleanup);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// 修正前は `Path::exists()` が dangling symlink を false にするため、
+    /// ownership を持つホストを Broken と誤判定した。
+    #[cfg(unix)]
+    #[test]
+    fn dangling_store_symlink_keeps_ownership_and_reports_degraded() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = temp_root("dangling_store");
+        symlink(tmp.join("missing-store"), tmp.join("store")).unwrap();
+        write_ownership(&tmp);
+        let probe = StatusProbe::detect_at(&tmp, false);
+        assert!(probe.store_marker);
+        assert!(!probe.var_marker);
+        assert!(!probe.receipt_exists);
+        assert_eq!(classify(&probe).status, NixStatus::Degraded);
+        assert_eq!(repair_action(&probe), RepairAction::SuggestManualCleanup);
+        assert!(tmp.join("schneeforge-managed.json").exists());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dangling_var_nix_symlink_keeps_ownership_and_reports_degraded() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = temp_root("dangling_var_nix");
+        std::fs::create_dir_all(tmp.join("var")).unwrap();
+        symlink(tmp.join("missing-nix"), tmp.join("var/nix")).unwrap();
+        write_ownership(&tmp);
+        let probe = StatusProbe::detect_at(&tmp, false);
+        assert!(!probe.store_marker);
+        assert!(probe.var_marker);
+        assert!(!probe.receipt_exists);
+        assert_eq!(classify(&probe).status, NixStatus::Degraded);
+        assert_eq!(repair_action(&probe), RepairAction::SuggestManualCleanup);
+        assert!(tmp.join("schneeforge-managed.json").exists());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
