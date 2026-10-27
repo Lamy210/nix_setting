@@ -13,8 +13,8 @@ For the exact `nixpkgs` input locked in `develop` (`fe13242281a67641c0102cdb1087
 | `uv` | 0.13.0 | 0.13.4 | Current definition is below the eMudhra mitigation floor **0.13.4**. Candidate meets the uv floor but only fixes installations that actually activate it. Update all relevant developer shells, cached OCI images, uv-managed Python and venvs independently. |
 | `bun` | 1.4.2 | **1.4.2** | **Both are below Bun 1.4.4**, which patches bundled Brotli CVE-2026-111497. Do NOT label PR #257 a complete security fix. Prepare a separate, verified nixpkgs update/override to 1.4.4 or later, covering all advertised platforms. |
 | `claude-code` | 2.1.300 | 2.1.308 | Both exceed the 2.1.251 floor for GHSA-5xjx-9qx6-jcrv; official v2.1.311 was released 2026-10-26. The module `modules/experimental/ai.nix` is commented out in `modules/default.nix`. An enabled environment must validate **its executable** and consider updating to 2.1.311 or newer, after release review. |
-| `nodejs_24` | **24.21.0 observed in current-checkout CI Nix store** | Candidate version **not independently verified** | **Below patched 24.22.1 floor** for Node 24; prioritize a separately tested patch for root/standalone Node shells. The CI evidence does **not** establish what is active on every developer machine. Node 22/26 floors are 22.23.4/26.12.1. |
-| `python3`, `pip`, `certifi` | Versions **not established** | Versions **not established** | Verify interpreter and installed/bundled CA stores individually, including `ensurepip` and existing venvs. Recommended patched Python lines: 3.11.18, 3.12.16, 3.13.18, 3.14.10, 3.15.2 (or newer supported patches); pip >=26.2.2, certifi >=2026.10.19. |
+| `nodejs_24` | **24.21.0 observed in current-checkout CI Nix store** | **24.21.0** (verified from candidate `v24.nix`) | **Below patched 24.22.1 floor** for Node 24; prioritize a separately tested patch for root/standalone Node shells. The CI evidence does **not** establish what is active on every developer machine. Node 22/26 floors are 22.23.4/26.12.1. |
+| `python3`, `pip`, `certifi` | Python/pip versions not established; Nixpkgs certifi definition 2026.06.17 with `cacert 3.126` | Python/pip versions not established; Nixpkgs certifi definition 2026.07.22 with **`cacert 3.131.1`** | Verify interpreter and installed/bundled CA stores individually, including `ensurepip` and existing venvs. Recommended patched Python lines: 3.11.18, 3.12.16, 3.13.18, 3.14.10, 3.15.2 (or newer supported patches); pip >=26.2.2, certifi >=2026.10.19. |
 | PHP | **No PHP runtime/deployment declaration found** | Not affected by PR #257's lockfile intent | Scan external hosts/containers separately. Apply patched PHP 8.2.35, 8.3.36, 8.4.27 or 8.5.12 (or later). Replace EOL branches; additional CVE-2026-115560 has a narrow, separately disclosed condition. |
 
 ### Primary sources and exact pinned definitions
@@ -49,6 +49,8 @@ For the exact `nixpkgs` input locked in `develop` (`fe13242281a67641c0102cdb1087
 ## Deep-dive evidence: template locks, CA trust, host-shadowed executables
 
 ### Separate nixpkgs pins (confirmed from repository and pinned nixpkgs definitions)
+
+Draft PR #257 was additionally inspected: its nixpkgs `3ec636362e1816bc2f0888fa0fa2c69f1bc9e504` changes `cacert` to NSS **3.131.1** and `uv` to **0.13.4**, but leaves **Node 24.21.0, Bun 1.4.2, shared Brotli 1.2.0 and c-ares 1.34.8**. This is useful partial CA mitigation after host activation, **not** a complete Node/Bun fix; #257 retains real-host acceptance gates and is not presumed merged.
 
 The independent Node/Python templates contain their **own checked-in flake.lock**, `nixpkgs@2fcb964de67fcf60b43471c55d5d99e61a9ccb5a` (older than root `fe1324228`). CI copies each template away from this checkout, so it **does not use the root flake.lock** for those tests.
 
