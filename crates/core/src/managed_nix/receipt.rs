@@ -23,10 +23,21 @@ pub struct Receipt {
 impl Receipt {
     /// 指定 path の receipt を読む。存在しない場合は `ReceiptNotFound`
     pub fn load(path: &Path) -> Result<Self, ManagedNixError> {
-        if !path.exists() {
-            return Err(ManagedNixError::ReceiptNotFound {
-                path: path.to_path_buf(),
-            });
+        // symlink_metadata は dangling symlink 自体を検出できる。Path::exists()
+        // では壊れた receipt を「未設置」と誤報告するため使わない。
+        match fs::symlink_metadata(path) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(ManagedNixError::ReceiptNotFound {
+                    path: path.to_path_buf(),
+                });
+            }
+            Err(e) => {
+                return Err(ManagedNixError::Io {
+                    context: format!("stat receipt {}", path.display()),
+                    source: e.to_string(),
+                });
+            }
         }
         let body = fs::read_to_string(path).map_err(|e| ManagedNixError::Io {
             context: format!("read receipt {}", path.display()),
@@ -62,6 +73,21 @@ mod tests {
         let p = Path::new("/__definitely_no_receipt_here__.json");
         let res = Receipt::load(p);
         assert!(matches!(res, Err(ManagedNixError::ReceiptNotFound { .. })));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dangling_receipt_symlink_is_read_error_not_missing() {
+        use std::os::unix::fs::symlink;
+
+        let p = std::env::temp_dir().join(format!(
+            "schneeforge_receipt_dangling_{}.json",
+            std::process::id()
+        ));
+        symlink(p.with_extension("missing-target"), &p).unwrap();
+        let res = Receipt::load(&p);
+        assert!(matches!(res, Err(ManagedNixError::Io { .. })));
+        fs::remove_file(&p).unwrap();
     }
 
     #[test]

@@ -48,10 +48,21 @@ impl OwnershipRecord {
     }
 
     pub fn load(path: &Path) -> Result<Self, ManagedNixError> {
-        if !path.exists() {
-            return Err(ManagedNixError::OwnershipNotFound {
-                path: path.to_path_buf(),
-            });
+        // symlink の target が欠落しても ownership marker は残存する。
+        // 不在と読み取り不能を区別し、host ownership の誤認を防止する。
+        match fs::symlink_metadata(path) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(ManagedNixError::OwnershipNotFound {
+                    path: path.to_path_buf(),
+                });
+            }
+            Err(e) => {
+                return Err(ManagedNixError::Io {
+                    context: format!("stat ownership record {}", path.display()),
+                    source: e.to_string(),
+                });
+            }
         }
         let body = fs::read_to_string(path).map_err(|e| ManagedNixError::Io {
             context: format!("read ownership record {}", path.display()),
@@ -189,6 +200,18 @@ mod tests {
             res,
             Err(ManagedNixError::OwnershipNotFound { .. })
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dangling_ownership_symlink_is_read_error_not_missing() {
+        use std::os::unix::fs::symlink;
+
+        let p = tmp_path("dangling_symlink");
+        symlink(p.with_extension("missing-target"), &p).unwrap();
+        let res = OwnershipRecord::load(&p);
+        assert!(matches!(res, Err(ManagedNixError::Io { .. })));
+        fs::remove_file(&p).unwrap();
     }
 
     #[test]
