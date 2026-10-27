@@ -31,13 +31,15 @@
       # eMudhra/emSign CA distrust: Go crypto/x509 fixed in 1.27.3.
       # Source hash is from NixOS/nixpkgs 3ec636362e1816bc2f0888fa0fa2c69f1bc9e504.
       # Keep root Go runtime patched independently of the broad flake.lock gate.
-      goPatched = pkgs.go.overrideAttrs (_final: _previous: {
-        version = "1.27.3";
-        src = pkgs.fetchurl {
-          url = "https://go.dev/dl/go1.27.3.src.tar.gz";
-          hash = "sha256-bndJA1zzYPBrJXXRYup535/ajvZxiJ5cN1+OUHd/Jrs=";
-        };
-      });
+      goPatched = pkgs.go_1_27.overrideAttrs (
+        _final: _previous: {
+          version = "1.27.3";
+          src = pkgs.fetchurl {
+            url = "https://go.dev/dl/go1.27.3.src.tar.gz";
+            hash = "sha256-bndJA1zzYPBrJXXRYup535/ajvZxiJ5cN1+OUHd/Jrs=";
+          };
+        }
+      );
       devShellPackages = {
         go = with pkgs; [
           goPatched
