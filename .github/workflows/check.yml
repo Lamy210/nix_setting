@@ -442,6 +442,7 @@ jobs:
         run: |
           nix develop .#go --command bash -c 'command -v go && go version'
           nix develop .#python --command bash -c 'command -v python3 && python3 --version'
+          nix develop .#python --command uv --version | grep -Fx 'uv 0.13.5'
           nix develop .#node --command bash -c 'command -v node && node --version'
           nix develop .#rust --command bash -c 'command -v rustc && rustc --version && command -v cargo && cargo --version'
 
@@ -467,6 +468,12 @@ jobs:
         run: |
           cp -r "templates/${{ matrix.template }}" /tmp/template-dev
           cd /tmp/template-dev && nix develop --command true
+
+      - name: python template patched uv runtime
+        if: matrix.template == 'python'
+        run: |
+          cd /tmp/template-dev
+          nix develop --command uv --version | grep -Fx 'uv 0.13.5'
 
   # Shadow candidate for a future branch-protection migration. This job is not
   # configured as required by this change; it only demonstrates stable aggregation.
