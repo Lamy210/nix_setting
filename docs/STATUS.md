@@ -4,13 +4,14 @@
 
 最終更新: 2026-10-27
 
-## 2026-10-27: Managed Nix receipt marker の安全な状態分類 (実装 PR 作業中)
+## 2026-10-27: Managed Nix receipt marker の安全な状態分類（PR #258 マージ済み）
 
-- `crates/core/src/managed_nix/status.rs` の `StatusProbe` で、receipt が存在しても JSON parse に失敗する場合、receipt 単独残存を installation marker と見なさず `Missing` / `Broken` と誤分類していた。
-- `schneeforge nix repair` は `Broken` で ownership record を自動削除するため、破損 receipt が残っているのに record を stale と誤判断するリスクがあった。Core が receipt の存在（symlink を含む）と parse 可否を別々に保持し、metadata 検査不能時も安全側へ倒す修正を作業ブランチ `fix/managed-nix-corrupt-receipt-marker` に実装。
-- 破損 receipt + ownership、破損 receipt 単独、dangling symlink receipt の回帰テストを追加。Rust `StatusProbe` 公開 struct に新 field を加える互換性影響について PR review で確認する。
-- 当セッション環境には Rust/Nix ツールチェーンが無く、ローカル `cargo test` / `nix flake check` は未実施。PR の CI と diff 再レビュー完了までは **マージしない**。
-- Issue #256（既存 Nix の安全な upgrade）は未完了。これは破損 receipt 安全性の bug fix であり、Nix 2.35.3 への in-place upgrade や daemon 更新機能は追加しない。
+- `StatusProbe` は以前、receipt が存在しても JSON parse に失敗すると installation marker と見なさず `Missing` / `Broken` へ誤分類する場合があった。`schneeforge nix repair` が stale ownership record を誤削除するリスクのある条件を修正した。
+- PR [#258](https://github.com/Lamy210/nix_setting/pull/258) は最終 HEAD `cd371b2` で **26/26 checks 成功**（`rust-quality`, `managed-nix-e2e`, macOS 15/26, `release-artifact-check` 等）を確認後、`develop` へ **squash merge**（`74b1905a66e0f8b21c27766c53a01b18f19e1458`）。破損 receipt + ownership、破損 receipt 単独、dangling symlink の回帰テスト3件を追加。
+- 公開 `StatusProbe` に `receipt_exists` を追加したため、外部クレートが struct literal を直接作成する場合にはソース互換性への影響がある。リポジトリ内の呼び出しは更新済み。外部利用状況は unknown。
+- PR [#259](https://github.com/Lamy210/nix_setting/pull/259) は `add-managed-nix-upgrade-safety` の **OpenSpec設計 Draft**。read-only 診断の提案承認前に新機能を実装しない。PR #259 のCIと実機の管理主体確認は別の gate。
+- Issue [#256](https://github.com/Lamy210/nix_setting/issues/256) は未完了。PR #258 は既存Nix daemonの更新や脆弱性修正の実機適用を意味しない。
+- PR [#261](https://github.com/Lamy210/nix_setting/pull/261) は 26/26 checks 成功後、`develop` へ squash merge（`eefb87629e5637330a52008808875e44c8d9aeb9`）。`/nix/store` と `/nix/var/nix` の dangling symlink を installation marker とみなし、`existing_nix_detected()` の再インストール拒否にも同じ fail-closed policy を適用。回帰テスト3件を追加。
 - Draft #244 / #257 は引き続き release / compatibility acceptance 待ち。未承認の Draft を自動マージしない。
 
 ## 2026-10-23: CI / dependency update follow-up
