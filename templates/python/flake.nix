@@ -24,7 +24,7 @@
             # Override the precomputed vendored Rust dependencies, not just cargoHash.
             cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
               inherit (final) src version;
-              pname = previous.pname;
+              inherit (previous) pname;
               hash = final.cargoHash;
             };
           }
