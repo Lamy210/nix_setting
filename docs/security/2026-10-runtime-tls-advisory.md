@@ -46,6 +46,51 @@ For the exact `nixpkgs` input locked in `develop` (`fe13242281a67641c0102cdb1087
 5. Create **a dedicated dependency update PR** with provenance-verified `flake.lock` revision/NAR hash and supported platform versions. A bump needs package build evaluation and macOS/Home Manager/nix-darwin compatibility; do not manually synthesize `narHash` or replace the nixpkgs input with an unverified floating reference.
 6. Verify applicable CI checks **and** representative runtime on disposable macOS/Linux hosts; inspect deployed executables after activation, inspect Python venvs and container images separately, and record rollbacks. Security remediation is not complete if the pinned source is fixed but the active runtime remains vulnerable.
 
+## Deep-dive evidence: template locks, CA trust, host-shadowed executables
+
+### Separate nixpkgs pins (confirmed from repository and pinned nixpkgs definitions)
+
+The independent Node/Python templates contain their **own checked-in flake.lock**, `nixpkgs@2fcb964de67fcf60b43471c55d5d99e61a9ccb5a` (older than root `fe1324228`). CI copies each template away from this checkout, so it **does not use the root flake.lock** for those tests.
+
+| Executable / trust material | Root pin `fe1324228` | Node/Python template pin `2fcb964d` | Exposure |
+| --- | --- | --- | --- |
+| `nodejs_24` | 24.21.0 | **24.18.1** | Both older than 24.22.1. Node 24 patch set fixes Brotli, TLS hostname validation, DNS, eMudhra root, c-ares, OpenSSL and Undici; **a Bun-only patch does not fix Node**. |
+| `bun` | 1.4.2 | **1.3.13** | Both older than 1.4.4. PR #264 **merged** with checksum-verified Bun 1.4.4 overrides in both Node shells, but only after actual rebuilt shell activation. |
+| `uv` | 0.13.0 | **0.12.1** | Both older than 0.13.4. PR #266 proposes 0.13.5 in both Python shells; the Rust vendor rebuild took ~23 min in first successful build and initial CI incorrectly required `uv --version` to omit its architecture suffix. |
+| `python3Packages.certifi` | 2026.06.17 | 2026.06.17 | **Nixpkgs patches this package to symlink its `certifi/cacert.pem` to the `cacert` derivation**; upstream PyPI certifi's version floor alone is not sufficient evidence for Nix's effective CA trust. Inspect `certifi.where()` / symlink target and CA fingerprints, not only `certifi.__version__`. |
+| `cacert` NSS data | 3.126 | 3.126 | Mozilla's NSS 3.131.1 is the specifically documented root-store update for the compromised eMudhra intermediates. These two locked definitions predate it. Determine effective trust after activation; if patched `cacert` cannot be deployed immediately, use an independently verified trust-store mitigation without disabling certificate validation. |
+
+**Verified Nixpkgs source links:**
+- [Older template Node](https://github.com/NixOS/nixpkgs/blob/2fcb964de67fcf60b43471c55d5d99e61a9ccb5a/pkgs/development/web/nodejs/v24.nix), [Bun](https://github.com/NixOS/nixpkgs/blob/2fcb964de67fcf60b43471c55d5d99e61a9ccb5a/pkgs/by-name/bu/bun/package.nix), [uv](https://github.com/NixOS/nixpkgs/blob/2fcb964de67fcf60b43471c55d5d99e61a9ccb5a/pkgs/by-name/uv/uv/package.nix).
+- [Pinned certifi CA-bundle substitution](https://github.com/NixOS/nixpkgs/blob/fe13242281a67641c0102cdb1087f0ebe586c7df/pkgs/development/python-modules/certifi/default.nix) and [NSS 3.126 CA definition](https://github.com/NixOS/nixpkgs/blob/fe13242281a67641c0102cdb1087f0ebe586c7df/pkgs/by-name/ca/cacert/package.nix).
+- [Upstream patched NSS 3.131.1 definition](https://github.com/NixOS/nixpkgs/blob/master/pkgs/by-name/ca/cacert/package.nix); [Mozilla response](https://blog.mozilla.org/security/2026/10/20/protecting-firefox-users-following-the-compromise-of-emudhra-intermediate-certificates/).
+
+### Runtime authority is split; a Nix PR is not a host-wide fix
+
+The repo's `docs/runtime-ownership.md` delegates **global Node** to `mise`, with `config/mise/config.toml` declaring `node = "lts"` (a moving selector), and sets `BUN_INSTALL=$HOME/.bun` plus appends its bin directory to the user's shell PATH in `modules/shell.nix`. Therefore the effective `node` and `bun` are determined by PATH and shell startup, **not merely the Nix input**. For each shell record `command -v`, `type -a` (interactive), actual version, resolved binary path and package-manager ownership. A patched `nix develop .#node` does not patch `$HOME/.bun/bin/bun`.
+
+The `templates/devenv/flake.nix` separately pulls `nodejs_24`; this template was **not** covered by PR #264's Bun-specific patch. Evaluate its own flake lock/resolved input and build closure before declaring any repo-wide Node remediation.
+
+### Certificate trust boundaries, verified behaviors
+
+- The eMudhra incident involved eight weak intermediate CA private keys, **not a reported data breach**. Mozilla distributed OneCRL denylisting to ordinary Firefox users on October 17 and removed the affected root in NSS 3.131.1; Chrome used a CRLSet SPKI block. Those browser-specific rapid mitigations **do not automatically imply CLI HTTP clients, custom Node bundles, Python trust stores or older containers are patched**.
+- The Python community recommends `certifi >=2026.10.19`, `pip >=26.2.2`, `uv >=0.13.4`, `sigstore >=4.5.1`, `conda >=26.9.4`, `pixi >=0.82.1` and `virtualenv >=21.14.12`. Each may embed or vendor CA data independently; inspect the **specific executable / venv / container layer**.
+- Cloudflare reports that default **Workers Builds and Pages build images** were updated October 23 with newer CA roots, Node 24.22.1, Bun 1.4.4 and pip 26.2.2. Overrides `BUN_VERSION`, `SSL_CERT_FILE`, `PIP_CERT`, `REQUESTS_CA_BUNDLE` and `NODE_OPTIONS=--use-bundled-ca` can reintroduce trust issues. This says nothing about the TLS trust of arbitrary self-hosted deployments.
+- **Never** suggest `curl -k`, `NODE_TLS_REJECT_UNAUTHORIZED=0`, `pip --trusted-host` or disabling hostname validation as incident mitigation.
+
+### Why naive Node version overrides are insufficient
+
+Pinned `nodejs_24` derives from Nixpkgs' `v24.nix`, whose upstream version changed from **24.21.0 to 24.22.1** in merged Nixpkgs PR #576777. But the Node derivation's `nodejs.nix` links a separately packaged `brotli` and `c-ares`. Existing pinned Nixpkgs uses `brotli 1.2.0` and `c-ares 1.34.8`, so just changing the Node source hash and version is **not sufficient** to prove the dynamically linked closure is patched. Nixpkgs PR #579225 documented applying the [Brotli patch](https://github.com/google/brotli/commit/0ed4268a4401abcb4472096340477cf4af7d1a2b) and upgrading shared c-ares 1.34.9, alongside Node 24.22.1.
+
+Treat source version, dynamically linked library versions, root CA set, build output and **the executed node binary** as separate evidence. Prefer a published complete upstream Nixpkgs security revision validated on macOS/Linux; otherwise isolate a reviewable source+shared-library+CA backport with exact hashes, trusted provenance, rebuild gates and rollback. The currently checked upstream master/unstable paths do not by themselves prove all components landed together.
+
+Sources: [Node 24.22.1 official release](https://nodejs.org/en/blog/release/v24.22.1), [Nixpkgs Node update PR](https://github.com/NixOS/nixpkgs/pull/576777), [shared-library fix design #579225](https://github.com/NixOS/nixpkgs/pull/579225), [Bun advisories](https://github.com/oven-sh/bun/security/advisories/GHSA-663w-cv8g-jj2p).
+
+### PHP2Shell and Claude Code follow-on conditions
+
+- JPCERT/CC's October 26 update reports **claimed PoCs and attempted-exploitation traffic** for PHP2Shell, but does not establish that every PoC achieves RCE in every PHP runtime. For an exposed PHP installation, patch and review request/application logs, unexpected processes and persistence artifacts. Separate CVE-2026-115560 remains subject to an unusual `session.serialize_handler` transition and enabled session upload progress; disable `session.upload_progress.enabled` as the vendor-recommended short-term mitigation when applicable.
+- Additional Claude Code advisories have independent patched floors: [plugin SHA-pin bypass >=2.1.179](https://github.com/anthropics/claude-code/security/advisories/GHSA-pq7j-f95f-qfcv), [workspace-write TOCTOU >=2.1.129](https://github.com/anthropics/claude-code/security/advisories/GHSA-5j29-h97v-84ch), [server-managed settings bypass >=2.1.260](https://github.com/anthropics/claude-code/security/advisories/GHSA-gfvf-j8jh-jxxw), [macOS Edit TOCTOU >=2.1.251](https://github.com/anthropics/claude-code/security/advisories/GHSA-5xjx-9qx6-jcrv). Both inspected optional Nix definitions (2.1.300 / 2.1.308) meet **these** floors. The Windows Claude Desktop [uncontrolled git.exe search-path advisory](https://github.com/anthropics/claude-code/security/advisories/GHSA-4p2j-qj3c-6x84) affects a **different product**, not the optional CLI module; verify Desktop separately.
+
 ## Repository follow-up / gates
 
 - **Draft #257**: updated `uv` resolves the *package definition* version floor but `bun` remains 1.4.2; keep release/activation review gate and pursue a follow-up fix instead of declaring all-clear.
