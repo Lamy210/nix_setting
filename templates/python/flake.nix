@@ -11,7 +11,8 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         # Security-only package backport (emSign/eMudhra): vendor 0.13.5.
-        uvPatched = pkgs.uv.overrideAttrs (final: previous: {
+        uvPatched = pkgs.uv.overrideAttrs (
+          final: previous: {
           version = "0.13.5";
           src = pkgs.fetchFromGitHub {
             owner = "astral-sh";
@@ -26,7 +27,8 @@
             pname = previous.pname;
             hash = final.cargoHash;
           };
-        });
+          }
+        );
       in
       {
         devShells.default = pkgs.mkShell {
