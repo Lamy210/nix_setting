@@ -2042,8 +2042,12 @@ mod tests {
         let dir = fake_git_fixture_dir("sync-ref-inspection-error");
 
         let fake_git = dir.join("fake-git");
+        let staged_git = dir.join("fake-git.pending");
+        // On some CI filesystems, executing a recently written script can
+        // sporadically fail with ETXTBSY. Publish the script only after its
+        // writer is closed and executable permissions have been applied.
         std::fs::write(
-            &fake_git,
+            &staged_git,
             r#"#!/bin/sh
 case "$*" in
   *"status --porcelain"*) exit 0 ;;
@@ -2052,9 +2056,11 @@ esac
 "#,
         )
         .unwrap();
-        let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
+        let mut permissions = std::fs::metadata(&staged_git).unwrap().permissions();
         permissions.set_mode(0o755);
-        std::fs::set_permissions(&fake_git, permissions).unwrap();
+        std::fs::set_permissions(&staged_git, permissions).unwrap();
+        std::fs::rename(&staged_git, &fake_git).unwrap();
+        assert!(!staged_git.exists(), "staging file must not remain");
 
         let tc = ToolInventory {
             git: Some(resolved_git(&fake_git)),
