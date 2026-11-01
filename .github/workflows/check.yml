@@ -441,6 +441,7 @@ jobs:
       - name: runtime smoke (named shells)
         run: |
           nix develop .#go --command bash -c 'command -v go && go version'
+          nix develop .#go --command go version | grep -E '^go version go1\.27\.3 '
           nix develop .#python --command bash -c 'command -v python3 && python3 --version'
           nix develop .#node --command bash -c 'command -v node && node --version'
           nix develop .#node --command bun --version | grep -Fx 1.4.4
