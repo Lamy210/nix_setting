@@ -167,5 +167,6 @@ edge 用 formula（`schneeforge-edge.rb`、`head` 機能で `main` HEAD をロ�
 ## 現在のリリース状態
 
 - 最新 release: `v0.2.0-rc.7`（2026-08-22。rc.6 は release job の `attest build provenance` が `attestations: write` 権限不足で失敗したため tag 削除のうえ切り直し。managed release source / `schneeforge-release.json` / SLSA provenance / CLI self-update を同梱する最初の release）
-- 次候補: 未定（macOS Final Acceptance (rc.7, `docs/testing/macOS-final-acceptance-checklist.md` gate A-J) の結果次第）
+- 次候補: `v0.2.0-rc.8`（計画中。**未公開**。詳細は [Issue #271](https://github.com/Lamy210/nix_setting/issues/271)。セキュリティ修正、macOS Final Acceptance、release CI が完了するまで tag を作成しない）
 - `develop` 未リリース差分: rc.7 後の follow-up + workflow hardening。詳細は `docs/STATUS.md`
+- GitHub `releases/latest` は現時点で `v0.2.0-rc.1` を返す（過去の rc.1 が `prerelease=false` として登録されているため）。実際の最新公開 prerelease は `v0.2.0-rc.7`。release API の channel 表示は [#271](https://github.com/Lamy210/nix_setting/issues/271) で修正・再検証する。tag の移動・履歴書き換えはしない。
