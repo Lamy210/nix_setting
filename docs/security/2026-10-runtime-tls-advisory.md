@@ -1,6 +1,8 @@
 # October 2026 runtime and TLS trust advisory — SchneeForge
 
-**Reviewed: 2026-10-27** · Operational incident guidance, not a proof of deployed-host remediation. This guide is not a normative product specification; future policy changes require an approved OpenSpec change.
+**Reviewed: 2026-10-27** · Operational incident guidance, not a proof of deployed-host remediation.
+
+**Repository-status correction (2026-11-01):** PR #264 is merged and patches Bun only in the root and standalone Node development shells. PRs #266 (uv), #269 (Rust TLS) and #270 (Go) remain under integration review. Those pending changes and the historical locked-package versions below must not be confused with installed-host remediation. This guide is not a normative product specification; future policy changes require an approved OpenSpec change.
 
 ## Scope and evidence: separate source pins, evaluated packages, deployed binaries
 
@@ -11,7 +13,7 @@ For the exact `nixpkgs` input locked in `develop` (`fe13242281a67641c0102cdb1087
 | Component | Current locked definition | PR #257 candidate definition | Required response |
 | --- | --- | --- | --- |
 | `uv` | 0.13.0 | 0.13.4 | Current definition is below the eMudhra mitigation floor **0.13.4**. Candidate meets the uv floor but only fixes installations that actually activate it. Update all relevant developer shells, cached OCI images, uv-managed Python and venvs independently. |
-| `bun` | 1.4.2 | **1.4.2** | **Both are below Bun 1.4.4**, which patches bundled Brotli CVE-2026-111497. Do NOT label PR #257 a complete security fix. Prepare a separate, verified nixpkgs update/override to 1.4.4 or later, covering all advertised platforms. |
+| `bun` | 1.4.2 | **1.4.2** | **Both are below Bun 1.4.4**, which patches bundled Brotli CVE-2026-111497. Do NOT label PR #257 a complete security fix. PR #264 has already backported Bun 1.4.4 into the root Node devShell and standalone Node template with executable CI version checks. This does not fix the original nixpkgs definition, global Bun, other templates or already-installed environments; verify each independently. |
 | `claude-code` | 2.1.300 | 2.1.308 | Both exceed the 2.1.251 floor for GHSA-5xjx-9qx6-jcrv; official v2.1.311 was released 2026-10-26. The module `modules/experimental/ai.nix` is commented out in `modules/default.nix`. An enabled environment must validate **its executable** and consider updating to 2.1.311 or newer, after release review. |
 | `nodejs_24` | **24.21.0 observed in current-checkout CI Nix store** | **24.21.0** (verified from candidate `v24.nix`) | **Below patched 24.22.1 floor** for Node 24; prioritize a separately tested patch for root/standalone Node shells. The CI evidence does **not** establish what is active on every developer machine. Node 22/26 floors are 22.23.4/26.12.1. |
 | `python3`, `pip`, `certifi` | Python/pip versions not established; Nixpkgs certifi definition 2026.06.17 with `cacert 3.126` | Python/pip versions not established; Nixpkgs certifi definition 2026.07.22 with **`cacert 3.131.1`** | Verify interpreter and installed/bundled CA stores individually, including `ensurepip` and existing venvs. Recommended patched Python lines: 3.11.18, 3.12.16, 3.13.18, 3.14.10, 3.15.2 (or newer supported patches); pip >=26.2.2, certifi >=2026.10.19. |
@@ -31,7 +33,7 @@ For the exact `nixpkgs` input locked in `develop` (`fe13242281a67641c0102cdb1087
 
 **P0 — inspect and patch if deployed:** PHP2Shell (CVE-2026-109618 / -109619) may permit unauthenticated RCE in PHP request handlers; only PHP-serving assets are directly exposed. Public PHP 8.2–8.5 fixed floors above. The October 23 informational CVE-2026-115560 is **not fixed by asserting these floors alone**: vendor mitigation is `session.upload_progress.enabled=0` pending a later patch, but only a rare runtime configuration/serializer transition makes it reachable. On October 26, Windows PHP release packages were rebuilt with Brotli 1.2.1 (`-1` package suffix).
 
-**P0 — current Nix CI runtime vulnerable:** Bun 1.4.2 includes the vulnerable Brotli decoder; the current-checkout root devshell run retrieved `nodejs-24.21.0` from Nix, below fixed **24.22.1**. The independent Node template and installed user machines still require their own evidence. Update Bun and Node separately. Avoid untrusted Brotli data until remediated and verified.
+**P0 — Node still requires a verified patch; Bun mitigation is scoped:** A prior root-devShell CI run retrieved `nodejs-24.21.0` from Nix, below the fixed **24.22.1** floor. Root and standalone Node shells now override Bun to **1.4.4** via merged PR #264 and enforce its actual version in CI, but independently installed Bun, other templates, and deployed hosts remain unverified. Patch and verify Node separately; a Bun-only fix does not remediate Node.
 
 **P0 — TLS chain integrity for package downloads:** eMudhra's eight Global TLS intermediate CA keys were cryptographically weak and intermediates revoked. The vendor states **no infrastructure compromise and no data breach**; the security impact is that certain trust stores may accept certificates issued with weak intermediates. A TLS-path adversary is a prerequisite for impersonation; this is **not evidence that this repo, host or PyPI account was breached**. Updating host OS roots alone is insufficient for `pip`'s vendored certifi; `pip >=26.2.2`, `certifi >=2026.10.19` and `uv >=0.13.4` need evaluation independently. Rebuild cached containers and consider already-created venvs and managed Python installations.
 
@@ -104,7 +106,7 @@ The published `install.sh` is supported via **`curl | bash`**. It downloads both
 
 ## Repository follow-up / gates
 
-- **Draft #257**: updated `uv` resolves the *package definition* version floor but `bun` remains 1.4.2; keep release/activation review gate and pursue a follow-up fix instead of declaring all-clear.
+- **Draft #257**: the newer nixpkgs input meets an older `uv` package-version floor but still defines `bun` 1.4.2. PR #264 separately backports Bun 1.4.4 to the two Node shells. Keep the broad lockfile PR in Draft pending compatibility review and verify the effective environment instead of claiming all-clear.
 - **Draft #244**: the installer pin is unrelated to PHP / emSign / Bun updates and does not upgrade existing Nix daemons. Keep previously documented lifecycle acceptance.
 - **Phase A PR #259**: a read-only installer inventory may help in later host assessments but cannot certify Nix/Node/Python/Claude security.
 - **Confirmed Node evidence:** PR #266 first root devShell CI downloaded `nodejs-24.21.0` (job https://github.com/Lamy210/nix_setting/actions/runs/40435042622/job/121961592785), independently of any release acceptance. Record current Node binary and upgrade to >=24.22.1.
