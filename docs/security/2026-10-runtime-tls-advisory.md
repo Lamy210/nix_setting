@@ -2,7 +2,7 @@
 
 **Reviewed: 2026-10-27** · Operational incident guidance, not a proof of deployed-host remediation.
 
-**Repository-status correction (2026-11-01):** PR #264 is merged and patches Bun only in the root and standalone Node development shells. PR #270 (Go 1.27.3 root development shell) was merged on 2026-11-01 after all seven required checks passed; its non-required macOS checks were still running at merge time. PRs #266 (uv) and #269 (Rust TLS) remain under integration review. These scoped changes and the historical locked-package versions below must not be confused with installed-host remediation. This guide is not a normative product specification; future policy changes require an approved OpenSpec change.
+**Repository-status correction (2026-11-01):** PR #264 is merged and patches Bun only in the root and standalone Node development shells. PR #270 (Go 1.27.3 root development shell) was merged on 2026-11-01 after all seven required checks passed; its non-required macOS checks were still running at merge time. PR #269 (Rust TLS/WebPKI lockfile floor backport and CI checks) was merged on 2026-11-01 after all required checks and all 22 `check` jobs succeeded. PR #266 (uv 0.13.5 development shells) remains under integration review. These scoped changes and the historical locked-package versions below must not be confused with installed-host remediation. This guide is not a normative product specification; future policy changes require an approved OpenSpec change.
 
 ## Scope and evidence: separate source pins, evaluated packages, deployed binaries
 
