@@ -2042,8 +2042,12 @@ mod tests {
         let dir = fake_git_fixture_dir("sync-ref-inspection-error");
 
         let fake_git = dir.join("fake-git");
+        let staged_git = dir.join("fake-git.pending");
+        // On some CI filesystems, executing a recently written script can
+        // sporadically fail with ETXTBSY. Publish the script only after its
+        // writer is closed and executable permissions have been applied.
         std::fs::write(
-            &fake_git,
+            &staged_git,
             r#"#!/bin/sh
 case "$*" in
   *"status --porcelain"*) exit 0 ;;
@@ -2052,9 +2056,11 @@ esac
 "#,
         )
         .unwrap();
-        let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
+        let mut permissions = std::fs::metadata(&staged_git).unwrap().permissions();
         permissions.set_mode(0o755);
-        std::fs::set_permissions(&fake_git, permissions).unwrap();
+        std::fs::set_permissions(&staged_git, permissions).unwrap();
+        std::fs::rename(&staged_git, &fake_git).unwrap();
+        assert!(!staged_git.exists(), "staging file must not remain");
 
         let tc = ToolInventory {
             git: Some(resolved_git(&fake_git)),
@@ -2062,7 +2068,20 @@ esac
         };
         let (lock, lock_dir) = temp_operation_lock("ref-inspection-error");
 
-        let err = sync_with_lock(dir.to_str().unwrap(), &tc, true, &lock).unwrap_err();
+        // CI can still report ETXTBSY for this freshly published test-only
+        // script, even after atomic rename. Retry *only* that transient OS
+        // execution error; never retry a simulated git failure or relax the
+        // fail-closed assertion below.
+        let mut transient_retries = 0;
+        let err = loop {
+            let err = sync_with_lock(dir.to_str().unwrap(), &tc, true, &lock).unwrap_err();
+            if !err.to_string().contains("Text file busy (os error 26)") || transient_retries == 4 {
+                break err;
+            }
+            transient_retries += 1;
+            eprintln!("retrying fake-git after transient ETXTBSY ({transient_retries}/4)");
+            std::thread::sleep(std::time::Duration::from_millis(25 * transient_retries));
+        };
         assert!(matches!(err, Error::Command { .. }), "{err}");
         assert!(
             err.to_string()
