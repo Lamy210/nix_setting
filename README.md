@@ -55,7 +55,7 @@ sudo ./target/release/schneeforge nix install
 
 ### ワンライナー
 
-**Stable** — release tag 時点の install.sh (CLI binary の pin 先と同一 release):
+**Preview（v0.2.0-rc.7 / 正式版ではありません）** — release tag 時点の install.sh（CLI binary と config ref は同一 tag に固定）:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/v0.2.0-rc.7/install.sh | bash
@@ -67,8 +67,18 @@ curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/v0.2.0-rc.7/ins
 curl -fsSL https://raw.githubusercontent.com/Lamy210/nix_setting/main/install.sh | bash
 ```
 
-Stable は script の取得元 tag と `SCHNEEFORGE_BOOTSTRAP_VERSION` (CLI binary /
-config ref の pin 先) が一致する release unit として動く。Edge は script 自体は
+Preview は script の取得元 tag と `SCHNEEFORGE_BOOTSTRAP_VERSION` (CLI binary /
+config ref の pin 先) が一致する release unit として動く。ただし rc.7 は prerelease であり、
+macOS Final Acceptance A–J と現行セキュリティ検証が未完了です。正式版としての
+導入を推奨しません（準備状況: [#271](https://github.com/Lamy210/nix_setting/issues/271)）。
+
+**供給元の信頼性:** 現状の `curl | bash` と同一 HTTPS 経路で取得する
+`CHECKSUMS.txt` の突合は、TLS の信頼境界が破られた状況で配布者を
+独立認証する手段ではありません。[#268](https://github.com/Lamy210/nix_setting/issues/268)
+で first-run bootstrap の署名・信頼アンカーを検討しています。
+検証用途でも URL・tag・提供元を確認し、検証未完了の版を重要な実機へ直接適用しないでください。
+
+Edge は script 自体は
 最新だが、download する CLI は install.sh 内の pin 値のまま (release 時に bump
 される)。release 間で main の install.sh が古い pin のままの場合でも、pinned
 release の asset が消えることはないため動作は継続する。
