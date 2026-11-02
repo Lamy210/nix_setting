@@ -2,9 +2,66 @@
   perSystem =
     { pkgs, ... }:
     let
+      # Security backport: nixpkgs locked on 2026-10-27 still ships Bun 1.4.2.
+      # Bun 1.4.4 fixes CVE-2026-111497 (bundled Brotli OOB write).
+      # Source hashes match the vendor's GitHub release asset SHA256 digests.
+      # Remove this override only after the pinned nixpkgs supplies >=1.4.4.
+      bunPatched = pkgs.bun.overrideAttrs (
+        final: previous: {
+          version = "1.4.4";
+          src = final.passthru.sources.${pkgs.stdenv.hostPlatform.system};
+          passthru = previous.passthru // {
+            sources = {
+              "aarch64-darwin" = pkgs.fetchurl {
+                url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-darwin-aarch64.zip";
+                hash = "sha256-wkDX8My5DCY6hJ/NsJt+5iYw2SE0jtaq/ahrnVd7xRA=";
+              };
+              "aarch64-linux" = pkgs.fetchurl {
+                url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-aarch64.zip";
+                hash = "sha256-uqa7NvUdblhWHgK76oJQOKnfRU9nPW13bou/hvjHhQ4=";
+              };
+              "x86_64-linux" = pkgs.fetchurl {
+                url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64-baseline.zip";
+                hash = "sha256-4ERutVmVdy65iUvrrppr42jZhai5Jx7hJEhvmUbu3XY=";
+              };
+            };
+          };
+        }
+      );
+      # eMudhra/emSign CA distrust: Go crypto/x509 fixed in 1.27.3.
+      # Source hash is from NixOS/nixpkgs 3ec636362e1816bc2f0888fa0fa2c69f1bc9e504.
+      # Keep root Go runtime patched independently of the broad flake.lock gate.
+      goPatched = pkgs.go_1_27.overrideAttrs (
+        _final: _previous: {
+          version = "1.27.3";
+          src = pkgs.fetchurl {
+            url = "https://go.dev/dl/go1.27.3.src.tar.gz";
+            hash = "sha256-bndJA1zzYPBrJXXRYup535/ajvZxiJ5cN1+OUHd/Jrs=";
+          };
+        }
+      );
+      # Security-only package backport (emSign/eMudhra): vendor 0.13.5.
+      uvPatched = pkgs.uv.overrideAttrs (
+        final: previous: {
+          version = "0.13.5";
+          src = pkgs.fetchFromGitHub {
+            owner = "astral-sh";
+            repo = "uv";
+            tag = "0.13.5";
+            hash = "sha256-SXTusm2EJ49tk03c3vSHcZp3AtAuj9SGOzsMwpnjXDw=";
+          };
+          cargoHash = "sha256-spQmSFAjNs6pWnw2nd/d3ZysIMK9j+BjDjrwcnUCmWw=";
+          # Override the precomputed vendored Rust dependencies, not just cargoHash.
+          cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
+            inherit (final) src version;
+            inherit (previous) pname;
+            hash = final.cargoHash;
+          };
+        }
+      );
       devShellPackages = {
         go = with pkgs; [
-          go
+          goPatched
           gotools
           golangci-lint
           gopls
@@ -15,14 +72,14 @@
         ];
         python = with pkgs; [
           python3
-          uv
+          uvPatched
           ruff
           pyright
         ];
         node = with pkgs; [
           nodejs_24
           pnpm
-          bun
+          bunPatched
           typescript
           typescript-language-server
         ];

@@ -62,10 +62,16 @@ pub fn existing_nix_detected() -> bool {
     if ToolResolver::new().resolve_tool("nix").is_some() {
         return true;
     }
-    // /nix 直下の marker。部分削除された degraded install も「存在する」と扱う
-    Path::new("/nix/store").exists()
-        || Path::new("/nix/var/nix").exists()
-        || Path::new("/nix/receipt.json").exists()
+    // /nix 直下の marker。dangling symlink / metadata 不明も「存在を否定できない」
+    // と扱い、部分削除環境へ installer を重ねない。
+    installation_markers_detected(Path::new("/nix"))
+}
+
+/// status/repair と同じ fail-closed marker policy。root は test で差し替え可能。
+fn installation_markers_detected(root: &Path) -> bool {
+    ["store", "var/nix", "receipt.json"]
+        .iter()
+        .any(|relative| status::installation_marker_present(&root.join(relative)))
 }
 
 /// preflight の結果 (root 不要、design.md D8)
@@ -607,6 +613,36 @@ aarch64-linux = "222222222222222222222222222222222222222222222222222222222222222
 aarch64-darwin = "3333333333333333333333333333333333333333333333333333333333333333"
 "#;
         BootstrapManifest::parse(toml_str).unwrap()
+    }
+
+    /// `Path::exists()` を使うと dangling symlink を「Nix なし」と誤判定する。
+    /// 新規 install 前の preflight が root 外の fixture で同じ検出をすること。
+    #[cfg(unix)]
+    #[test]
+    fn installer_preflight_detects_all_dangling_installation_markers() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "schneeforge_preflight_dangling_markers_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join("var")).unwrap();
+        assert!(!installation_markers_detected(&root));
+
+        for relative in ["store", "var/nix", "receipt.json"] {
+            let marker = root.join(relative);
+            symlink(root.join("missing-target"), &marker).unwrap();
+            assert!(
+                installation_markers_detected(&root),
+                "dangling {relative} must block a second installation"
+            );
+            std::fs::remove_file(&marker).unwrap();
+            assert!(
+                !installation_markers_detected(&root),
+                "fixture should reset after removing {relative}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
