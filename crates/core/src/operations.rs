@@ -2068,7 +2068,22 @@ esac
         };
         let (lock, lock_dir) = temp_operation_lock("ref-inspection-error");
 
-        let err = sync_with_lock(dir.to_str().unwrap(), &tc, true, &lock).unwrap_err();
+        // CI can still report ETXTBSY for this freshly published test-only
+        // script, even after atomic rename. Retry *only* that transient OS
+        // execution error; never retry a simulated git failure or relax the
+        // fail-closed assertion below.
+        let mut transient_retries = 0;
+        let err = loop {
+            let err = sync_with_lock(dir.to_str().unwrap(), &tc, true, &lock).unwrap_err();
+            if !err.to_string().contains("Text file busy (os error 26)")
+                || transient_retries == 4
+            {
+                break err;
+            }
+            transient_retries += 1;
+            eprintln!("retrying fake-git after transient ETXTBSY ({transient_retries}/4)");
+            std::thread::sleep(std::time::Duration::from_millis(25 * transient_retries));
+        };
         assert!(matches!(err, Error::Command { .. }), "{err}");
         assert!(
             err.to_string()
