@@ -2075,9 +2075,7 @@ esac
         let mut transient_retries = 0;
         let err = loop {
             let err = sync_with_lock(dir.to_str().unwrap(), &tc, true, &lock).unwrap_err();
-            if !err.to_string().contains("Text file busy (os error 26)")
-                || transient_retries == 4
-            {
+            if !err.to_string().contains("Text file busy (os error 26)") || transient_retries == 4 {
                 break err;
             }
             transient_retries += 1;
