@@ -116,6 +116,8 @@ chmod +x schneeforge-aarch64-darwin
 ./schneeforge-aarch64-darwin doctor
 ```
 
+**RC の公開と正式受入:** RC は必須セキュリティ・CI を通過した後に公開される *provisional / test-only* アセットです。公開済みでも macOS Final Acceptance A–J が完了するまでは正式な導入を推奨しません。公開後の A–J と正式昇格の条件は [RELEASE.md](./RELEASE.md#release-candidate-の二段階ゲート循環依存の解消) を参照してください。
+
 ### Apple Developer ID 未署名の macOS アプリを開く
 
 未署名・未公証 DMG は macOS Gatekeeper に拒否される場合があります。**GitHub Releases の正しい tag/アセットと整合性を確認し、配布元を信頼できる場合に限り**、Apple が案内するアプリ個別の例外承認を利用できます。
