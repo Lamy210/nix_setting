@@ -12,12 +12,17 @@ All supported SchneeForge Nix development entry points that provide Node.js 24 *
 #### Scenario: Standalone templates resolve independently
 
 - **WHEN** a supported host enters either the standalone Node or devenv template shell
-- **THEN** that template's own pinned inputs SHALL resolve to the same security floor and SHALL pass actual executable / dependency verification independently of root `flake.lock`
+- **THEN** that template's own committed immutable inputs (lockfile or exact NAR-hash pin) SHALL resolve to the same security floor and SHALL pass actual executable / dependency verification independently of root `flake.lock`
+
+#### Scenario: Unlocked devenv template or skipped execution gate
+
+- **WHEN** the standalone devenv template lacks an immutable input pin or its CI runs only flake metadata without executing `node`
+- **THEN** the security acceptance gate SHALL fail and the release SHALL remain blocked
 
 #### Scenario: A version-only or unverified closure update
 
 - **WHEN** a package version string meets the approved floor but a runtime dependency is unpatched or unverified
-- **THEN** CI SHALL fail the security acceptance gate and the release SHALL remain blocked
+- **THEN** CI SHALL fail the security acceptance gate and the release SHALL remain blocked, including when a statically bundled library is not attributable to a reviewed patched source/patchset
 
 ### Requirement: Node security remediation remains scoped and reversible
 

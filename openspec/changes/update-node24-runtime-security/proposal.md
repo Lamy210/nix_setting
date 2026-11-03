@@ -9,7 +9,8 @@ Node.js 24 in the SchneeForge root and standalone templates resolves independent
 - Introduce a versioned, integrity-checked Node.js 24 security remediation policy for three independent Nix entry points: root `modules/flake-parts/devshells.nix`, `templates/node/flake.nix`, and `templates/devenv/flake.nix`.
 - Select **Node.js 24.22.2 or newer in the Node 24 line**, without changing to another major, only when the package source and actual Brotli/c-ares runtime dependencies are validated. A fixed source must be immutable and reproducible.
 - Prefer a released/pinned `nixos-unstable` revision that includes the complete patch closure. If unavailable, evaluate a narrowly pinned source for **Node only** (such as an exact `staging-next` commit) rather than replacing the whole package set with staging.
-- Add executable and dependency-closure acceptance for Linux and Apple Silicon; maintain `pnpm`/Bun interoperability and existing shell/UI/CI behavior.
+- Commit an auditable immutable input (`flake.lock` or equivalent exact NAR-hash pin) for the currently unlocked `templates/devenv/` template; preserve root and `templates/node/` independent lock provenance.
+- Add executable and dependency-closure acceptance for Linux and Apple Silicon, including `nix develop` **execution** of the devenv template (currently skipped in CI); maintain `pnpm`/Bun interoperability and existing shell/UI/CI behavior.
 - Separate remediation of repository package pins from inventory, activation, and rollback of already-running host Node binaries (including `mise`).
 
 ## Impact

@@ -2,7 +2,7 @@
 
 ## Context and evidence
 
-- Three independent Nix inputs resolve `pkgs.nodejs_24`: root devShell, Node template, and devenv template.
+- Three independent Nix inputs resolve `pkgs.nodejs_24`: root devShell, Node template, and devenv template. `templates/node/flake.lock` exists, but **`templates/devenv/flake.lock` is not committed**; the default `nix flake metadata` test cannot establish immutable security provenance of an independently copied devenv template.
 - Current `nixos-unstable` `v24.nix` was observed at `24.21.0` and Brotli package at `1.2.0` on 2026-11-04. This is source evidence, not a measured runtime closure.
 - Upstream `staging-next` at `a048ecb498d4f232d2963b19496bec9b196b990c` was observed in #275 with Node 24.22.2 / Brotli 1.2.1, but c-ares ABI/version, actual built runtime, and host state remain **unknown**.
 
@@ -25,8 +25,8 @@
 ## Required evidence before implementation is accepted
 
 1. Record exact source SHA, Nix NAR hash and lock of all three flake roots, and verify upstream identity/checksums through authenticated sources.
-2. Build/evaluate `nix develop .#node`, `nix develop ./templates/node`, and `nix develop ./templates/devenv`; execute the resulting `node` and assert `process.version` Node 24 >=24.22.2.
-3. Capture the resolved `process.versions.brotli` and `process.versions.ares`, Nix store closure, ELF or Mach-O dependency linking, and compare against independently verified patched Brotli/c-ares versions / patchset. Version-only assertions SHALL NOT be sufficient.
+2. Commit the devenv template's `flake.lock` (or exact pinned input with NAR hash); keep root + Node template lockfiles independent. Build/evaluate **and execute** `nix develop .#node`, `nix develop ./templates/node`, and `nix develop ./templates/devenv`, asserting `process.version` Node 24 >=24.22.2. Current `.github/workflows/check.yml` skips `nix develop` when `matrix.template == 'devenv'`; implementation MUST remove this skip or add an equivalent explicit executable job, rather than relying on metadata only.
+3. Capture `process.versions.brotli` / `process.versions.ares`, Nix store closure, ELF or Mach-O dynamic libraries, and compare against independently verified patched Brotli/c-ares source/patch provenance. **Statically bundled libraries may not appear in `ldd` / `otool -L`**; for those, validate linked/bundled upstream patchset or trusted binary provenance. Version-only assertions SHALL NOT be sufficient. A negative test MUST fail if an unpatched or unknown dynamic/bundled closure is supplied.
 4. Test macOS 15/26, Linux x86_64, Linux aarch64 evaluation and supported `pnpm`/Bun workflows without weakening required checks. Explicitly record skipped execution targets.
 5. Inventory actual host-installed and actively running Node instances separately; require opt-in activation, a version after-switch check and rollback evidence before claiming an individual host remediated.
 6. Reconcile any future #257 root `flake.lock` merge so it cannot silently restore an older Node package.
