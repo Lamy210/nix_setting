@@ -2,7 +2,17 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-10-27
+最終更新: 2026-11-03
+
+## 2026-11-03: Release readiness / Managed Nix 統合状況
+
+- **開発統合:** PR [#273](https://github.com/Lamy210/nix_setting/pull/273) の Rust fake-git ETXTBSY 限定リトライを squash merge（`01ca1e5`）。PR [#272](https://github.com/Lamy210/nix_setting/pull/272) の RC 版案内・リリース条件を squash merge（`fb36865`）。PR [#259](https://github.com/Lamy210/nix_setting/pull/259) の read-only Nix 更新診断 **OpenSpec 設計のみ**を 26/26 CI で承認・squash merge（`162826b`）。
+- **OpenSpec 実装待ち:** `add-managed-nix-upgrade-safety` Phase A `schneeforge nix upgrade inspect [--json]` は未実装。所有者、クライアント、daemon の確認は別々に行い、更新処理は Phase B の別承認。既存ホストのNix修復は未完了（[#256](https://github.com/Lamy210/nix_setting/issues/256)）。
+- **Draft #278（新規インストール用 provider）:** `nix-installer 2.35.4` の pin と3アーキテクチャの SHA256 のみ変更。最新 HEAD `fdc10a6` で専用 Apple Silicon install→二重インストール拒否→uninstall→reinstall→final cleanup が [CI success](https://github.com/Lamy210/nix_setting/actions/runs/41579260712)。一般CI/手動 macOS Final Acceptance A–J（Finder、install.sh/TTY、nix-darwin rollback）を待って **未マージ**。旧2.35.3 Draft [#244](https://github.com/Lamy210/nix_setting/pull/244) は後継への移行に伴いクローズ（未マージ）。
+- **Draft #257（依存 lock）:** `home-manager`、`nix-darwin`、`nixpkgs` だけの `flake.lock` 更新。最新 HEAD `81acda6` でCI実行中。実機 activation と依存互換性の評価前に自動マージしない。
+- **Node セキュリティ P0:** `nodejs_24` は現行の根元と node/devenv template の3経路で別々に解決。確認済み nixpkgs revision `1c89083e` は Node **24.21.0** のままで、24.22.1 security floor 未達。Node 24.22.2 / Brotli / c-ares の実行時 closure とホストを検証する（[#275](https://github.com/Lamy210/nix_setting/issues/275)、[#265](https://github.com/Lamy210/nix_setting/issues/265)）。
+- **CI:** macOS preview Xcode 27.1 は一度 `/nix/var/nix/db/big-lock: Permission denied` で失敗し、その後の `develop` run は成功。原因未確定、失敗時の読み取り専用診断PR [#280](https://github.com/Lamy210/nix_setting/pull/280) を検証中（[#279](https://github.com/Lamy210/nix_setting/issues/279)）。週次 Lix mutable lock（[#276](https://github.com/Lamy210/nix_setting/issues/276)）、SBOM typepy mismatch（[#277](https://github.com/Lamy210/nix_setting/issues/277)）、Actions の自動 PR 作成権限（[#240](https://github.com/Lamy210/nix_setting/issues/240)）は未解決。
+- **Release:** 公開プレビューは `v0.2.0-rc.7`。次の `v0.2.0-rc.8` は未タグ付け。Node P0・macOS実機 A–J・署名付きアーティファクト受け入れが揃うまで発行しない（[#271](https://github.com/Lamy210/nix_setting/issues/271)）。`releases/latest` は過去の rc.1 が誤って非prerelease扱いのため rc.1 を返す状態が継続（Release metadata修正要）。
 
 ## 2026-10-27: Managed Nix receipt marker の安全な状態分類（PR #258 マージ済み）
 
