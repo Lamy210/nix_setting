@@ -41,6 +41,32 @@ fn doctor_prints_system_section() {
         .stdout(predicate::str::contains("[system]").and(predicate::str::contains("host")));
 }
 
+/// doctor の stdout/stderr はサポートログとして保存され得る。
+/// 意図的な USER / HOME / HOSTNAME を流し込んでも漏えいしないことを確認する。
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn doctor_redacts_machine_identity_in_captured_output() {
+    let state = state_dir("doctor-redact-machine-identity");
+    let sentinel = "schneeforge-private-machine-identity-test-4fd53";
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("doctor")
+        .env("USER", format!("{sentinel}-user"))
+        .env("LOGNAME", format!("{sentinel}-logname"))
+        .env("HOME", format!("/tmp/{sentinel}-home"))
+        .env("HOSTNAME", format!("{sentinel}-hostname"))
+        .env("XDG_STATE_HOME", &state)
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("  user: [redacted]")
+                .and(predicate::str::contains("  home: [redacted]"))
+                .and(predicate::str::contains("  hostname: [redacted]"))
+                .and(predicate::str::contains("  system: "))
+                .and(predicate::str::contains(sentinel).not()),
+        )
+        .stderr(predicate::str::contains(sentinel).not());
+}
+
 /// status は ToolInventory 解決を必要としないので nix 無しでも動く
 #[test]
 fn status_runs_without_nix() {
