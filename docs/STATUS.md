@@ -2,7 +2,15 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-11-03
+最終更新: 2026-11-04
+
+## 2026-11-04: unsigned Preview 方針と security PR 統合
+
+- **Apple ID を使用しない配布方針:** Apple Developer ID 署名・Apple 公証なしの Preview 運用を採用。GitHub checksum/SBOM/attestation は維持し、GUI 自動更新は `SCHNEEFORGE_UPDATER_ACTIVATED=false` のまま。Gatekeeper 警告・Finder 挙動を未検証として記録する。説明追加 PR [#286](https://github.com/Lamy210/nix_setting/pull/286) は審査・CI 待ち。Issue [#271](https://github.com/Lamy210/nix_setting/issues/271) に判断と未完了 gate を追記した。
+- **統合済み:** Unix machine input の新規作成・atomic replace で owner-only mode にする PR [#285](https://github.com/Lamy210/nix_setting/pull/285) を 22/22 jobs success 確認後、`develop@02c53ecb2cac439f72a3242d22b9691bfc2991ad` へ squash merge。
+- **CI 再検証:** SHA pin PR [#283](https://github.com/Lamy210/nix_setting/pull/283) は最新 `develop` と非 force merge-sync した HEAD `5fd12918cc1b0b4495d1b3200ca6cf88cbc29e37`。Dependabot PR [#282](https://github.com/Lamy210/nix_setting/pull/282) は HEAD `6237231f1bfaeeff11c7c60bcbdda9b4fd0d6ab1`。両者とも再チェック待ちであり、旧 HEAD の green を新 HEAD の合格とみなさない。
+- **既存 Draft 維持:** `flake.lock` #257、`nix-installer 2.35.4` #278 は manual macOS/依存 closure 等の別 gate が残るため、マージしない。
+- **Release blocker 継続:** 2026-11-04 に確認した upstream `nixos-unstable` の Node 24 package definition はなお `24.21.0`、Brotli package definition は `1.2.0`。実行時 closure を修正・検証した事実はない（[#275](https://github.com/Lamy210/nix_setting/issues/275)）。`v0.2.0-rc.8` の tag / Release は未実施。Final Acceptance A–J、Node P0 と supply-chain acceptance の完了までは公開しない。
 
 ## 2026-11-03: Release readiness / Managed Nix 統合状況
 

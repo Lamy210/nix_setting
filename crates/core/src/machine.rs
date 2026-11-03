@@ -184,10 +184,18 @@ where
     let tmp = path.with_extension(format!("nix.{}.{seq}.tmp", std::process::id()));
 
     let result = (|| {
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)?;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        // machine.nix and related state inputs contain user/home/host information.
+        // The process umask may otherwise create world-readable files (e.g. 0644).
+        // Apply the restriction before creation, not via a later chmod, to avoid
+        // a transient disclosure window. The atomic rename preserves the mode.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut f = options.open(&tmp)?;
         f.write_all(content.as_bytes())?;
         sync(&f)?;
         drop(f);
@@ -288,6 +296,53 @@ mod tests {
         assert!(path.starts_with(&dir));
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("username = \"alice\";"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn machine_input_is_private_on_create_and_replace() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let dir =
+            std::env::temp_dir().join(format!("sf-machine-private-mode-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("machine.nix");
+        let facts = MachineFacts {
+            username: "private-user".to_string(),
+            home_directory: PathBuf::from("/home/private-user"),
+            os: OperatingSystem::Linux,
+            architecture: Architecture::X86_64,
+            hostname: "private-host".to_string(),
+        };
+
+        write_machine_input_at(&path, &facts).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().mode() & 0o777;
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "new input must not allow group/other access"
+        );
+        assert!(
+            mode & 0o400 != 0,
+            "owner must be able to read the generated input"
+        );
+
+        // Simulate an existing file created under an overly permissive umask.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(std::fs::metadata(&path).unwrap().mode() & 0o777, 0o644);
+        write_machine_input_at(&path, &facts).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().mode() & 0o777;
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "replacement must remove group/other access"
+        );
+        assert!(mode & 0o400 != 0, "owner must still be able to read");
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("private-user"));
         std::fs::remove_dir_all(&dir).ok();
     }
 
