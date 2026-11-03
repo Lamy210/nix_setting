@@ -302,7 +302,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn machine_input_is_private_on_create_and_replace() {
-        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
         let dir = std::env::temp_dir().join(format!(
             "sf-machine-private-mode-{}",
