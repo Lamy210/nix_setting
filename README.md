@@ -116,6 +116,8 @@ chmod +x schneeforge-aarch64-darwin
 ./schneeforge-aarch64-darwin doctor
 ```
 
+> **Apple ID / Developer ID 署名なしの Preview:** 現行 DMG は Apple の公証を受けた配布物として扱わないでください。macOS Gatekeeper の警告・起動制限が発生する場合があります。OS のセキュリティ機能を無効化する自動回避は提供しません。GUI 自動更新はリリース担当者による別途の有効化がない限り無効で、GitHub Releases から手動更新する運用です（[RELEASE.md](./RELEASE.md#apple-developer-id-署名公証なしの配布preview--開発向け)）。
+
 ### Rust (cargo install)
 
 ```bash
