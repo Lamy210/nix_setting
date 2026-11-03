@@ -30,6 +30,28 @@ jobs:
       - name: nix flake check
         run: nix flake check --allow-import-from-derivation
 
+      # Preserve the failing flake-check gate. On preview runner errors such as
+      # /nix/var/nix/db/big-lock: Permission denied, capture only local store
+      # ownership/modes; never print environment, credentials or receipt data.
+      - name: Nix store permission diagnostics (failure only)
+        if: ${{ failure() }}
+        run: |
+          echo "::group::Nix store permission diagnostics"
+          id
+          if command -v nix >/dev/null 2>&1; then
+            nix --version || true
+          else
+            echo "nix executable missing"
+          fi
+          for path in /nix /nix/var/nix /nix/var/nix/db /nix/var/nix/db/big-lock /nix/var/nix/daemon-socket; do
+            if [ -e "$path" ]; then
+              stat -f 'mode=%Sp owner=%Su group=%Sg path=%N' "$path" || true
+            else
+              printf 'path missing or inaccessible: %s\n' "$path"
+            fi
+          done
+          echo "::endgroup::"
+
       - name: evaluate Darwin configuration
         run: |
           nix eval .#homeConfigurations.darwin-aarch64.activationPackage.drvPath
