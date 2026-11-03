@@ -2,6 +2,20 @@
 
 SchneeForge のリリース運用。`main`（リリースブランチ）への直接 push / 直接 merge は禁止し、必ず `release/*` ブランチからの PR を経由する。
 
+## Apple Developer ID 署名・公証なしの配布（Preview / 開発向け）
+
+このリポジトリは、**Apple Developer Program / Apple ID の資格情報を使用しない配布**を選択できる。
+これは macOS の **Developer ID 署名・Apple 公証（notarization）を行わない**という意味であり、セキュリティ検証全体を省略する意味ではない。
+
+- 配布対象は現行の Apple Silicon (`aarch64-darwin`) CLI / DMG と Linux (`x86_64-linux-musl`) CLI。Intel Mac 向けバイナリや Windows インストーラーを提供しているとは主張しない。
+- `.github/workflows/release.yml` の通常ビルドは Apple の署名用証明書・Apple ID・公証資格情報を要求しない。Tauri / macOS のツールによる ad-hoc 署名の有無は完成品で確認し、Developer ID 署名済みと誤認しない。
+- **GUI 自動更新は無効のまま配布する**。リポジトリ変数 `SCHNEEFORGE_UPDATER_ACTIVATED` が未設定または `false` であることを release 前に確認する。コード内の `requireSignedVersion=true` は弱めない。Tauri updater 用署名鍵は Apple Developer ID とは別物だが、未承認の activation はしない。通常の DMG と CLI の手動ダウンロード導線を維持する。
+- Apple 未公証のダウンロードアプリは Gatekeeper によって起動を拒否または警告され得る。**macOS の保護機能を全体無効化したり、quarantine を自動削除したりしない**。Finder 起動での挙動を対象 macOS 実機で記録し、制限をリリースノートで明示する。CLI と DMG の CI ビルド成功は Finder 受入を代替しない。
+- `CHECKSUMS.txt`、SBOM、GitHub build provenance、cosign keyless attestation / identity pin と各種 portability gate は引き続き必須。これらは Apple の公証の代替ではない。また `install.sh` の初回取得を、同じ HTTPS 経路で得た checksum のみで独立認証できるわけではない（[#268](https://github.com/Lamy210/nix_setting/issues/268)）。
+- `v0.2.0-rc.8` は署名不要という判断だけでは公開可能にならない。Node.js 24 の P0、Managed Nix の安全性、macOS Final Acceptance A–J、release CI / security gate を満たすまで tag を打たない（[#271](https://github.com/Lamy210/nix_setting/issues/271)）。
+
+未署名プレビューの release notes には必ず「Apple Developer ID 未署名・Apple 公証なし」「Gatekeeper 制約」「GUI 自動更新無効」「手動インストール可能なプラットフォーム」を記載する。
+
 ## ブランチ制約
 
 ```
