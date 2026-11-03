@@ -304,10 +304,8 @@ mod tests {
     fn machine_input_is_private_on_create_and_replace() {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-        let dir = std::env::temp_dir().join(format!(
-            "sf-machine-private-mode-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sf-machine-private-mode-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("machine.nix");
@@ -321,17 +319,30 @@ mod tests {
 
         write_machine_input_at(&path, &facts).unwrap();
         let mode = std::fs::metadata(&path).unwrap().mode() & 0o777;
-        assert_eq!(mode & 0o077, 0, "new input must not allow group/other access");
-        assert!(mode & 0o400 != 0, "owner must be able to read the generated input");
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "new input must not allow group/other access"
+        );
+        assert!(
+            mode & 0o400 != 0,
+            "owner must be able to read the generated input"
+        );
 
         // Simulate an existing file created under an overly permissive umask.
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert_eq!(std::fs::metadata(&path).unwrap().mode() & 0o777, 0o644);
         write_machine_input_at(&path, &facts).unwrap();
         let mode = std::fs::metadata(&path).unwrap().mode() & 0o777;
-        assert_eq!(mode & 0o077, 0, "replacement must remove group/other access");
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "replacement must remove group/other access"
+        );
         assert!(mode & 0o400 != 0, "owner must still be able to read");
-        assert!(std::fs::read_to_string(&path).unwrap().contains("private-user"));
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("private-user"));
         std::fs::remove_dir_all(&dir).ok();
     }
 
