@@ -47,7 +47,7 @@ jobs:
             if [ -e "$path" ]; then
               stat -f 'mode=%Sp owner=%Su group=%Sg path=%N' "$path" || true
             else
-              printf 'path missing or inaccessible: %s\\n' "$path"
+              printf 'path missing or inaccessible: %s\n' "$path"
             fi
           done
           echo "::endgroup::"
