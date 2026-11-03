@@ -197,13 +197,15 @@ fn doctor(repo: &Path, tc: &ToolInventory) -> Result {
         Ok(None) => {}
         Err(e) => println!("  source: (state error: {e})"),
     }
-    // v2: machine 情報は repo でなく MachineFacts 検出で管理する
+    // v2: machine 情報は repo でなく MachineFacts 検出で管理する。
+    // doctor の stdout は CI logs やサポート依頼に添付され得るため、
+    // 実行ユーザーの識別子・HOME・ホスト名を表示しない (CodeQL rust/cleartext-logging)。
     match schneeforge_core::MachineFacts::detect() {
         Ok(f) => {
-            println!("  user: {}", f.username);
-            println!("  home: {}", f.home_directory.display());
+            println!("  user: [redacted]");
+            println!("  home: [redacted]");
             println!("  system: {}", f.nix_system_string());
-            println!("  hostname: {}", f.hostname);
+            println!("  hostname: [redacted]");
         }
         Err(e) => println!("  machine facts: (detection failed: {e})"),
     }
