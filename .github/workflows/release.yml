@@ -105,6 +105,17 @@ jobs:
       SCHNEEFORGE_UPDATER_ACTIVATED: ${{ vars.SCHNEEFORGE_UPDATER_ACTIVATED || 'false' }}
       SCHNEEFORGE_UPDATER_PUBKEY: ${{ vars.SCHNEEFORGE_UPDATER_PUBKEY }}
     steps:
+      # Keep provisional RC builds updater-disabled even if the repository
+      # variable is accidentally enabled; Tauri updater signing is distinct
+      # from Apple Developer ID signing and has a separate acceptance gate.
+      - name: require disabled GUI updater for provisional RC
+        if: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+        run: |
+          if [ "$SCHNEEFORGE_UPDATER_ACTIVATED" != "false" ]; then
+            echo "::error::Provisional RC must keep SCHNEEFORGE_UPDATER_ACTIVATED=false until full macOS Final Acceptance"
+            exit 1
+          fi
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
@@ -258,6 +269,10 @@ jobs:
             schneeforge-release.json
             CHECKSUMS.txt
             attestations/*
+          # softprops/action-gh-release v2 prepends an explicit body to
+          # GitHub-generated notes. A provisional RC must disclose limits
+          # immediately at publication, not rely on later manual edits.
+          body: ${{ (contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta')) && '⚠️ PROVISIONAL PREVIEW / TEST ONLY — macOS Final Acceptance A–J 未完了・正式版ではありません。Apple Developer ID 未署名・Apple 公証なし。Gatekeeper で起動できない場合があります。GUI 自動更新は無効、手動インストールのみ。重要な Mac への導入は推奨しません。' || '' }}
           generate_release_notes: true
           # -rc / -beta tag は prerelease 扱いにし releases/latest API が
           # rc を返さないようにする (install.sh が rc を拾わないようにするため)
