@@ -581,17 +581,22 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         let capture = root.join("argv-capture");
         let git = root.join("fake-git");
+        // Publish the fixture only after its writer is closed, preventing
+        // transient ETXTBSY when CI executes the script immediately.
+        let staged_git = root.join("fake-git.pending");
         std::fs::write(
-            &git,
+            &staged_git,
             format!(
                 "#!/bin/sh\nprintf '%s' \"$3\" > '{}'\nprintf 'ok\\n'\n",
                 capture.display()
             ),
         )
         .unwrap();
-        let mut perms = std::fs::metadata(&git).unwrap().permissions();
+        let mut perms = std::fs::metadata(&staged_git).unwrap().permissions();
         perms.set_mode(0o755);
-        std::fs::set_permissions(&git, perms).unwrap();
+        std::fs::set_permissions(&staged_git, perms).unwrap();
+        std::fs::rename(&staged_git, &git).unwrap();
+        assert!(!staged_git.exists(), "staging file must not remain");
 
         let tc = ToolInventory {
             nix: None,
