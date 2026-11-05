@@ -24,33 +24,35 @@
           pkgs = nixpkgs.legacyPackages.${system};
           nodePatched = node-security-nixpkgs.legacyPackages.${system}.nodejs_24;
         in
-        devenv.lib.mkShell {
-          inherit pkgs inputs;
-          modules = [
-            ({ pkgs, ... }: {
-              packages = with pkgs; [
-                go
-                python3
-                nodePatched
-              ];
+        {
+          default = devenv.lib.mkShell {
+            inherit pkgs inputs;
+            modules = [
+              ({ pkgs, ... }: {
+                packages = with pkgs; [
+                  go
+                  python3
+                  nodePatched
+                ];
 
-              languages.rust.enable = true;
+                languages.rust.enable = true;
 
-              services.postgres = {
-                enable = true;
-                initialScript = "CREATE DATABASE dev;";
-              };
+                services.postgres = {
+                  enable = true;
+                  initialScript = "CREATE DATABASE dev;";
+                };
 
-              services.redis.enable = true;
+                services.redis.enable = true;
 
-              scripts.build.exec = "go build ./...";
-              scripts.test.exec = "go test ./...";
+                scripts.build.exec = "go build ./...";
+                scripts.test.exec = "go test ./...";
 
-              enterShell = ''
-                echo "dev ready"
-              '';
-            })
-          ];
+                enterShell = ''
+                  echo "dev ready"
+                '';
+              })
+            ];
+          };
         }
       );
     };
