@@ -23,9 +23,11 @@ if ! command -v nix-store >/dev/null 2>&1; then
 fi
 closure="$(nix-store --query --requisites "$node_path")"
 printf '%s\n' "$closure" | grep -E '/nix/store/[^/]+-brotli-1\.2\.1(-|$)' >/dev/null || {
-  echo 'Verified Brotli 1.2.1 store closure reference not found' >&2; exit 1;
+  echo 'Verified Brotli 1.2.1 store closure reference not found' >&2
+  exit 1
 }
 printf '%s\n' "$closure" | grep -E '/nix/store/[^/]+-c-ares-1\.34\.9(-|$)' >/dev/null || {
-  echo 'Verified c-ares 1.34.9 store closure reference not found' >&2; exit 1;
+  echo 'Verified c-ares 1.34.9 store closure reference not found' >&2
+  exit 1
 }
 echo 'Runtime version and Nix store dependency names match candidate; source / ABI / binary provenance still require review.'
