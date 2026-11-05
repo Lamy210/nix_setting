@@ -1,15 +1,18 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Candidate Node-only security package; immutable revision, lock validation pending.
+    node-security-nixpkgs.url = "github:NixOS/nixpkgs/a048ecb498d4f232d2963b19496bec9b196b990c";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
   outputs =
-    { nixpkgs, flake-utils, ... }:
+    { nixpkgs, flake-utils, node-security-nixpkgs, ... }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        nodePatched = node-security-nixpkgs.legacyPackages.${system}.nodejs_24;
         # Security backport: nixpkgs locked on 2026-10-27 still ships Bun 1.4.2.
         # Bun 1.4.4 fixes CVE-2026-111497 (bundled Brotli OOB write).
         # Source hashes match the vendor's GitHub release asset SHA256 digests.
@@ -40,7 +43,7 @@
       {
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
-            nodejs_24
+            nodePatched
             pnpm
             bunPatched
             typescript

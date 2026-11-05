@@ -4,6 +4,10 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
+    # Candidate: isolate the Node 24 security backport from the main Nixpkgs input.
+    # Do not accept for release without committed input lock and runtime closure proof.
+    node-security-nixpkgs.url = "github:NixOS/nixpkgs/a048ecb498d4f232d2963b19496bec9b196b990c";
+
     # machine 固有情報 (username / homeDirectory / system / hostname)。
     # repo には placeholder を同梱し、apply 時に SchneeForge が生成した
     # machine.nix へ --override-input で差し替える (path input のため
