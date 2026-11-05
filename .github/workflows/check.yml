@@ -490,6 +490,14 @@ jobs:
         run: |
           cp -r "templates/${{ matrix.template }}" /tmp/template-test
           cd /tmp/template-test && nix flake metadata --json > /dev/null
+          # Draft #299 diagnostic only: capture the independently generated
+          # devenv lock so it can be committed and reviewed, then remove this.
+          if [ "${{ matrix.template }}" = "devenv" ]; then
+            test -f flake.lock
+            echo 'SCHNEEFORGE_DEVENV_LOCK_BEGIN'
+            cat flake.lock
+            echo 'SCHNEEFORGE_DEVENV_LOCK_END'
+          fi
 
       - name: ${{ matrix.template }} devShell
         if: matrix.template != 'devenv'
