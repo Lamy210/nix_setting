@@ -7,7 +7,12 @@
   };
 
   outputs =
-    { nixpkgs, devenv, node-security-nixpkgs, ... }@inputs:
+    {
+      nixpkgs,
+      devenv,
+      node-security-nixpkgs,
+      ...
+    }@inputs:
     let
       inherit (nixpkgs) lib;
       forAllSystems = lib.genAttrs lib.systems.flakeExposed;

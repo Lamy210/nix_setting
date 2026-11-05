@@ -7,7 +7,12 @@
   };
 
   outputs =
-    { nixpkgs, flake-utils, node-security-nixpkgs, ... }:
+    {
+      nixpkgs,
+      flake-utils,
+      node-security-nixpkgs,
+      ...
+    }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
