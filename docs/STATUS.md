@@ -4,6 +4,15 @@
 
 最終更新: 2026-11-05
 
+## 2026-11-05 evening JST: review and protected-branch integration handoff
+
+- **Merged Node security design-only PR #287** into protected `develop` as `63806e2a849452a3c2794ed7c19306d68a654674`, after 22/22 successful latest-head checks. This does **not** upgrade actual Node binaries or close #275. The three independent Nix entrypoints and patched Brotli/c-ares provenance remain release blockers.
+- **PR #289** (desktop `serde_json` patch in `apps/desktop/src-tauri/Cargo.lock` only) synced without force to `develop@63806e2` at `70e39378306501d6e1426091357a2e47ee14d0cc`. GitHub branch protection rejected the old-head merge as 7 required checks were newly expected; current-head CI [run 42021976828](https://github.com/Lamy210/nix_setting/actions/runs/42021976828) must pass before merge.
+- **PR #294** (immutable `cachix/install-nix-action` SHA update across five workflow files) synced without force to `develop@63806e2` at `19da331485f0aa64194cfc1a03335034836cdbe8`; current-head CI [run 42022067223](https://github.com/Lamy210/nix_setting/actions/runs/42022067223) must pass before merge.
+- **This STATUS PR #281** is documentation-only. Integrate it **after** #289/#294 or re-align its dated snapshot, and require its own current-head protected checks. No check bypass or force-push.
+- **RC.8 is blocked**: no tag, no release asset, no deployment or host security fix is asserted. See [#271](https://github.com/Lamy210/nix_setting/issues/271) / [#275](https://github.com/Lamy210/nix_setting/issues/275). Apple Developer ID signing and notarization remain out of scope; production GUI updater activation must be verified disabled before any future prerelease tag.
+
+
 ## 2026-11-05: verified integration, repaired CI regression and security release gate
 
 - **Current protected develop:** `820776074647a104a454a664892950233a5c036f`. [#288](https://github.com/Lamy210/nix_setting/pull/288) merged at `80acb9fc698e62dadc95acba1213f99021402f88`; unsigned RC policy [#286](https://github.com/Lamy210/nix_setting/pull/286) merged at `b9934074e8e5d5f882e35331e7a69ee3c69fd6b7` with **22/22 latest-head CI successes**; focused Rust bootstrap test fixture [#297](https://github.com/Lamy210/nix_setting/pull/297) was **squash merged** at `820776074647a104a454a664892950233a5c036f` after **22/22 latest-head CI** ([run 41918050153](https://github.com/Lamy210/nix_setting/actions/runs/41918050153)). #297 touches only the fake-git fixture, stages writer-closed executable then renames atomically; no production clone behavior changed.
