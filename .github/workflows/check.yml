@@ -510,7 +510,8 @@ jobs:
         run: |
           cp -r templates/devenv /tmp/template-dev
           cd /tmp/template-dev
-          nix develop --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh"
+          # devenv.lib.mkShell needs impure evaluation to resolve cwd (official devenv flake integration).
+          nix develop --no-pure-eval --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh"
 
       - name: python template patched uv runtime
         if: matrix.template == 'python'
