@@ -471,6 +471,7 @@ jobs:
           nix develop .#python --command bash -c 'command -v python3 && python3 --version'
           nix develop .#python --command uv --version | grep -E '^uv 0\.13\.5([[:space:]]|$)'
           nix develop .#node --command bash -c 'command -v node && node --version'
+          nix develop .#node --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh"
           nix develop .#node --command bun --version | grep -Fx 1.4.4
           nix develop .#rust --command bash -c 'command -v rustc && rustc --version && command -v cargo && cargo --version'
 
@@ -502,6 +503,14 @@ jobs:
         run: |
           cd /tmp/template-dev
           nix develop --command bun --version | grep -Fx 1.4.4
+          nix develop --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh"
+
+      - name: devenv template Node security runtime
+        if: matrix.template == 'devenv'
+        run: |
+          cp -r templates/devenv /tmp/template-dev
+          cd /tmp/template-dev
+          nix develop --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh"
 
       - name: python template patched uv runtime
         if: matrix.template == 'python'
