@@ -606,7 +606,21 @@ mod tests {
         };
         let dest = PathBuf::from(OsString::from_vec(b"/tmp/repository-\xff".to_vec()));
 
-        let output = clone_repo("https://example.com/repo.git", &dest, &tc).unwrap();
+        // The fixture's executable is fully written and atomically published.
+        // Some CI filesystems can nevertheless transiently reject exec with
+        // ETXTBSY (os error 26). Retry only this test fixture, never real Git.
+        let mut retries = 0;
+        let output = loop {
+            match clone_repo("https://example.com/repo.git", &dest, &tc) {
+                Err(Error::Command { detail, .. })
+                    if detail.contains("Text file busy (os error 26)") && retries < 4 =>
+                {
+                    retries += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+                result => break result.unwrap(),
+            }
+        };
         assert_eq!(output.trim(), "ok");
         assert_eq!(
             std::fs::read(&capture).unwrap(),
