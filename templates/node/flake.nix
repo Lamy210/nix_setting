@@ -12,11 +12,7 @@
         # Standalone template: an exact source rewrite without a root-repo dependency.
         pkgs = import nixpkgs {
           inherit system;
-          config.rewriteURL = url:
-  if url == "https://www.crufty.net/ftp/pub/sjg/bmake-20260313.tar.gz" then
-    "https://ftp.netbsd.org/pub/NetBSD/misc/sjg/bmake-20260313.tar.gz"
-  else
-    url;
+          config.rewriteURL = import ./fetchurl-rewrite.nix;
         };
         # Security backport: nixpkgs locked on 2026-10-27 still ships Bun 1.4.2.
         # Bun 1.4.4 fixes CVE-2026-111497 (bundled Brotli OOB write).

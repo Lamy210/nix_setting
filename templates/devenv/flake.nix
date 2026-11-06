@@ -17,11 +17,7 @@
           # Standalone template: preserve original bmake hash on cold builds.
           pkgs = import nixpkgs {
             inherit system;
-            config.rewriteURL = url:
-  if url == "https://www.crufty.net/ftp/pub/sjg/bmake-20260313.tar.gz" then
-    "https://ftp.netbsd.org/pub/NetBSD/misc/sjg/bmake-20260313.tar.gz"
-  else
-    url;
+            config.rewriteURL = import ./fetchurl-rewrite.nix;
           };
         in
         devenv.lib.mkShell {
