@@ -16,6 +16,28 @@ if (v.brotli !== "1.2.1" || v.ares !== "1.34.9") {
   process.exit(1);
 }
 '
+# Exercise patched native codepaths, not just version metadata and loader paths.
+# DNS uses local OS getaddrinfo only: no public network or DNS server required.
+node <<'NODE'
+const assert = require("node:assert/strict");
+const zlib = require("node:zlib");
+const dns = require("node:dns");
+const tls = require("node:tls");
+const input = Buffer.from("SchneeForge Node 24 native Brotli ABI check. ".repeat(32));
+for (const quality of [1, 5, 11]) {
+  const compressed = zlib.brotliCompressSync(input, {
+    params: { [zlib.constants.BROTLI_PARAM_QUALITY]: quality },
+  });
+  assert.deepEqual(zlib.brotliDecompressSync(compressed), input);
+}
+assert.ok(tls.createSecureContext().context, "OpenSSL secure context unavailable");
+dns.lookup("localhost", { all: true }, (err, addresses) => {
+  assert.ifError(err);
+  assert.ok(addresses.length > 0, "localhost resolver returned no addresses");
+  assert.ok(addresses.every((entry) => entry.address && entry.family), "invalid local DNS result");
+  console.log("Brotli compress/decompress, local DNS lookup and TLS secure-context smoke: OK");
+});
+NODE
 node_path="$(node -p 'process.execPath')"
 if ! command -v nix-store >/dev/null 2>&1; then
   echo 'Missing nix-store; cannot inspect dependency closure' >&2
