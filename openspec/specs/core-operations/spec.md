@@ -450,9 +450,15 @@ network access は snapshot 構築から分離し、呼び出し元が解決結�
 - **WHEN** available 解決が network error で失敗する
 - **THEN** snapshot は `available: None` と `available_error` に理由を持ち、installed は値を保持する (snapshot 全体は失敗しない)
 
-#### Scenario: channel の決定
+#### Scenario: state に source channel がある場合
 
-- **WHEN** state に source 情報がある場合はその channel、無い場合は `stable` を channel として使う
+- **WHEN** state に source channel 情報がある
+- **THEN** snapshot はその source channel を channel として使う
+
+#### Scenario: state に source channel がない場合
+
+- **WHEN** state に source channel 情報がない
+- **THEN** snapshot は `stable` を channel として使う
 
 
 ### Requirement: Managed Release Source (working tree-less)
