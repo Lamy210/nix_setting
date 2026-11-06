@@ -9,12 +9,12 @@ for policy in \
   modules/fetchurl-rewrite.nix \
   templates/node/fetchurl-rewrite.nix \
   templates/devenv/fetchurl-rewrite.nix; do
-  actual="$(nix eval --raw --expr "(import ./$policy) \"$original\"")"
+  actual="$(nix eval --raw --impure --expr "(import ./$policy) \"$original\"")"
   test "$actual" = "$mirror" || {
     echo "bmake URL rewrite failure: $policy" >&2
     exit 1
   }
-  unchanged="$(nix eval --raw --expr "(import ./$policy) \"$untouched\"")"
+  unchanged="$(nix eval --raw --impure --expr "(import ./$policy) \"$untouched\"")"
   test "$unchanged" = "$untouched" || {
     echo "rewrite must not alter other sources: $policy" >&2
     exit 1
