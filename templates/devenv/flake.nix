@@ -14,7 +14,15 @@
       devShells = forAllSystems (
         system:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
+          # Standalone template: preserve original bmake hash on cold builds.
+          pkgs = import nixpkgs {
+            inherit system;
+            config.rewriteURL = url:
+  if url == "https://www.crufty.net/ftp/pub/sjg/bmake-20260313.tar.gz" then
+    "https://ftp.netbsd.org/pub/NetBSD/misc/sjg/bmake-20260313.tar.gz"
+  else
+    url;
+          };
         in
         devenv.lib.mkShell {
           inherit pkgs inputs;

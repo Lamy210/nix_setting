@@ -18,6 +18,7 @@ in
             system.primaryUser = machine.username;
             users.users.${machine.username}.home = machine.homeDirectory;
             nixpkgs.config.allowUnfree = true;
+            nixpkgs.config.rewriteURL = import ../fetchurl-rewrite.nix;
             home-manager = {
               useGlobalPkgs = true;
               useUserPackages = true;
