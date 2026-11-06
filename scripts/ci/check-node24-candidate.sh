@@ -22,6 +22,7 @@ node <<'NODE'
 const assert = require("node:assert/strict");
 const zlib = require("node:zlib");
 const dns = require("node:dns");
+const dgram = require("node:dgram");
 const tls = require("node:tls");
 const input = Buffer.from("SchneeForge Node 24 native Brotli ABI check. ".repeat(32));
 for (const quality of [1, 5, 11]) {
@@ -31,12 +32,60 @@ for (const quality of [1, 5, 11]) {
   assert.deepEqual(zlib.brotliDecompressSync(compressed), input);
 }
 assert.ok(tls.createSecureContext().context, "OpenSSL secure context unavailable");
-dns.lookup("localhost", { all: true }, (err, addresses) => {
-  assert.ifError(err);
-  assert.ok(addresses.length > 0, "localhost resolver returned no addresses");
-  assert.ok(addresses.every((entry) => entry.address && entry.family), "invalid local DNS result");
-  console.log("Brotli compress/decompress, local DNS lookup and TLS secure-context smoke: OK");
-});
+async function verifyDns() {
+  const hosts = await new Promise((resolve, reject) => {
+    dns.lookup("localhost", { all: true }, (err, records) => err ? reject(err) : resolve(records));
+  });
+  assert.ok(hosts.length > 0 && hosts.every((entry) => entry.address && entry.family));
+
+  // Local UDP authoritative reply exercises the c-ares resolve4 path,
+  // unlike dns.lookup which uses the OS getaddrinfo resolver.
+  const server = dgram.createSocket("udp4");
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.bind(0, "127.0.0.1", resolve);
+    });
+    server.on("message", (query, remote) => {
+      if (query.length < 17) return;
+      let offset = 12;
+      while (offset < query.length && query[offset] !== 0) {
+        const labelLength = query[offset];
+        if (labelLength > 63 || offset + 1 + labelLength >= query.length) return;
+        offset += 1 + labelLength;
+      }
+      if (offset + 5 > query.length) return;
+      const question = query.subarray(12, offset + 5);
+      const header = Buffer.from(query.subarray(0, 12));
+      header.writeUInt16BE(0x8180, 2); // standard response, no error
+      header.writeUInt16BE(1, 4); // one question
+      header.writeUInt16BE(1, 6); // one answer
+      header.writeUInt16BE(0, 8); // no authorities
+      header.writeUInt16BE(0, 10); // no additional records
+      const answer = Buffer.from([0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 0, 0, 4, 127, 0, 0, 1]);
+      server.send(Buffer.concat([header, question, answer]), remote.port, remote.address);
+    });
+    const resolver = new dns.Resolver();
+    resolver.setServers([`127.0.0.1:${server.address().port}`]);
+    const records = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        resolver.cancel();
+        reject(new Error("local c-ares DNS smoke timed out"));
+      }, 5000);
+      resolver.resolve4("schneeforge-probe.invalid", (err, values) => {
+        clearTimeout(timeout);
+        err ? reject(err) : resolve(values);
+      });
+    });
+    assert.deepEqual(records, ["127.0.0.1"]);
+  } finally {
+    server.close();
+  }
+}
+verifyDns().then(
+  () => console.log("Brotli, TLS, OS resolver and local UDP c-ares resolver smoke: OK"),
+  (err) => { console.error(err); process.exitCode = 1; },
+);
 NODE
 node_path="$(node -p 'process.execPath')"
 if ! command -v nix-store >/dev/null 2>&1; then
