@@ -58,7 +58,7 @@ for lib in libbrotlidec libbrotlienc; do
     exit 1
   fi
 done
-if ! printf '%s\n' "$linkage" | grep -E '/nix/store/[^/]+-c-ares-1\\.34\\.9/[^[:space:]]*libcares' >/dev/null; then
+if ! printf '%s\n' "$linkage" | grep -E '/nix/store/[^/]+-c-ares-1\.34\.9/[^[:space:]]*libcares' >/dev/null; then
   echo 'Node dynamic link to patched c-ares 1.34.9 not verified' >&2
   exit 1
 fi
