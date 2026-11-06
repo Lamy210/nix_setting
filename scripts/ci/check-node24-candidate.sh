@@ -36,7 +36,7 @@ Darwin)
     exit 1
   fi
   echo 'Mach-O linked dynamic libraries:'
-  otool -L "$node_path"
+  linkage="$(otool -L "$node_path")"
   ;;
 Linux)
   if ! command -v ldd >/dev/null 2>&1; then
@@ -44,13 +44,24 @@ Linux)
     exit 1
   fi
   echo 'ELF linked dynamic libraries:'
-  ldd "$node_path"
+  linkage="$(ldd "$node_path")"
   ;;
 *)
   echo "Unsupported host OS: $(uname -s)" >&2
   exit 1
   ;;
 esac
+printf '%s\n' "$linkage"
+for lib in libbrotlidec libbrotlienc; do
+  if ! printf '%s\n' "$linkage" | grep -E "/nix/store/[^/]+-brotli-1\\.2\\.1-lib/[^[:space:]]*${lib}" >/dev/null; then
+    echo "Node dynamic link to patched Brotli 1.2.1 $lib not verified" >&2
+    exit 1
+  fi
+done
+if ! printf '%s\n' "$linkage" | grep -E '/nix/store/[^/]+-c-ares-1\\.34\\.9/[^[:space:]]*libcares' >/dev/null; then
+  echo 'Node dynamic link to patched c-ares 1.34.9 not verified' >&2
+  exit 1
+fi
 if command -v shasum >/dev/null 2>&1; then
   shasum -a 256 "$node_path"
 elif command -v sha256sum >/dev/null 2>&1; then
