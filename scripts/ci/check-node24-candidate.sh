@@ -23,7 +23,10 @@ if ! command -v nix-store >/dev/null 2>&1; then
 fi
 case "$node_path" in
   /nix/store/*) ;;
-  *) echo 'Node binary does not originate from the Nix store; refusing unverifiable host binary' >&2; exit 1 ;;
+  *)
+    echo 'Node binary does not originate from the Nix store; refusing unverifiable host binary' >&2
+    exit 1
+    ;;
 esac
 echo "Node executable: $node_path"
 case "$(uname -s)" in
