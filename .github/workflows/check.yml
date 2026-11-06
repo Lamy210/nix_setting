@@ -35,6 +35,9 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
+      - name: verify exact bmake source URL rewrite without cached archives
+        run: bash scripts/ci/check-bmake-fetch-policy.sh
+
       - name: nix flake check
         run: nix flake check --allow-import-from-derivation
 
