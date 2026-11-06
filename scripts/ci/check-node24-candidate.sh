@@ -22,34 +22,34 @@ if ! command -v nix-store >/dev/null 2>&1; then
   exit 1
 fi
 case "$node_path" in
-  /nix/store/*) ;;
-  *)
-    echo 'Node binary does not originate from the Nix store; refusing unverifiable host binary' >&2
-    exit 1
-    ;;
+/nix/store/*) ;;
+*)
+  echo 'Node binary does not originate from the Nix store; refusing unverifiable host binary' >&2
+  exit 1
+  ;;
 esac
 echo "Node executable: $node_path"
 case "$(uname -s)" in
-  Darwin)
-    if ! command -v otool >/dev/null 2>&1; then
-      echo 'otool missing: cannot record Mach-O dependency linkage' >&2
-      exit 1
-    fi
-    echo 'Mach-O linked dynamic libraries:'
-    otool -L "$node_path"
-    ;;
-  Linux)
-    if ! command -v ldd >/dev/null 2>&1; then
-      echo 'ldd missing: cannot record ELF dependency linkage' >&2
-      exit 1
-    fi
-    echo 'ELF linked dynamic libraries:'
-    ldd "$node_path"
-    ;;
-  *)
-    echo "Unsupported host OS: $(uname -s)" >&2
+Darwin)
+  if ! command -v otool >/dev/null 2>&1; then
+    echo 'otool missing: cannot record Mach-O dependency linkage' >&2
     exit 1
-    ;;
+  fi
+  echo 'Mach-O linked dynamic libraries:'
+  otool -L "$node_path"
+  ;;
+Linux)
+  if ! command -v ldd >/dev/null 2>&1; then
+    echo 'ldd missing: cannot record ELF dependency linkage' >&2
+    exit 1
+  fi
+  echo 'ELF linked dynamic libraries:'
+  ldd "$node_path"
+  ;;
+*)
+  echo "Unsupported host OS: $(uname -s)" >&2
+  exit 1
+  ;;
 esac
 if command -v shasum >/dev/null 2>&1; then
   shasum -a 256 "$node_path"
