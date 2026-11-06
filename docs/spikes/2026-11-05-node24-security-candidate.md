@@ -16,3 +16,7 @@ Fallback: if released `nixos-unstable` later includes all patches and passes rea
 ## Devenv flake evaluation
 
 The standalone devenv template uses `devenv.lib.mkShell`. Its standard `nix develop` pure evaluation cannot resolve the working directory; the official devenv flake guide requires `nix develop --no-pure-eval`. The CI template runtime probe explicitly uses that flag (only for the devenv template) rather than setting an absolute `devenv.root`, which would make the template non-portable. Source: https://devenv.sh/guides/using-with-flakes/ .
+
+## Cross-platform runtime gate
+
+The macOS 15/26 matrix now executes the actual Node runtime and `nix-store --query --requisites` candidate check in **root**, independent **Node template**, and independent **devenv template** development shells before Home Manager / nix-darwin builds. This is required for security P0 review; a failing or unsupported shell will fail the matrix, never be silently skipped. The full CI and specific executable provenance must still be reviewed after completion.

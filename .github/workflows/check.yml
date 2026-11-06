@@ -78,6 +78,19 @@ jobs:
       - name: nix flake check
         run: nix flake check --allow-import-from-derivation
 
+      - name: Node 24 security candidate runtime and Nix closure (macOS)
+        run: |
+          set -euo pipefail
+          echo '== root Node shell =='
+          nix develop .#node --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh"
+          node_dir="$(mktemp -d)"
+          cp -R templates/node "$node_dir/node"
+          echo '== standalone Node template =='
+          (cd "$node_dir/node" && nix develop --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh")
+          cp -R templates/devenv "$node_dir/devenv"
+          echo '== standalone devenv template =='
+          (cd "$node_dir/devenv" && nix develop --no-pure-eval --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh")
+
       - name: build macos home-manager
         run: nix build .#homeConfigurations.darwin-aarch64.activationPackage
 
