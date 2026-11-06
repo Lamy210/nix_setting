@@ -2103,8 +2103,9 @@ esac
 
         let marker = repo.join("continued-after-fetch");
         let fake_git = repo.join("fake-git");
+        let staged_git = repo.join("fake-git.pending");
         std::fs::write(
-            &fake_git,
+            &staged_git,
             format!(
                 r#"#!/bin/sh
 case "$*" in
@@ -2117,12 +2118,26 @@ esac
             ),
         )
         .unwrap();
-        let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
+        let mut permissions = std::fs::metadata(&staged_git).unwrap().permissions();
         permissions.set_mode(0o755);
-        std::fs::set_permissions(&fake_git, permissions).unwrap();
+        std::fs::set_permissions(&staged_git, permissions).unwrap();
+        std::fs::rename(&staged_git, &fake_git).unwrap();
+        assert!(
+            !staged_git.exists(),
+            "test fixture staging file must not remain"
+        );
         let git = resolved_git(&fake_git);
 
-        let err = update_release(repo.to_str().unwrap(), &git, "stable", true).unwrap_err();
+        // Only retry the test-only fake executable startup; never production Git logic.
+        let mut transient_retries = 0;
+        let err = loop {
+            let err = update_release(repo.to_str().unwrap(), &git, "stable", true).unwrap_err();
+            if !err.to_string().contains("Text file busy (os error 26)") || transient_retries == 4 {
+                break err;
+            }
+            transient_retries += 1;
+            std::thread::sleep(std::time::Duration::from_millis(25 * transient_retries));
+        };
         assert!(matches!(err, Error::Command { .. }), "{err}");
         assert!(
             err.to_string()
@@ -2146,8 +2161,9 @@ esac
         std::fs::create_dir_all(repo.join(".git")).unwrap();
 
         let fake_git = repo.join("fake-git");
+        let staged_git = repo.join("fake-git.pending");
         std::fs::write(
-            &fake_git,
+            &staged_git,
             r#"#!/bin/sh
 case "$*" in
   *"status --porcelain"*) exit 0 ;;
@@ -2158,9 +2174,14 @@ esac
 "#,
         )
         .unwrap();
-        let mut permissions = std::fs::metadata(&fake_git).unwrap().permissions();
+        let mut permissions = std::fs::metadata(&staged_git).unwrap().permissions();
         permissions.set_mode(0o755);
-        std::fs::set_permissions(&fake_git, permissions).unwrap();
+        std::fs::set_permissions(&staged_git, permissions).unwrap();
+        std::fs::rename(&staged_git, &fake_git).unwrap();
+        assert!(
+            !staged_git.exists(),
+            "test fixture staging file must not remain"
+        );
         let git = resolved_git(&fake_git);
 
         let update_err = update_release(repo.to_str().unwrap(), &git, "stable", true).unwrap_err();
