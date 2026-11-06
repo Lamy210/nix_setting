@@ -4,6 +4,16 @@
 
 最終更新: 2026-11-05
 
+## 2026-11-06 10:08+ JST: protected-branch integration and release gate checkpoint
+
+- **Merged #287** Node security OpenSpec design-only to develop `63806e2a`; **merged #289** desktop serde_json patch-only `f807c439`; **merged #298** test-only ETXTBSY bounded retry `9147299d49ae30afae6adfebae98710d59de7cd6` after [22/22 current-head checks](https://github.com/Lamy210/nix_setting/actions/runs/42034731767). No production git retry behavior was changed.
+- **Observed protected develop head when this snapshot was recorded:** `9147299d49ae30afae6adfebae98710d59de7cd6`. The [develop check run 42131602852](https://github.com/Lamy210/nix_setting/actions/runs/42131602852) failed because an existing OpenSpec `core-operations` dashboard channel scenario lacked a `THEN`; no required gate was bypassed.
+- **PR #300** is a separate one-file specification-only fix, splitting source channel present/absent into two `WHEN/THEN` cases. As of snapshot [run 42132290765](https://github.com/Lamy210/nix_setting/actions/runs/42132290765) had 20/21 green, with macOS 26 Home Manager work still in progress. Merge only after every protected check passes.
+- **PR #294** pinned Cachix install-nix-action 31.11.3 across five workflows; its non-force updated head `c8f278e821a62f89b1ee79d3c5a63dc09a2b425f` passes 20/22 but still fails the identical upstream-in-develop OpenSpec scenario. After #300 merge, resync non-force, rerun and require all checks before merge.
+- **Draft PR #299** tests a separately locked Node 24.22.2 package (Brotli 1.2.1, c-ares 1.34.9) in root, independent Node template and independent devenv template; all three **Linux actual runtime probes passed** at [CI 42133132799](https://github.com/Lamy210/nix_setting/actions/runs/42133132799), with only OpenSpec + dependent aggregator red (20/22). These are version+Nix store closure-name checks, not independent source ABI proof or host remediation. A follow-up on #299 also adds macOS 15/26 actual runtime probes for all three shells; latest-head checks still required. Keep Draft until reviewed.
+- **This STATUS PR #281** must remain after #300, #294 and a separately accepted #299 or explicit deferral; status changes must accurately reflect all latest protected commits. This section is a dated snapshot, not an assertion that CI will pass or all earlier historical runs were green.
+- **RC.8 remains untagged and unpublished**. Pre-tag gates: Node #275 secure dependency provenance + all supported shell/host paths, Managed Nix safety and release supply-chain evidence, repo variable `SCHNEEFORGE_UPDATER_ACTIVATED` unset/false, release/* protected PR and current-head CI. Apple ID/Developer ID signing/notarization are not used; GUI updater remains disabled. Disposable Mac A–J remain post-tag *provisional RC* acceptance before stable endorsement. Latest public prerelease remains v0.2.0-rc.7, and releases/latest misclassification of rc.1 remains an independent task.
+
 ## 2026-11-05 evening JST: review and protected-branch integration handoff
 
 - **Merged Node security design-only PR #287** into protected `develop` as `63806e2a849452a3c2794ed7c19306d68a654674`, after 22/22 successful latest-head checks. This does **not** upgrade actual Node binaries or close #275. The three independent Nix entrypoints and patched Brotli/c-ares provenance remain release blockers.
