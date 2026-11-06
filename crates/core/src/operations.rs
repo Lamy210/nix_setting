@@ -2122,7 +2122,10 @@ esac
         permissions.set_mode(0o755);
         std::fs::set_permissions(&staged_git, permissions).unwrap();
         std::fs::rename(&staged_git, &fake_git).unwrap();
-        assert!(!staged_git.exists(), "test fixture staging file must not remain");
+        assert!(
+            !staged_git.exists(),
+            "test fixture staging file must not remain"
+        );
         let git = resolved_git(&fake_git);
 
         // Only retry the test-only fake executable startup; never production Git logic.
@@ -2175,7 +2178,10 @@ esac
         permissions.set_mode(0o755);
         std::fs::set_permissions(&staged_git, permissions).unwrap();
         std::fs::rename(&staged_git, &fake_git).unwrap();
-        assert!(!staged_git.exists(), "test fixture staging file must not remain");
+        assert!(
+            !staged_git.exists(),
+            "test fixture staging file must not remain"
+        );
         let git = resolved_git(&fake_git);
 
         let update_err = update_release(repo.to_str().unwrap(), &git, "stable", true).unwrap_err();
