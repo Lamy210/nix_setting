@@ -35,6 +35,9 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
+      - name: verify exact bmake source URL rewrite without cached archives
+        run: bash scripts/ci/check-bmake-fetch-policy.sh
+
       - name: nix flake check
         run: nix flake check --allow-import-from-derivation
 
@@ -74,21 +77,6 @@ jobs:
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
           xcrun --find clang
-
-      # Nixpkgs staging's bmake fetchurl points at crufty.net (404 on cold
-      # macOS 26 CI). Seed the exact same fixed-output hash from the upstream
-      # project's documented NetBSD mirror; never weaken Nix hash checks.
-      # This is CI cache priming, NOT a user-host installation fix.
-      - name: Seed verified bmake mirror for pinned Nixpkgs (macOS)
-        run: |
-          set -euo pipefail
-          output="/nix/store/n8n5viqwbgjhyslpbq9w83g5hzarpwl6-bmake-20260313.tar.gz"
-          if ! nix path-info "$output" >/dev/null 2>&1; then
-            nix store prefetch-file --name "bmake-20260313.tar.gz" \
-              --expected-hash "sha256-dsjzzULuBc/7R7zIElbj1edCb00I5zN4i0WYXe30+XU=" \
-              "https://ftp.netbsd.org/pub/NetBSD/misc/sjg/bmake-20260313.tar.gz"
-          fi
-          nix path-info "$output"
 
       - name: nix flake check
         run: nix flake check --allow-import-from-derivation

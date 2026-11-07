@@ -21,8 +21,14 @@
       devShells = forAllSystems (
         system:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
-          nodePatched = node-security-nixpkgs.legacyPackages.${system}.nodejs_24;
+          pkgs = import nixpkgs {
+            inherit system;
+            config.rewriteURL = import ./fetchurl-rewrite.nix;
+          };
+          nodePatched = (import node-security-nixpkgs {
+            inherit system;
+            config.rewriteURL = import ./fetchurl-rewrite.nix;
+          }).nodejs_24;
         in
         {
           default = devenv.lib.mkShell {

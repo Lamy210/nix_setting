@@ -50,3 +50,11 @@ The acceptance probe now exercises three Brotli encoder quality levels (1, 5, 11
 `dns.lookup("localhost")` only exercises OS `getaddrinfo`, **not** c-ares. Added a local UDP fixture that returns a deterministic single A record for `schneeforge-probe.invalid`, and a new Node `dns.Resolver` configured to `127.0.0.1:<ephemeral-port>` calls `resolve4`. This executes the actual c-ares DNS query/parse path without relying on internet DNS, public resolvers, or mutable external data. The test closes the UDP socket and fails closed after five seconds. It runs alongside Brotli encode/decode at qualities 1/5/11, TLS context creation, strict shared-library paths, process.versions and Nix closure validation on each supported Node shell.
 
 The fixture was executed successfully using a separate local Node 22 runtime as a **PoC only**; final security conclusions require the pinned Node 24.22.2 CI matrix. This still does **not** demonstrate security across unrelated host Node processes, standalone native add-ons or RC.8 distribution assets.
+
+## 2026-11-07: remove cache seeding after checksum-preserving bmake source policy
+
+The [repository-level mirror policy #303](https://github.com/Lamy210/nix_setting/pull/303) merged as `6e3d7e94bcf885502032092d15a77e04e8e2833a`, after 22/22 required CI. This candidate now imports both the main `nixpkgs` and the pinned `node-security-nixpkgs` with the exact `config.rewriteURL` for the bmake 20260313 archive in root and copied standalone templates.
+
+The previous macOS CI `Seed verified bmake mirror` fixed-output cache priming is removed. It may no longer mask the bad upstream URL on a cold runner. The original Nixpkgs fixed-output SHA-256 remains mandatory. Re-run macOS 15/26 and Linux from the **new** candidate HEAD; prior 22/22 results in [run 42277850251](https://github.com/Lamy210/nix_setting/actions/runs/42277850251) are historical and cannot substitute for current-head checks.
+
+This is an environment and package-source fix, not proof of unrelated user-host Node/mise processes, third-party native add-on ABI, signed assets or GUI installer A–J. Keep RC.8 untagged until the release and host gates are separately met.
