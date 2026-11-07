@@ -94,3 +94,26 @@ that dependency pin/launcher issue rather than weakening this assertion.
 This does not establish general third-party dependency, native C++ ABI, or host
 installation safety. The PR remains Draft until all independent release/host
 acceptance gates are reviewed.
+
+
+## 2026-11-07 confirmed pnpm interpreter bypass and corrective pin
+
+**Confirmed by actual CI execution, not a conjecture:** [Node candidate run
+42359540999](https://github.com/Lamy210/nix_setting/actions/runs/42359540999)
+found that the standalone Node template exposed patched Node **24.22.2** on
+\`PATH\`, yet a \`NODE_OPTIONS\` preload run **inside pnpm 11.20.0** executed
+with **Node 24.18.1** and failed the explicit version assertion. The Node
+runtime/closure/native-addon probes themselves passed. This is a separate
+security exposure from merely checking \`node --version\`.
+
+The root Node shell and standalone Node template now construct
+\`pnpmPatched = pkgs.pnpm.override { nodejs = nodePatched; };\` and include that
+derivation instead of \`pkgs.pnpm\`. This follows the documented Nixpkgs
+\`pnpm.override { nodejs = ...; }\` interface and intentionally does **not**
+replace the full default Nixpkgs package set. The offline toolchain smoke
+remains fail-closed: it must observe the pnpm interpreter itself, run a local
+pnpm script, and execute Bun 1.4.4, on Linux and macOS 15/26.
+
+**Acceptance pending:** verify the new override's actual runtime and closure
+in the latest CI; do not declare the issue closed based solely on the Nix
+expression. The separate devenv template does not declare pnpm or Bun.
