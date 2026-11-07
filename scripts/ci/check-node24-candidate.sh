@@ -87,6 +87,37 @@ verifyDns().then(
   (err) => { console.error(err); process.exitCode = 1; },
 );
 NODE
+# Exercise stable C Node-API by compiling and loading a native addon.
+# The fixture uses the published opaque-pointer C ABI (no external npm install)
+# and deliberately avoids conflating a basic N-API load with C++ ABI validation.
+if ! command -v cc >/dev/null 2>&1; then
+  echo 'C compiler missing: native Node-API load test cannot run' >&2
+  exit 1
+fi
+addon_dir="$(mktemp -d)"
+trap 'rm -rf "$addon_dir"' EXIT
+cat > "$addon_dir/abi.c" <<'NODE_API_C'
+#include <stdint.h>
+typedef struct napi_env__ *napi_env;
+typedef struct napi_value__ *napi_value;
+typedef int32_t napi_status;
+extern napi_status napi_create_int32(napi_env env, int32_t value, napi_value *result);
+extern napi_status napi_set_named_property(napi_env env, napi_value object, const char *name, napi_value value);
+__attribute__((visibility("default")))
+napi_value napi_register_module_v1(napi_env env, napi_value exports) {
+  napi_value answer;
+  if (napi_create_int32(env, 42, &answer) != 0) return (napi_value)0;
+  if (napi_set_named_property(env, exports, "answer", answer) != 0) return (napi_value)0;
+  return exports;
+}
+NODE_API_C
+case "$(uname -s)" in
+Darwin) cc -bundle -undefined dynamic_lookup -o "$addon_dir/abi.node" "$addon_dir/abi.c" ;;
+Linux) cc -shared -fPIC -o "$addon_dir/abi.node" "$addon_dir/abi.c" ;;
+*) echo 'Unsupported platform for Node-API smoke test' >&2; exit 1 ;;
+esac
+node -e 'const assert = require("node:assert/strict"); assert.equal(require(process.argv[1]).answer, 42); console.log("Native Node-API compiled addon load: OK");' "$addon_dir/abi.node"
+
 node_path="$(node -p 'process.execPath')"
 if ! command -v nix-store >/dev/null 2>&1; then
   echo 'Missing nix-store; cannot inspect dependency closure' >&2
@@ -150,4 +181,39 @@ printf '%s\n' "$closure" | grep -E '/nix/store/[^/]+-c-ares-1\.34\.9(-|$)' >/dev
   echo 'Verified c-ares 1.34.9 store closure reference not found' >&2
   exit 1
 }
+# Do not interpret ldd's own loader mapping as the Node ELF PT_INTERP.
+# Directly inspect the actual loader embedded in the binary and compare its
+# glibc store output with the libc.so.6 path exposed by the dynamic linker.
+if [ "$(uname -s)" = Linux ]; then
+  if ! command -v readelf >/dev/null 2>&1; then
+    echo 'readelf missing: cannot establish actual ELF interpreter' >&2
+    exit 1
+  fi
+  interpreter="$(LC_ALL=C readelf -l "$node_path" | sed -n 's/.*Requesting program interpreter: \([^]]*\)].*/\1/p')"
+  case "$interpreter" in
+    /nix/store/*/lib/ld-*.so*|/nix/store/*/lib64/ld-*.so*) ;;
+    *) echo "Invalid or missing Nix ELF PT_INTERP: $interpreter" >&2; exit 1 ;;
+  esac
+  if [ ! -f "$interpreter" ]; then
+    echo "ELF interpreter is absent: $interpreter" >&2
+    exit 1
+  fi
+  interpreter_store="$(printf '%s\n' "$interpreter" | cut -d/ -f1-4)"
+  libc_path="$(printf '%s\n' "$linkage" | awk '$1 == "libc.so.6" && $2 == "=>" { print $3; exit }')"
+  case "$libc_path" in
+    /nix/store/*/lib/libc.so.6) ;;
+    *) echo "Unexpected glibc shared object: $libc_path" >&2; exit 1 ;;
+  esac
+  libc_store="$(printf '%s\n' "$libc_path" | cut -d/ -f1-4)"
+  if [ "$interpreter_store" != "$libc_store" ]; then
+    echo "Node ELF interpreter/libc Nix outputs differ: $interpreter_store vs $libc_store" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$closure" | grep -Fx "$interpreter_store" >/dev/null; then
+    echo "ELF interpreter glibc output is absent from Node closure: $interpreter_store" >&2
+    exit 1
+  fi
+  echo "Direct ELF PT_INTERP and libc store output agree: $interpreter"
+fi
+
 echo 'Runtime version and Nix store dependency names match candidate; source / ABI / binary provenance still require review.'
