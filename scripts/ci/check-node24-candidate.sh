@@ -191,8 +191,11 @@ if [ "$(uname -s)" = Linux ]; then
   fi
   interpreter="$(LC_ALL=C readelf -l "$node_path" | sed -n 's/.*Requesting program interpreter: \([^]]*\)].*/\1/p')"
   case "$interpreter" in
-    /nix/store/*/lib/ld-*.so*|/nix/store/*/lib64/ld-*.so*) ;;
-    *) echo "Invalid or missing Nix ELF PT_INTERP: $interpreter" >&2; exit 1 ;;
+  /nix/store/*/lib/ld-*.so* | /nix/store/*/lib64/ld-*.so*) ;;
+  *)
+    echo "Invalid or missing Nix ELF PT_INTERP: $interpreter" >&2
+    exit 1
+    ;;
   esac
   if [ ! -f "$interpreter" ]; then
     echo "ELF interpreter is absent: $interpreter" >&2
@@ -201,8 +204,11 @@ if [ "$(uname -s)" = Linux ]; then
   interpreter_store="$(printf '%s\n' "$interpreter" | cut -d/ -f1-4)"
   libc_path="$(printf '%s\n' "$linkage" | awk '$1 == "libc.so.6" && $2 == "=>" { print $3; exit }')"
   case "$libc_path" in
-    /nix/store/*/lib/libc.so.6) ;;
-    *) echo "Unexpected glibc shared object: $libc_path" >&2; exit 1 ;;
+  /nix/store/*/lib/libc.so.6) ;;
+  *)
+    echo "Unexpected glibc shared object: $libc_path" >&2
+    exit 1
+    ;;
   esac
   libc_store="$(printf '%s\n' "$libc_path" | cut -d/ -f1-4)"
   if [ "$interpreter_store" != "$libc_store" ]; then
