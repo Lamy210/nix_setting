@@ -25,8 +25,9 @@
             inherit system;
             config.rewriteURL = import ./fetchurl-rewrite.nix;
           }).nodejs_24;
-        # pnpm's launcher must not resolve the unpatched default nodejs input.
-        pnpmPatched = pkgs.pnpm.override { nodejs = nodePatched; };
+        # This independently locked Nixpkgs packages pnpm 11 as a Node script.
+        # Override its actual nodejs-slim interpreter, not PATH or the obsolete nodejs argument.
+        pnpmPatched = pkgs.pnpm.override { nodejs-slim = nodePatched; };
         # Security backport: nixpkgs locked on 2026-10-27 still ships Bun 1.4.2.
         # Bun 1.4.4 fixes CVE-2026-111497 (bundled Brotli OOB write).
         # Source hashes match the vendor's GitHub release asset SHA256 digests.

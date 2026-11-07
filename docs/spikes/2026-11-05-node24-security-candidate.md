@@ -117,3 +117,34 @@ pnpm script, and execute Bun 1.4.4, on Linux and macOS 15/26.
 **Acceptance pending:** verify the new override's actual runtime and closure
 in the latest CI; do not declare the issue closed based solely on the Nix
 expression. The separate devenv template does not declare pnpm or Bun.
+
+
+## 2026-11-07 correction: version-specific pnpm packaging in the two Nixpkgs locks
+
+A first attempt to use \`pkgs.pnpm.override { nodejs = nodePatched; }\`
+uniformly failed during \`nix flake check\`: the root lock at Nixpkgs
+\`fe13242281a67641c0102cdb1087f0ebe586c7df\` packages default pnpm 12
+with \`pkgs/development/tools/pnpm/generic-rust.nix\`, whose function has no
+\`nodejs\` argument. This is a **confirmed Nix evaluation failure**, not a
+test flake. The standalone Node template pins Nixpkgs
+\`2fcb964de67fcf60b43471c55d5d99e61a9ccb5a\`, where default pnpm 11
+uses \`pkgs/development/tools/pnpm/generic.nix\`, whose real override
+argument is \`nodejs-slim\`.
+
+Revised implementation:
+- Root keeps the **native Rust pnpm** from its own lock; there is no Node JS
+  interpreter to override. The acceptance script verifies the Nix-store
+  executable is ELF/Mach-O, requires pnpm 12.x from this reviewed packaging,
+  and runs a local Node project script with the patched Node.
+- Standalone Node template uses
+  \`pkgs.pnpm.override { nodejs-slim = nodePatched; }\` to correct pnpm 11's
+  otherwise vulnerable 24.18.1 executable. The smoke preloads JS in pnpm's
+  **own process** and verifies its Node/Brotli/c-ares versions before it runs
+  a local package script. Missing preload evidence is a failure.
+- Both shells separately execute Bun 1.4.4 and the already existing
+  native Node/Brotli/c-ares linkage probes; no registry calls or installs.
+
+The distinction was confirmed against the exact pinned upstream Nixpkgs
+package recipes, not assumed from current Nixpkgs master documentation.
+Latest-head CI and all release/host gates remain required before Draft
+promotion or merge.

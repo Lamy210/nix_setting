@@ -4,7 +4,7 @@ set -euo pipefail
 # Offline acceptance smoke for the Node 24 devShell and standalone node template.
 # In particular, pnpm's own interpreter must be patched, not merely the
 # PATH-selected node used by the package's child scripts.
-for tool in node pnpm bun; do
+for tool in node pnpm bun file; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "Missing required Node development tool: $tool" >&2
     exit 1
@@ -56,14 +56,33 @@ PACKAGE
   cd "$probe_dir"
   # No installation or registry access: check only local runtimes and CLI execution.
   node ./verify-node.cjs
-  SCHNEEFORGE_PNPM_NODE_AUDIT="$probe_dir/pnpm-runtime.log" \
-    NODE_OPTIONS="--require=$probe_dir/preload.cjs" pnpm --version
-  if [ ! -s "$probe_dir/pnpm-runtime.log" ]; then
-    echo 'pnpm did not expose its Node process for runtime verification' >&2
+  pnpm_path="$(command -v pnpm)"
+  if [[ $pnpm_path != /nix/store/* ]]; then
+    echo 'pnpm does not originate from the Nix store' >&2
     exit 1
   fi
-  SCHNEEFORGE_PNPM_NODE_AUDIT="$probe_dir/pnpm-runtime.log" \
-    NODE_OPTIONS="--require=$probe_dir/preload.cjs" pnpm run probe:node
+  # Independently pinned nixpkgs revisions package pnpm differently:
+  # root pnpm 12 is a compiled Rust program; standalone pnpm 11 is Node JS.
+  if file -Lb "$pnpm_path" | grep -Eq 'ELF|Mach-O'; then
+    pnpm_version="$(pnpm --version)"
+    if [[ $pnpm_version != 12.* ]]; then
+      echo "Unreviewed native pnpm version: $pnpm_version" >&2
+      exit 1
+    fi
+    echo "Native Rust pnpm $pnpm_version: no Node interpreter"
+    pnpm run probe:node
+  else
+    # Fail before executing a vulnerable pnpm 11 JS runtime. The preload
+    # executes in pnpm's process, not merely in a child project script.
+    SCHNEEFORGE_PNPM_NODE_AUDIT="$probe_dir/pnpm-runtime.log" \
+      NODE_OPTIONS="--require=$probe_dir/preload.cjs" pnpm --version
+    if [ ! -s "$probe_dir/pnpm-runtime.log" ]; then
+      echo 'pnpm did not expose its Node process for runtime verification' >&2
+      exit 1
+    fi
+    SCHNEEFORGE_PNPM_NODE_AUDIT="$probe_dir/pnpm-runtime.log" \
+      NODE_OPTIONS="--require=$probe_dir/preload.cjs" pnpm run probe:node
+  fi
   bun run probe:bun
 )
 echo 'Node + pnpm + Bun offline toolchain smoke: OK'
