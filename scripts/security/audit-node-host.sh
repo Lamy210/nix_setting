@@ -54,7 +54,7 @@ if (status === "REVIEW") console.error("Different Node major: its own security s
 process.exitCode = status === "PASS" ? 0 : status === "FAIL" ? 1 : 2;
 NODE
 ) || runtime_status=$?
-if (( runtime_status > 2 )); then
+if ((runtime_status > 2)); then
   echo 'Node runtime probe failed unexpectedly; audit status: UNKNOWN (exit 2)' >&2
   runtime_status=2
 fi
