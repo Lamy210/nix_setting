@@ -25,10 +25,11 @@
             inherit system;
             config.rewriteURL = import ./fetchurl-rewrite.nix;
           };
-          nodePatched = (import node-security-nixpkgs {
-            inherit system;
-            config.rewriteURL = import ./fetchurl-rewrite.nix;
-          }).nodejs_24;
+          nodePatched =
+            (import node-security-nixpkgs {
+              inherit system;
+              config.rewriteURL = import ./fetchurl-rewrite.nix;
+            }).nodejs_24;
         in
         {
           default = devenv.lib.mkShell {

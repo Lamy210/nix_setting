@@ -4,10 +4,11 @@
     { pkgs, system, ... }:
     let
       # Node-only staging candidate; does not change the rest of the root pkgs.
-      nodePatched = (import inputs.node-security-nixpkgs {
-        inherit system;
-        config.rewriteURL = import ../fetchurl-rewrite.nix;
-      }).nodejs_24;
+      nodePatched =
+        (import inputs.node-security-nixpkgs {
+          inherit system;
+          config.rewriteURL = import ../fetchurl-rewrite.nix;
+        }).nodejs_24;
       # Security backport: nixpkgs locked on 2026-10-27 still ships Bun 1.4.2.
       # Bun 1.4.4 fixes CVE-2026-111497 (bundled Brotli OOB write).
       # Source hashes match the vendor's GitHub release asset SHA256 digests.
