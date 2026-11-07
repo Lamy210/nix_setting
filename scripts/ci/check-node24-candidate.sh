@@ -96,7 +96,7 @@ if ! command -v cc >/dev/null 2>&1; then
 fi
 addon_dir="$(mktemp -d)"
 trap 'rm -rf "$addon_dir"' EXIT
-cat > "$addon_dir/abi.c" <<'NODE_API_C'
+cat >"$addon_dir/abi.c" <<'NODE_API_C'
 #include <stdint.h>
 typedef struct napi_env__ *napi_env;
 typedef struct napi_value__ *napi_value;
@@ -114,7 +114,10 @@ NODE_API_C
 case "$(uname -s)" in
 Darwin) cc -bundle -undefined dynamic_lookup -o "$addon_dir/abi.node" "$addon_dir/abi.c" ;;
 Linux) cc -shared -fPIC -o "$addon_dir/abi.node" "$addon_dir/abi.c" ;;
-*) echo 'Unsupported platform for Node-API smoke test' >&2; exit 1 ;;
+*)
+  echo 'Unsupported platform for Node-API smoke test' >&2
+  exit 1
+  ;;
 esac
 node -e 'const assert = require("node:assert/strict"); assert.equal(require(process.argv[1]).answer, 42); console.log("Native Node-API compiled addon load: OK");' "$addon_dir/abi.node"
 
