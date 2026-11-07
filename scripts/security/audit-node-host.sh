@@ -55,10 +55,17 @@ process.exitCode = status === "PASS" ? 0 : status === "FAIL" ? 1 : 2;
 NODE
 ) || runtime_status=$?
 
-node_path="$(
+if ! node_path="$(
   unset NODE_OPTIONS NODE_PATH
   node -p 'process.execPath'
-)"
+)"; then
+  echo 'Cannot resolve the active Node executable; audit status: UNKNOWN (exit 2)' >&2
+  exit 2
+fi
+if [[ $node_path != /* ]]; then
+  echo 'Node returned a non-absolute executable path; audit status: UNKNOWN (exit 2)' >&2
+  exit 2
+fi
 if [[ $node_path == /nix/store/* ]]; then
   echo 'Active executable is under /nix/store; checking local closure (read-only).'
   if command -v nix-store >/dev/null 2>&1; then
