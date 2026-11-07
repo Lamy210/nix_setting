@@ -1239,3 +1239,59 @@ NODE
   [ "$status" -eq 2 ]
   [[ "$output" == *"Node runtime probe failed unexpectedly"* ]]
 }
+
+# Exercise the embedded JS floor comparisons using a real Node interpreter
+# with deliberately substituted process.versions test data. This does not
+# claim the underlying host binary or shared libraries are patched.
+audit_node_version_case() {
+  local wanted_node="$1" wanted_brotli="$2" wanted_ares="$3"
+  local real_node fake_bin
+  real_node="$(command -v node)" || skip "Node interpreter is unavailable on this runner"
+  fake_bin="$BATS_TEST_TMPDIR/node-version-boundary"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/node" <<'NODE'
+#!/usr/bin/env bash
+if [ "$1" = "-p" ]; then
+  printf '%s\n' '/tmp/node-audit-fixture'
+  exit 0
+fi
+{
+  printf 'Object.defineProperty(process.versions,"node",{value:"%s"});\n' "$AUDIT_CASE_NODE"
+  printf 'Object.defineProperty(process.versions,"brotli",{value:"%s"});\n' "$AUDIT_CASE_BROTLI"
+  printf 'Object.defineProperty(process.versions,"ares",{value:"%s"});\n' "$AUDIT_CASE_ARES"
+  cat
+} | "$AUDIT_CASE_REAL_NODE"
+NODE
+  chmod +x "$fake_bin/node"
+  run env PATH="$fake_bin:$PATH" AUDIT_CASE_REAL_NODE="$real_node" AUDIT_CASE_NODE="$wanted_node" AUDIT_CASE_BROTLI="$wanted_brotli" AUDIT_CASE_ARES="$wanted_ares" /bin/bash scripts/security/audit-node-host.sh
+}
+
+@test "node host audit accepts the exact patched Node24 dependency floors" {
+  audit_node_version_case "24.22.2" "1.2.1" "1.34.9"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"status": "PASS"'* ]]
+}
+
+@test "node host audit rejects Node24 below the security version floor" {
+  audit_node_version_case "24.22.1" "1.2.1" "1.34.9"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'"status": "FAIL"'* ]]
+}
+
+@test "node host audit rejects an older Brotli even with patched Node24" {
+  audit_node_version_case "24.22.2" "1.2.0" "1.34.9"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'"status": "FAIL"'* ]]
+}
+
+@test "node host audit rejects an older c-ares even with patched Node24" {
+  audit_node_version_case "24.22.2" "1.2.1" "1.34.8"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'"status": "FAIL"'* ]]
+}
+
+@test "node host audit requires review for a different Node major" {
+  audit_node_version_case "22.16.0" "1.2.1" "1.34.9"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *'"status": "REVIEW"'* ]]
+}
