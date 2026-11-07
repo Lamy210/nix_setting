@@ -1221,3 +1221,21 @@ NODE
   [ "$status" -eq 1 ]
   [[ "$output" == *'"status":"FAIL"'* ]]
 }
+
+@test "node host audit maps an unexpected runtime probe exit to UNKNOWN" {
+  fake_bin="$BATS_TEST_TMPDIR/node-runtime-crashes"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/node" <<'NODE'
+#!/usr/bin/env bash
+if [ "$1" = "-p" ]; then
+  printf '%s\n' '/tmp/node-audit-fixture'
+  exit 0
+fi
+printf '%s\n' 'simulated execution failure' >&2
+exit 9
+NODE
+  chmod +x "$fake_bin/node"
+  run env PATH="$fake_bin:$PATH" /bin/bash scripts/security/audit-node-host.sh
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"Node runtime probe failed unexpectedly"* ]]
+}
