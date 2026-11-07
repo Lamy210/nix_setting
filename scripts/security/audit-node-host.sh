@@ -55,8 +55,11 @@ process.exitCode = status === "PASS" ? 0 : status === "FAIL" ? 1 : 2;
 NODE
 ) || runtime_status=$?
 
-node_path="$( (unset NODE_OPTIONS NODE_PATH; node -p 'process.execPath') )"
-if [[ "$node_path" == /nix/store/* ]]; then
+node_path="$(
+  unset NODE_OPTIONS NODE_PATH
+  node -p 'process.execPath'
+)"
+if [[ $node_path == /nix/store/* ]]; then
   echo 'Active executable is under /nix/store; checking local closure (read-only).'
   if command -v nix-store >/dev/null 2>&1; then
     if ! nix-store --query --requisites "$node_path" | grep -E -- '(-brotli-|-c-ares-|-glibc-)'; then
