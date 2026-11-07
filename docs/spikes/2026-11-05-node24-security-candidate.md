@@ -64,3 +64,33 @@ This is an environment and package-source fix, not proof of unrelated user-host 
 Latest previous-head CI [42342923972](https://github.com/Lamy210/nix_setting/actions/runs/42342923972) was **22/22** including macOS 15/26 Node executable checks *without* the CI-only bmake cache seed. To disambiguate the Linux `ldd` report which mapped a glibc 2.44 `ld-linux` path to an older glibc 2.42 runtime, the probe now parses the Node ELF binary's **actual `PT_INTERP`** using `readelf`, rejects non-Nix or absent interpreters, checks the interpreter and directly-linked `libc.so.6` belong to the *same* store output, and requires that output in the Node closure. This verifies actual interpreter provenance rather than treating `ldd`'s process mapping as conclusive.
 
 Each of the three independent Linux/macOS Node shells also compiles and `require()`-loads a small Node-API C addon, testing the stable `napi_register_module_v1` entrypoint, `napi_create_int32`, and `napi_set_named_property`. It uses local shell-provided `cc`, an ephemeral directory, and no npm install, third-party code, or internet access. An addon that does not compile/load or return the expected value fails the probe. The new checks are **not** proof of third-party native C++ addons, arbitrary libc++ ABI compatibility, production host Node installation, or Apple Silicon physical A–J. Require a new latest-head full CI before claiming successful execution.
+
+
+## 2026-11-07 package-manager interpreter and offline invocation acceptance
+
+The pinned Node binary can be patched while independently packaged tooling still
+launches an older Node executable. For the **root Node** and **standalone Node
+template** (which both supply \`node\`, \`pnpm\`, and \`bun\`), CI now runs
+\`scripts/ci/check-node24-package-managers.sh\` on Linux and the macOS 15/26
+matrix. This is an acceptance test of the mixed Nixpkgs toolchain rather than a
+claimed remediation.
+
+- Assert the PATH-selected Node executable has Node 24 >=24.22.2, Brotli 1.2.1,
+  and c-ares 1.34.9, and originates under \`/nix/store\`.
+- Instrument **pnpm's own Node interpreter** using a local \`NODE_OPTIONS=--require\`
+  preload. Reject an older/broken runtime *before* the pnpm command proceeds.
+  Require evidence that the preload actually executed, and then run a local
+  package.json script through pnpm (no \`pnpm install\`, registry, or network).
+- Execute a local Bun script through \`bun run\` and require the independently
+  pinned Bun 1.4.4 runtime. The existing \`bun --version\` checks remain.
+- The **devenv template** intentionally declares only \`nodePatched\`; do not
+  demand pnpm or Bun there unless its functional requirements change. Its
+  Node/Brotli/c-ares/native smoke remains mandatory.
+
+The verification must be interpreted carefully: a pnpm build that executes in
+a runtime which cannot be inspected is **unknown, not a pass**. If the current
+Nixpkgs pnpm launcher uses an unpatched interpreter, the new CI must fail; solve
+that dependency pin/launcher issue rather than weakening this assertion.
+This does not establish general third-party dependency, native C++ ABI, or host
+installation safety. The PR remains Draft until all independent release/host
+acceptance gates are reviewed.

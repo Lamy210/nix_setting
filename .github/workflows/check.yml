@@ -86,10 +86,12 @@ jobs:
           set -euo pipefail
           echo '== root Node shell =='
           nix develop .#node --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh"
+          nix develop .#node --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-package-managers.sh"
           node_dir="$(mktemp -d)"
           cp -R templates/node "$node_dir/node"
           echo '== standalone Node template =='
           (cd "$node_dir/node" && nix develop --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh")
+          (cd "$node_dir/node" && nix develop --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-package-managers.sh")
           cp -R templates/devenv "$node_dir/devenv"
           echo '== standalone devenv template =='
           (cd "$node_dir/devenv" && nix develop --no-pure-eval --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh")
@@ -488,6 +490,7 @@ jobs:
           nix develop .#python --command uv --version | grep -E '^uv 0\.13\.5([[:space:]]|$)'
           nix develop .#node --command bash -c 'command -v node && node --version'
           nix develop .#node --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh"
+          nix develop .#node --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-package-managers.sh"
           nix develop .#node --command bun --version | grep -Fx 1.4.4
           nix develop .#rust --command bash -c 'command -v rustc && rustc --version && command -v cargo && cargo --version'
 
@@ -520,6 +523,7 @@ jobs:
           cd /tmp/template-dev
           nix develop --command bun --version | grep -Fx 1.4.4
           nix develop --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh"
+          nix develop --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-package-managers.sh"
 
       - name: devenv template Node security runtime
         if: matrix.template == 'devenv'
