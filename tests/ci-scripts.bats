@@ -1139,3 +1139,85 @@ SH
   [ ! -s "$calls" ]
   rm -rf "$fixture"
 }
+
+# --- Node host read-only audit: fail-closed error handling (#275 / #304) ---
+
+@test "node host audit exits UNKNOWN when node is absent from PATH" {
+  fake_bin="$BATS_TEST_TMPDIR/node-absent"
+  mkdir -p "$fake_bin"
+  ln -s "$(command -v uname)" "$fake_bin/uname"
+  run env PATH="$fake_bin" /bin/bash scripts/security/audit-node-host.sh
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"Node not found on PATH"* ]]
+}
+
+@test "node host audit exits UNKNOWN when executable path probe fails" {
+  fake_bin="$BATS_TEST_TMPDIR/node-probe-fails"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/node" <<'NODE'
+#!/usr/bin/env bash
+if [ "$1" = "-p" ]; then exit 9; fi
+printf '%s\n' '{"status":"PASS"}'
+NODE
+  chmod +x "$fake_bin/node"
+  run env PATH="$fake_bin:$PATH" /bin/bash scripts/security/audit-node-host.sh
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"Cannot resolve the active Node executable"* ]]
+}
+
+@test "node host audit rejects non-absolute executable paths" {
+  fake_bin="$BATS_TEST_TMPDIR/node-relative-path"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/node" <<'NODE'
+#!/usr/bin/env bash
+if [ "$1" = "-p" ]; then
+  printf '%s\n' 'relative/node'
+else
+  printf '%s\n' '{"status":"PASS"}'
+fi
+NODE
+  chmod +x "$fake_bin/node"
+  run env PATH="$fake_bin:$PATH" /bin/bash scripts/security/audit-node-host.sh
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"non-absolute executable path"* ]]
+}
+
+@test "node host audit strips NODE_OPTIONS and NODE_PATH from both probes" {
+  fake_bin="$BATS_TEST_TMPDIR/node-env-isolated"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/node" <<'NODE'
+#!/usr/bin/env bash
+if [ -n "$NODE_OPTIONS" ] || [ -n "$NODE_PATH" ]; then
+  printf '%s\n' 'Node probe inherited an unsafe environment' >&2
+  exit 9
+fi
+if [ "$1" = "-p" ]; then
+  printf '%s\n' '/tmp/node-audit-fixture'
+else
+  printf '%s\n' '{"status":"PASS"}'
+fi
+NODE
+  chmod +x "$fake_bin/node"
+  run env NODE_OPTIONS='--require /does-not-exist' NODE_PATH='/tmp/untrusted' PATH="$fake_bin:$PATH" /bin/bash scripts/security/audit-node-host.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Active Node is outside /nix/store"* ]]
+  [[ "$output" != *"unsafe environment"* ]]
+}
+
+@test "node host audit preserves a reported version-floor failure" {
+  fake_bin="$BATS_TEST_TMPDIR/node-reported-fail"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/node" <<'NODE'
+#!/usr/bin/env bash
+if [ "$1" = "-p" ]; then
+  printf '%s\n' '/tmp/node-audit-fixture'
+  exit 0
+fi
+printf '%s\n' '{"status":"FAIL"}'
+exit 1
+NODE
+  chmod +x "$fake_bin/node"
+  run env PATH="$fake_bin:$PATH" /bin/bash scripts/security/audit-node-host.sh
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'"status":"FAIL"'* ]]
+}
