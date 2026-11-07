@@ -65,86 +65,26 @@ Latest previous-head CI [42342923972](https://github.com/Lamy210/nix_setting/act
 
 Each of the three independent Linux/macOS Node shells also compiles and `require()`-loads a small Node-API C addon, testing the stable `napi_register_module_v1` entrypoint, `napi_create_int32`, and `napi_set_named_property`. It uses local shell-provided `cc`, an ephemeral directory, and no npm install, third-party code, or internet access. An addon that does not compile/load or return the expected value fails the probe. The new checks are **not** proof of third-party native C++ addons, arbitrary libc++ ABI compatibility, production host Node installation, or Apple Silicon physical A–J. Require a new latest-head full CI before claiming successful execution.
 
+## 2026-11-07: pnpm package-manager runtime security evidence and repair
 
-## 2026-11-07 package-manager interpreter and offline invocation acceptance
+### Confirmed vulnerability in independent Node template
 
-The pinned Node binary can be patched while independently packaged tooling still
-launches an older Node executable. For the **root Node** and **standalone Node
-template** (which both supply \`node\`, \`pnpm\`, and \`bun\`), CI now runs
-\`scripts/ci/check-node24-package-managers.sh\` on Linux and the macOS 15/26
-matrix. This is an acceptance test of the mixed Nixpkgs toolchain rather than a
-claimed remediation.
+The actual Linux CI run [42359540999](https://github.com/Lamy210/nix_setting/actions/runs/42359540999) found that the standalone Node template exposed **Node 24.22.2** on `PATH`, yet its `pnpm 11.20.0` launcher executed with **Node 24.18.1**. The original Node/Brotli/c-ares and compiled Node-API probes succeeded, which proves that checking only the visible `node` misses this separate runtime. This is a confirmed regression, not a speculation.
 
-- Assert the PATH-selected Node executable has Node 24 >=24.22.2, Brotli 1.2.1,
-  and c-ares 1.34.9, and originates under \`/nix/store\`.
-- Instrument **pnpm's own Node interpreter** using a local \`NODE_OPTIONS=--require\`
-  preload. Reject an older/broken runtime *before* the pnpm command proceeds.
-  Require evidence that the preload actually executed, and then run a local
-  package.json script through pnpm (no \`pnpm install\`, registry, or network).
-- Execute a local Bun script through \`bun run\` and require the independently
-  pinned Bun 1.4.4 runtime. The existing \`bun --version\` checks remain.
-- The **devenv template** intentionally declares only \`nodePatched\`; do not
-  demand pnpm or Bun there unless its functional requirements change. Its
-  Node/Brotli/c-ares/native smoke remains mandatory.
+### Why the root and template require different implementations
 
-The verification must be interpreted carefully: a pnpm build that executes in
-a runtime which cannot be inspected is **unknown, not a pass**. If the current
-Nixpkgs pnpm launcher uses an unpatched interpreter, the new CI must fail; solve
-that dependency pin/launcher issue rather than weakening this assertion.
-This does not establish general third-party dependency, native C++ ABI, or host
-installation safety. The PR remains Draft until all independent release/host
-acceptance gates are reviewed.
+We inspected the **exact immutable Nixpkgs package sources** from both locks:
 
+- Root lock `fe13242281a67641c0102cdb1087f0ebe586c7df` packages default **pnpm 12** as a compiled Rust executable in `pkgs/development/tools/pnpm/generic-rust.nix`. It does not accept a `nodejs` override and does not have an independent Node interpreter.
+- Standalone Node template lock `2fcb964de67fcf60b43471c55d5d99e61a9ccb5a` packages **pnpm 11** as a Node-based launcher in `pkgs/development/tools/pnpm/generic.nix`, whose accepted interpreter override is **`nodejs-slim`**.
 
-## 2026-11-07 confirmed pnpm interpreter bypass and corrective pin
+An initial attempt to apply `pkgs.pnpm.override { nodejs = nodePatched; }` uniformly caused the actual Nix `flake-check` to fail because the Rust derivation has no `nodejs` function argument. That attempt was **rejected**; it is not the current implementation.
 
-**Confirmed by actual CI execution, not a conjecture:** [Node candidate run
-42359540999](https://github.com/Lamy210/nix_setting/actions/runs/42359540999)
-found that the standalone Node template exposed patched Node **24.22.2** on
-\`PATH\`, yet a \`NODE_OPTIONS\` preload run **inside pnpm 11.20.0** executed
-with **Node 24.18.1** and failed the explicit version assertion. The Node
-runtime/closure/native-addon probes themselves passed. This is a separate
-security exposure from merely checking \`node --version\`.
+### Implemented correction and acceptance policy
 
-The root Node shell and standalone Node template now construct
-\`pnpmPatched = pkgs.pnpm.override { nodejs = nodePatched; };\` and include that
-derivation instead of \`pkgs.pnpm\`. This follows the documented Nixpkgs
-\`pnpm.override { nodejs = ...; }\` interface and intentionally does **not**
-replace the full default Nixpkgs package set. The offline toolchain smoke
-remains fail-closed: it must observe the pnpm interpreter itself, run a local
-pnpm script, and execute Bun 1.4.4, on Linux and macOS 15/26.
+- Root retains the native pnpm 12 executable. The offline CI smoke requires a Nix-store pathname, confirms ELF/Mach-O native-binary format and reviewed pnpm major 12, and executes a local project script using the patched Node.
+- Standalone Node template binds `pkgs.pnpm.override { nodejs-slim = nodePatched; }`. The smoke uses a controlled `NODE_OPTIONS=--require` preload to inspect **pnpm's own Node process**, rejecting versions below Node 24.22.2 or missing Brotli 1.2.1/c-ares 1.34.9. A missing instrumented process is not counted as success.
+- Both paths run a local `pnpm run` script and a `bun run` smoke for the pinned Bun 1.4.4; they never install packages or call a registry. The separate devenv template does not promise pnpm/Bun, but retains its mandatory Node runtime tests.
+- Root and standalone Node shell checks run in Linux plus macOS 15/26. This is an execution-level regression gate; additional package sources and physical user-host installations are outside its scope.
 
-**Acceptance pending:** verify the new override's actual runtime and closure
-in the latest CI; do not declare the issue closed based solely on the Nix
-expression. The separate devenv template does not declare pnpm or Bun.
-
-
-## 2026-11-07 correction: version-specific pnpm packaging in the two Nixpkgs locks
-
-A first attempt to use \`pkgs.pnpm.override { nodejs = nodePatched; }\`
-uniformly failed during \`nix flake check\`: the root lock at Nixpkgs
-\`fe13242281a67641c0102cdb1087f0ebe586c7df\` packages default pnpm 12
-with \`pkgs/development/tools/pnpm/generic-rust.nix\`, whose function has no
-\`nodejs\` argument. This is a **confirmed Nix evaluation failure**, not a
-test flake. The standalone Node template pins Nixpkgs
-\`2fcb964de67fcf60b43471c55d5d99e61a9ccb5a\`, where default pnpm 11
-uses \`pkgs/development/tools/pnpm/generic.nix\`, whose real override
-argument is \`nodejs-slim\`.
-
-Revised implementation:
-- Root keeps the **native Rust pnpm** from its own lock; there is no Node JS
-  interpreter to override. The acceptance script verifies the Nix-store
-  executable is ELF/Mach-O, requires pnpm 12.x from this reviewed packaging,
-  and runs a local Node project script with the patched Node.
-- Standalone Node template uses
-  \`pkgs.pnpm.override { nodejs-slim = nodePatched; }\` to correct pnpm 11's
-  otherwise vulnerable 24.18.1 executable. The smoke preloads JS in pnpm's
-  **own process** and verifies its Node/Brotli/c-ares versions before it runs
-  a local package script. Missing preload evidence is a failure.
-- Both shells separately execute Bun 1.4.4 and the already existing
-  native Node/Brotli/c-ares linkage probes; no registry calls or installs.
-
-The distinction was confirmed against the exact pinned upstream Nixpkgs
-package recipes, not assumed from current Nixpkgs master documentation.
-Latest-head CI and all release/host gates remain required before Draft
-promotion or merge.
+The corrected standalone template ran its security toolchain smoke successfully on Linux in the current follow-up CI (commit `b577315`); require completed current-head root/macos checks as independent evidence before accepting the candidate. Third-party C++ addons, host/mise inventory, supply-chain distribution and provisional RC.8 remain separate acceptance gates.
