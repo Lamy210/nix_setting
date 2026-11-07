@@ -2,7 +2,17 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-11-06
+最終更新: 2026-11-07
+
+## 2026-11-07 evening JST: #304 merged; Node/pnpm transitive security regression under review
+
+**This checkpoint supersedes dated snapshots below; earlier CI states are historical, not current.**
+
+- **Protected develop:** [#304](https://github.com/Lamy210/nix_setting/pull/304) was **squash merged** as `9afe23baf2634756029a5e049d6d26825ed6a416` after **26/26 final-head CI checks succeeded** including all seven branch-protection contexts, macOS 15/26, release-artifact, Windows and Linux. It adds a strictly read-only host Node audit with fail-closed UNKNOWN/FAIL classification and 11 Bats regression cases. No user's machine has been inspected or updated by this merge. The post-merge develop workflow is separately running; do not treat pre-merge success as post-merge success.
+- **Confirmed Node/pnpm security gap:** Draft [#299](https://github.com/Lamy210/nix_setting/pull/299) CI [42359540999](https://github.com/Lamy210/nix_setting/actions/runs/42359540999) showed a patched `node` **24.22.2** in the independent Node template, while `pnpm 11.20.0` launched its own **Node 24.18.1**. This was an executable finding, not merely a packaging hypothesis. The separate pnpm process can be missed by a PATH-level version check.
+- **Candidate correction:** root Nixpkgs default pnpm 12 is a native Rust binary; standalone template pnpm 11 is a Node script. The template now overrides the actual `nodejs-slim` interpreter to the pinned Node 24.22.2 while root retains the reviewed native pnpm. The Linux standalone template's full offline Node+pnpm+Bun smoke **passed** after the correction ([CI job](https://github.com/Lamy210/nix_setting/actions/runs/42359963779/job/128366172410)). The same test validates pnpm's own interpreter, project scripts and Bun 1.4.4, without downloading dependencies. Do not assume root or macOS passes until independently observed.
+- **#299 remains Draft / unmerged:** non-force synchronized with develop, current head `b5272041481a9f228a59eb1e1a6a21ca5adab628`; latest-head CI, macOS, native C++ addon ABI and mixed-closure review, real host/mise/process inventory, and separate release acceptance remain. The active OpenSpec Node security change has an explicit package-manager interpreter requirement; no false claim that native Rust pnpm itself runs Node.
+- **Release gate unchanged:** `v0.2.0-rc.8` remains untagged and unpublished; Node P0 [#275](https://github.com/Lamy210/nix_setting/issues/275) and release [#271](https://github.com/Lamy210/nix_setting/issues/271) remain open. Actual host acceptance A–J, signed supply-chain attestations/asset checks and updater-disabled confirmation are independent from Nix shell CI. Apple Developer ID signing/notarization is intentionally not used; this is not a stable release.
 
 ## 2026-11-06 22:46+ JST: #294 merged, #299 platform security evidence, RC.8 still blocked
 
