@@ -81,6 +81,21 @@ jobs:
       - name: nix flake check
         run: nix flake check --allow-import-from-derivation
 
+      - name: Node 24 security candidate runtime and Nix closure (macOS)
+        run: |
+          set -euo pipefail
+          echo '== root Node shell =='
+          nix develop .#node --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh"
+          nix develop .#node --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-package-managers.sh"
+          node_dir="$(mktemp -d)"
+          cp -R templates/node "$node_dir/node"
+          echo '== standalone Node template =='
+          (cd "$node_dir/node" && nix develop --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh")
+          (cd "$node_dir/node" && nix develop --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-package-managers.sh")
+          cp -R templates/devenv "$node_dir/devenv"
+          echo '== standalone devenv template =='
+          (cd "$node_dir/devenv" && nix develop --no-pure-eval --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh")
+
       - name: build macos home-manager
         run: nix build .#homeConfigurations.darwin-aarch64.activationPackage
 
@@ -474,6 +489,8 @@ jobs:
           nix develop .#python --command bash -c 'command -v python3 && python3 --version'
           nix develop .#python --command uv --version | grep -E '^uv 0\.13\.5([[:space:]]|$)'
           nix develop .#node --command bash -c 'command -v node && node --version'
+          nix develop .#node --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh"
+          nix develop .#node --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-package-managers.sh"
           nix develop .#node --command bun --version | grep -Fx 1.4.4
           nix develop .#rust --command bash -c 'command -v rustc && rustc --version && command -v cargo && cargo --version'
 
@@ -505,6 +522,16 @@ jobs:
         run: |
           cd /tmp/template-dev
           nix develop --command bun --version | grep -Fx 1.4.4
+          nix develop --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh"
+          nix develop --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-package-managers.sh"
+
+      - name: devenv template Node security runtime
+        if: matrix.template == 'devenv'
+        run: |
+          cp -r templates/devenv /tmp/template-dev
+          cd /tmp/template-dev
+          # devenv.lib.mkShell needs impure evaluation to resolve cwd (official devenv flake integration).
+          nix develop --no-pure-eval --command bash "$GITHUB_WORKSPACE/scripts/ci/check-node24-candidate.sh"
 
       - name: python template patched uv runtime
         if: matrix.template == 'python'
