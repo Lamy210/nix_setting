@@ -2,7 +2,16 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-11-07
+最終更新: 2026-11-08
+
+## 2026-11-08: PR #305 マージ、Node セキュリティと日本語 PR 運用
+
+- **#305 を develop へ squash merge:** `d81697a6750fc4b6ec4a853052d34fe551ed0a46`。変更対象はこの STATUS のみ。マージ前の current-head CI は 22/22 成功。旧スナップショットに含まれる「#305 未マージ」相当の記載より本項が優先する。
+- **#299 は引き続き Draft:** HEAD `b5272041481a9f228a59eb1e1a6a21ca5adab628` の [CI 42360455840](https://github.com/Lamy210/nix_setting/actions/runs/42360455840) は 22/22 成功。ただし実機 Node/mise/プロセス棚卸し、C++ addon の互換性、リリース配布物の検証は別ゲート。`v0.2.0-rc.8` は未公開のまま。
+- **依存更新 PR:** #295/#296 はCI成功でもリリース・自動更新ワークフローの実経路レビューが必要。#290〜#293 はRustのメジャーバージョン更新、複数workspaceのlockfile整合性・macOS/Windows動作のレビューが必要。
+- **PR 文書運用:** 人が作る PR のタイトル、本文、レビューコメントは日本語を基本とし、外部ボット PR はレビュー時に日本語の判断を記録する。既存のブランチ保護・OpenSpec・CI ゲートは変更しない。
+
+
 
 ## 2026-11-07 evening JST: #304 merged; Node/pnpm transitive security regression under review
 
