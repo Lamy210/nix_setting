@@ -642,7 +642,11 @@ fn metadata_fixture_dir(dir: &std::path::Path, tag: &str) -> std::path::PathBuf 
     let fixtures = dir.join("release-metadata-fixtures");
     std::fs::create_dir_all(&fixtures).unwrap();
     let version = tag.strip_prefix('v').expect("valid release fixture tag");
-    let channel = if version.contains('-') { "preview" } else { "stable" };
+    let channel = if version.contains('-') {
+        "preview"
+    } else {
+        "stable"
+    };
     let json = serde_json::json!({
         "schema": 1,
         "version": version,
