@@ -64,6 +64,6 @@ else
   gh pr create \
     --base develop \
     --head "$branch" \
-    --title "bump(nix-installer): $version" \
+    --title "chore: nix-installer を $version に更新" \
     --body-file "$body_file"
 fi
