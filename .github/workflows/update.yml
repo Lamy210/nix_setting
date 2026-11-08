@@ -19,7 +19,7 @@ jobs:
 
       - name: Update flake.lock
         id: flake_update
-        uses: DeterminateSystems/update-flake-lock@a2bbe0274e3a0c4194390a1e445f734c597ebc37
+        uses: DeterminateSystems/update-flake-lock@da03c0f078bc4b2c37ee4f7e072d34bf8f188bb3
         with:
           pr-title: "chore: flake.lock を更新"
           pr-labels: |
