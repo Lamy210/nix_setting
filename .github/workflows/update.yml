@@ -22,6 +22,25 @@ jobs:
         uses: DeterminateSystems/update-flake-lock@a2bbe0274e3a0c4194390a1e445f734c597ebc37
         with:
           pr-title: "chore: flake.lock を更新"
+          pr-body: |
+            ## 概要
+            Nix Flake の依存関係を定期更新するため、`flake.lock` の変更を提案します。
+
+            ## 変更内容
+            - `flake.lock` の固定リビジョンとハッシュを更新
+            - その他の設定・コードへの変更は、実際の差分を確認してください
+
+            ## 検証とレビューのチェックリスト
+            - [ ] 変更した入力とリビジョン、供給元をレビュー
+            - [ ] 最新HEADで必須CI（flake check、Linux/macOS、セキュリティ検査等）を確認
+            - [ ] macOSの実機適用やリリース受入が必要な場合、その証跡を確認
+            - [ ] 依存更新によるNode/Bun/その他ランタイムの安全性を別途確認
+
+            ## 注意事項
+            GitHub Actionsが生成したPRでは、GitHubトークンの仕様によりPR起点のCIが自動実行されない場合があります。
+            CIが未起動の場合は、ブランチの更新等により必須チェックを実行してからレビューしてください。
+            リポジトリ設定でActionsからのPR作成が禁止されている場合、この本文指定だけでは解消しません（#240）。
+            **検証完了前に自動マージ・リリースしないでください。**
           pr-labels: |
             dependencies
             automated
