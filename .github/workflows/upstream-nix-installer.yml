@@ -229,11 +229,11 @@ jobs:
             "$MANIFEST_PATH" "$branch" /tmp/commit-msg.txt
 
           {
-            printf '## Summary\n'
+            printf '## 変更概要\n'
             printf -- '- bootstrap-manifest.toml を nix-installer v%s へ bump\n' "$TARGET_VERSION"
             printf -- '- SLSA provenance 検証済み (gh attestation verify)\n'
             printf -- '- SHA256SUMS は upstream release から取得\n\n'
-            printf '## Merge criteria (design.md D3)\n'
+            printf '## マージ判定条件 (design.md D3)\n'
             printf -- '- [ ] breaking change 無し (CLI flag / receipt schema)\n'
             printf -- '- [ ] Linux x86_64 smoke test 通過\n'
             printf -- '- [ ] macOS aarch64 smoke test 通過 (ADR-0001 Final acceptance)\n'

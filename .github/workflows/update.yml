@@ -21,7 +21,7 @@ jobs:
         id: flake_update
         uses: DeterminateSystems/update-flake-lock@a2bbe0274e3a0c4194390a1e445f734c597ebc37
         with:
-          pr-title: "chore: update flake.lock"
+          pr-title: "chore: flake.lock を更新"
           pr-labels: |
             dependencies
             automated
