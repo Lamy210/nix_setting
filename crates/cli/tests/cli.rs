@@ -540,11 +540,7 @@ fn source_metadata_unknown_tag_fails_closed() {
 fn source_metadata_rejects_mismatched_offline_fixture() {
     let dir = cli_dir("metadata-mismatch");
     let fixtures = metadata_fixture_dir(&dir, "v0.1.0");
-    std::fs::rename(
-        fixtures.join("v0.1.0.json"),
-        fixtures.join("v0.2.0.json"),
-    )
-    .unwrap();
+    std::fs::rename(fixtures.join("v0.1.0.json"), fixtures.join("v0.2.0.json")).unwrap();
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("source")
         .arg("metadata")
