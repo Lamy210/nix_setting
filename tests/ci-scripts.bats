@@ -1,5 +1,13 @@
 #!/usr/bin/env bats
 
+# A dependency bot must never bypass human review of workflow/installer changes.
+@test "Renovate must not automatically merge dependency-update pull requests" {
+  run python3 -c 'import json; from pathlib import Path; config=json.loads(Path("renovate.json").read_text(encoding="utf-8")); rules=config.get("packageRules", []); assert rules; assert config.get("automerge") is not True; assert all(rule.get("automerge") is not True for rule in rules)'
+  [ "$status" -eq 0 ]
+}
+
+
+
 # scripts/ci/build-release-*.sh の gate logic を検証する。
 # 実 binary build は CI job が担うため、ここでは grep pattern の
 # 検出力 (false-negative / false-positive) を fixture で保証する。
