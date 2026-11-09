@@ -1,0 +1,86 @@
+name: extended-platform-compat-canary
+
+# 新しいOS/CPUは、既存のrelease/required CIへ入れる前に独立検証する。
+# 現段階でNixのシステム適用やホストのuninstallを実施しない。
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/extended-platform-compat-canary.yml"
+      - "docs/platform-support-and-acceptance.md"
+  schedule:
+    - cron: "17 4 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extended-platform-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-arm64:
+    name: Ubuntu 24.04 ARM64 (CLI + Nix eval)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+      - name: Assert native ARM64 runner
+        run: |
+          uname -a
+          test "$(uname -m)" = "aarch64"
+      - name: Test and execute native Rust CLI without installation
+        run: |
+          cargo test --locked --workspace
+          cargo build --locked -p schneeforge
+          ./target/debug/schneeforge --version
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
+      - name: Nix ARM64 evaluation without applying configuration
+        run: |
+          nix --version
+          nix flake check --no-build --allow-import-from-derivation
+          nix eval .#homeConfigurations.linux-arm.activationPackage.drvPath
+
+  macos-intel:
+    name: macOS 15 Intel (native CLI only)
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+      - name: Assert native Intel Mac runner
+        run: |
+          sw_vers
+          uname -a
+          test "$(uname -m)" = "x86_64"
+      - name: Test and execute native Rust CLI without installing Nix
+        run: |
+          cargo test --locked --workspace
+          cargo build --locked -p schneeforge
+          ./target/debug/schneeforge --version
+
+  windows-arm64:
+    name: Windows 11 ARM64 (native launcher only)
+    runs-on: windows-11-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+      - name: Assert native ARM64 runner
+        shell: pwsh
+        run: |
+          Write-Host "PROCESSOR_ARCHITECTURE=$env:PROCESSOR_ARCHITECTURE"
+          if ($env:PROCESSOR_ARCHITECTURE -ne "ARM64") {
+            throw "Expected ARM64 runner; refusing emulated success"
+          }
+          rustc -vV
+      - name: Test and execute native Rust launcher without installing WSL
+        shell: pwsh
+        run: |
+          cargo test --locked --workspace
+          if ($LASTEXITCODE -ne 0) { throw "cargo test failed" }
+          cargo build --locked -p schneeforge
+          if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+          & .\target\debug\schneeforge.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "native launcher smoke failed" }
