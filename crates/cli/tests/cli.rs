@@ -313,6 +313,8 @@ fn nix_install_parses_yes_flag() {
 }
 
 /// `schneeforge nix install` (root 以外) は preflight 後に root 再実行を促して終了する (D4)
+// Unix-only: Windows lacks libc::geteuid and delegates Nix to WSL.
+#[cfg(unix)]
 #[test]
 fn nix_install_without_root_prompts_sudo() {
     // CI / テスト環境では通常 root ではない。root の場合はこのテストの意味が無いので skip。
