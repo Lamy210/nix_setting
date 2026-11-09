@@ -157,6 +157,23 @@ PY
   [ "$status" -eq 1 ]
 }
 
+@test "root and desktop lockfiles are both checked without dependency resolution" {
+  [ -s Cargo.lock ]
+  [ -s apps/desktop/src-tauri/Cargo.lock ]
+  grep -qF 'cargo test --locked' .github/workflows/check.yml
+  grep -qF 'cargo check --locked --release --manifest-path apps/desktop/src-tauri/Cargo.toml' .github/workflows/check.yml
+}
+
+@test "unlocked Cargo invocation is detected by the CI contract rule" {
+  tmp="$(mktemp)"
+  printf 'run: cargo test --locked\nrun: cargo build --release -p schneeforge\n' > "$tmp"
+  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
+  run bash -c 'grep -E "$1" "$2" | grep -v -- "--locked"' _ "$pattern" "$tmp"
+  rm -f "$tmp"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'cargo build --release -p schneeforge'* ]]
+}
+
 # --- check.yml critical-path contract (refactor-ci-critical-path) ---
 
 @test "rust required check fans out to two workers and aggregates fail-closed" {
