@@ -520,17 +520,36 @@ fn profile_show_reports_resolved_profile() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// v2 §27: 存在しない tag の metadata は fail-closed に error。
-/// network 依存は error path のみ (成功 path の fetch は release 前提のため CI では検証しない)
+/// v2 §27: 存在しない tag は fixture missing で即座に fail-closed。
+/// ネットワーク応答やタイムアウトをCIの成功条件へ含めない。
 #[test]
 fn source_metadata_unknown_tag_fails_closed() {
+    let dir = state_dir("missing-release-metadata");
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("source")
         .arg("metadata")
         .arg("v0.0.0-does-not-exist.999999")
+        .env("SCHNEEFORGE_TEST_METADATA_DIR", &dir)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("error:"));
+        .stderr(predicate::str::contains("test-only metadata fixture"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn source_metadata_rejects_mismatched_offline_fixture() {
+    let dir = cli_dir("metadata-mismatch");
+    let fixtures = metadata_fixture_dir(&dir, "v0.1.0");
+    std::fs::rename(fixtures.join("v0.1.0.json"), fixtures.join("v0.2.0.json")).unwrap();
+    let mut cmd = Command::cargo_bin("schneeforge").unwrap();
+    cmd.arg("source")
+        .arg("metadata")
+        .arg("v0.2.0")
+        .env("SCHNEEFORGE_TEST_METADATA_DIR", &fixtures)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("does not match tag"));
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// v2 §27: v prefix 無しの tag は asset 取得前に検証 error になる
@@ -610,6 +629,36 @@ fn origin_repo(dir: &std::path::Path, tags: &[&str]) -> std::path::PathBuf {
 }
 
 const TEST_MANAGED_REPO_URL: &str = "https://github.com/Lamy210/nix_setting.git";
+const TEST_METADATA_REVISION: &str = "0123456789abcdef0123456789abcdef01234567";
+
+/// Release metadata is not affected by Git's insteadOf rewrite.
+/// Supply a validated, tag-specific JSON fixture to debug-built CLI children,
+/// without altering production release HTTP handling.
+fn metadata_fixture_dir(dir: &std::path::Path, tag: &str) -> std::path::PathBuf {
+    let fixtures = dir.join("release-metadata-fixtures");
+    std::fs::create_dir_all(&fixtures).unwrap();
+    let version = tag.strip_prefix('v').expect("valid release fixture tag");
+    let channel = if version.contains('-') {
+        "preview"
+    } else {
+        "stable"
+    };
+    let json = serde_json::json!({
+        "schema": 1,
+        "version": version,
+        "channel": channel,
+        "source_revision": TEST_METADATA_REVISION,
+        "minimum_schneeforge_version": "0.1.0",
+        "configuration_schema": 1,
+        "systems": ["linux-generic", "darwin-aarch64"]
+    });
+    std::fs::write(
+        fixtures.join(format!("{tag}.json")),
+        serde_json::to_vec_pretty(&json).unwrap(),
+    )
+    .unwrap();
+    fixtures
+}
 
 /// managed source invariant は GitHub URL を要求する一方、integration test は
 /// network-free に保つ。Git の url.<base>.insteadOf だけを process-local な
@@ -655,6 +704,7 @@ fn source_init_with_tag_sets_managed_state() {
     let dir = cli_dir("init-tag");
     let origin = origin_repo(&dir, &["v0.1.0"]);
     let git_config = git_rewrite_config(&dir, &origin);
+    let fixtures = metadata_fixture_dir(&dir, "v0.1.0");
     let mut cmd = Command::cargo_bin("schneeforge").unwrap();
     cmd.arg("source")
         .arg("init")
@@ -663,6 +713,7 @@ fn source_init_with_tag_sets_managed_state() {
         .env("XDG_STATE_HOME", &dir)
         .env("SCHNEEFORGE_REPO_URL", TEST_MANAGED_REPO_URL)
         .env("GIT_CONFIG_GLOBAL", &git_config)
+        .env("SCHNEEFORGE_TEST_METADATA_DIR", &fixtures)
         .assert()
         .success()
         .stdout(predicate::str::contains("managed source set"));
@@ -670,6 +721,10 @@ fn source_init_with_tag_sets_managed_state() {
     assert!(state.contains("\"managed\": true"), "state: {state}");
     assert!(state.contains("\"ref\": \"v0.1.0\""), "state: {state}");
     assert!(state.contains("\"channel\": \"stable\""), "state: {state}");
+    assert!(
+        state.contains(TEST_METADATA_REVISION),
+        "validated release metadata revision must be recorded: {state}"
+    );
     assert!(
         state.contains(TEST_MANAGED_REPO_URL),
         "managed source must persist the GitHub repository URL: {state}"
@@ -789,6 +844,7 @@ fn managed_update_moves_state_without_touching_checkout() {
     }
     let dir = cli_dir("update-managed");
     let origin = origin_repo(&dir, &["v0.2.0", "v0.3.0"]);
+    let fixtures = metadata_fixture_dir(&dir, "v0.3.0");
 
     // install.sh 相当の pinned checkout (v0.2.0) を用意する
     let checkout = dir.join("nix_setting");
@@ -821,6 +877,7 @@ fn managed_update_moves_state_without_touching_checkout() {
         .arg("update")
         .env("XDG_STATE_HOME", &dir)
         .env("GIT_CONFIG_GLOBAL", &git_config)
+        .env("SCHNEEFORGE_TEST_METADATA_DIR", &fixtures)
         .assert()
         .success()
         .stdout(
@@ -831,6 +888,10 @@ fn managed_update_moves_state_without_touching_checkout() {
     // state は新 tag へ更新されている
     let state = std::fs::read_to_string(dir.join("schneeforge/state.json")).unwrap();
     assert!(state.contains("\"ref\": \"v0.3.0\""), "state: {state}");
+    assert!(
+        state.contains(TEST_METADATA_REVISION),
+        "validated metadata revision must be saved: {state}"
+    );
 
     // checkout は v0.2.0 のまま (managed update は checkout を操作しない)
     let out = std::process::Command::new("git")

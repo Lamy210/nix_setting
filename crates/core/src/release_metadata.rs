@@ -133,11 +133,39 @@ impl ReleaseMetadata {
             )));
         }
         let url = Self::asset_url_for_repo(repo_url, tag)?;
-        let text = metadata_text_from_download(tag, download_text_detailed(&url))?;
+        // CLI integration tests run a debug executable in a child process.
+        // Keep the real GitHub URL and all metadata validation unchanged, but
+        // permit explicitly opted-in, offline fixtures in *debug builds only*.
+        // Release artifacts have no fixture override path.
+        #[cfg(debug_assertions)]
+        let fixture = debug_release_metadata_fixture(tag);
+        #[cfg(not(debug_assertions))]
+        let fixture: Option<Result<String>> = None;
+
+        let text = match fixture {
+            Some(content) => content?,
+            None => metadata_text_from_download(tag, download_text_detailed(&url))?,
+        };
         let metadata = Self::parse(&text)?;
         metadata.validate(tag)?;
         Ok(metadata)
     }
+}
+
+// Test transport boundary for debug-built CLI integration tests only.
+// The environment variable is never read in an optimized release binary.
+// Missing or malformed fixtures fail closed; no live HTTP fallback is allowed
+// once the test override is requested.
+#[cfg(debug_assertions)]
+fn debug_release_metadata_fixture(tag: &str) -> Option<Result<String>> {
+    let dir = std::env::var_os("SCHNEEFORGE_TEST_METADATA_DIR")?;
+    let path = std::path::PathBuf::from(dir).join(format!("{tag}.json"));
+    Some(std::fs::read_to_string(&path).map_err(|e| {
+        Error::ReleaseMetadata(format!(
+            "test-only metadata fixture {} cannot be read: {e}",
+            path.display()
+        ))
+    }))
 }
 
 fn metadata_text_from_download(
