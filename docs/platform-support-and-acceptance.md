@@ -73,13 +73,18 @@ aarch64-darwinで、必要ならハードウェア依存差分を実機テスト
 
 `.github/workflows/extended-platform-compat-canary.yml`は
 ARM64 Linux、Intel Mac、Windows ARM64の新規**ネイティブコンパイル専用検証**を開始する。
-Linux ARM64のみ追加でNix flakeを評価する。PRでは本workflowや本ドキュメントの
+Linux ARM64のみ追加でNix flakeを評価する。Linux ARM64のHome Manager評価は
+`tests/fixtures/machine-linux-arm.nix`を`--override-input machine`で渡し、
+Darwinのplaceholderを誤用しない。fixtureのユーザー/ホーム/CPUを評価で照合する。
+PRでは本workflowや本ドキュメントの
 差分がある場合に実行し、加えて毎週火曜に実行する。fail-fast false相当の独立jobで
 結果を明示し、`continue-on-error`は使わない。
 
 このcanaryは当初非requiredとし、各平台でグリーンの証拠と実機テストを得た後に
 必要に応じて通常CIのrequired contextへ段階的に移行する。
-WindowsのARM runnerでのRust toolchain実行は未検証で、失敗すれば調査Issueに残す。
+Windows ARM64ではRust toolchainの起動を実測したが、Windows Native側とWSL側のテストを分離した最新HEADの合格は未確認。
+Intel MacでもネイティブCLIテストの合格は新HEADのCIで確認する。
+すべてのcanary結果は実行commit SHAとジョブURLを記録し、`abandoned`やjob 0件の失敗を成功と扱わない。
 
 ## Nix強化の採用原則
 
