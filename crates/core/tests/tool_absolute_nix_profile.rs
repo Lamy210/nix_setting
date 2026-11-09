@@ -116,8 +116,8 @@ fn assert_shell_uses_absolute_nix_profile(case: &str, inline_install: bool) {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        expected.to_string_lossy(),
-        "absolute NIX_PROFILE must resolve the profile-local executable"
+        expected.canonicalize().expect("canonical profile tool").to_string_lossy(),
+        "absolute NIX_PROFILE must resolve the canonical profile-local executable"
     );
     let _ = fs::remove_dir_all(&root);
 }
@@ -148,6 +148,9 @@ fn isolated_absolute_nix_profile_tool_resolution_child() {
     let resolved = ToolResolver::new()
         .resolve_tool(&tool_name)
         .expect("absolute NIX_PROFILE candidate must resolve");
-    assert_eq!(resolved.path, expected);
+    // macOS maps /var to /private/var. The Rust resolver deliberately
+    // canonicalizes the executable, so compare filesystem identity instead
+    // of a non-canonical spelling of the same absolute path.
+    assert_eq!(resolved.path, expected.canonicalize().unwrap());
     assert_eq!(resolved.source, ToolSource::NixProfileEnv);
 }
