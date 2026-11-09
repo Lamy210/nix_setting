@@ -40,7 +40,10 @@ jobs:
         run: |
           nix --version
           nix flake check --no-build --allow-import-from-derivation
-          nix eval .#homeConfigurations.linux-arm.activationPackage.drvPath
+          # The committed default MachineFacts intentionally describes a Mac.
+          # Evaluate the ARM64 Linux target with native Linux facts, not the Mac placeholder.
+          nix eval --override-input machine "path:$PWD/tests/fixtures/machine-linux-arm.nix" .#homeConfigurations.linux-arm.config.home.homeDirectory --raw | grep -Fx /home/runner
+          nix eval --override-input machine "path:$PWD/tests/fixtures/machine-linux-arm.nix" .#homeConfigurations.linux-arm.activationPackage.drvPath
 
   macos-intel:
     name: macOS 15 Intel (native CLI only)
