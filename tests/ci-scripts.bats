@@ -7,6 +7,7 @@
 }
 
 
+
 # scripts/ci/build-release-*.sh の gate logic を検証する。
 # 実 binary build は CI job が担うため、ここでは grep pattern の
 # 検出力 (false-negative / false-positive) を fixture で保証する。
@@ -146,6 +147,33 @@ PY
   [ "$status" -ne 0 ]
 }
 
+@test "critical Cargo build/test/check/clippy gates must reject lockfile mutation" {
+  workflow=.github/workflows/check.yml
+  # Only executable Cargo invocations are scanned: comments and step labels are excluded.
+  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
+  matching_count="$(grep -Ec "$pattern" "$workflow")"
+  [ "$matching_count" -ge 11 ]
+  run bash -c 'grep -E "$1" "$2" | grep -v -- "--locked"' _ "$pattern" "$workflow"
+  [ "$status" -eq 1 ]
+}
+
+@test "root and desktop lockfiles are both checked without dependency resolution" {
+  [ -s Cargo.lock ]
+  [ -s apps/desktop/src-tauri/Cargo.lock ]
+  grep -qF 'cargo test --locked' .github/workflows/check.yml
+  grep -qF 'cargo check --locked --release --manifest-path apps/desktop/src-tauri/Cargo.toml' .github/workflows/check.yml
+}
+
+@test "unlocked Cargo invocation is detected by the CI contract rule" {
+  tmp="$(mktemp)"
+  printf 'run: cargo test --locked\nrun: cargo build --release -p schneeforge\n' > "$tmp"
+  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
+  run bash -c 'grep -E "$1" "$2" | grep -v -- "--locked"' _ "$pattern" "$tmp"
+  rm -f "$tmp"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'cargo build --release -p schneeforge'* ]]
+}
+
 # --- check.yml critical-path contract (refactor-ci-critical-path) ---
 
 @test "rust required check fans out to two workers and aggregates fail-closed" {
@@ -171,8 +199,8 @@ PY
   build_block="$(workflow_job_block rust-build-smoke)"
   quality_block="$(workflow_job_block rust-quality)"
   echo "$build_block" | grep -q 'libwebkit2gtk-4.1-dev'
-  echo "$build_block" | grep -q 'cargo build --release -p schneeforge'
-  echo "$build_block" | grep -q 'cargo check --release --manifest-path apps/desktop/src-tauri/Cargo.toml'
+  echo "$build_block" | grep -q 'cargo build --locked --release -p schneeforge'
+  echo "$build_block" | grep -q 'cargo check --locked --release --manifest-path apps/desktop/src-tauri/Cargo.toml'
   run grep -q 'cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml' <<<"$build_block"
   [ "$status" -ne 0 ]
   run grep -q 'libwebkit2gtk-4.1-dev' <<<"$quality_block"
@@ -257,10 +285,10 @@ PY
 
   windows_check="$(workflow_job_block windows-check)"
   echo "$windows_check" | grep -q 'runs-on: windows-2025'
-  echo "$windows_check" | grep -q 'cargo check --workspace'
-  echo "$windows_check" | grep -q 'cargo test -p schneeforge-core'
-  echo "$windows_check" | grep -q 'cargo test -p schneeforge --bin schneeforge'
-  echo "$windows_check" | grep -q 'cargo test -p schneeforge --test windows_cli_contract'
+  echo "$windows_check" | grep -q 'cargo check --locked --workspace'
+  echo "$windows_check" | grep -q 'cargo test --locked -p schneeforge-core'
+  echo "$windows_check" | grep -q 'cargo test --locked -p schneeforge --bin schneeforge'
+  echo "$windows_check" | grep -q 'cargo test --locked -p schneeforge --test windows_cli_contract'
   echo "$windows_check" | grep -q 'schneeforge.exe --version'
   echo "$windows_check" | grep -q 'schneeforge.exe --help'
 
