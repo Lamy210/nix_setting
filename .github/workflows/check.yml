@@ -264,13 +264,13 @@ jobs:
           nix_path: nixpkgs=channel:nixos-unstable
 
       - name: cargo test
-        run: nix develop --command cargo test
+        run: nix develop --command cargo test --locked
 
       - name: cargo fmt check
         run: nix develop --command cargo fmt -- --check
 
       - name: cargo clippy
-        run: nix develop --command cargo clippy -- -D warnings
+        run: nix develop --command cargo clippy --locked -- -D warnings
 
   rust-build-smoke:
     runs-on: ubuntu-latest
@@ -290,7 +290,7 @@ jobs:
 
       - name: CLI artifact smoke
         run: |
-          nix develop --command cargo build --release -p schneeforge
+          nix develop --command cargo build --locked --release -p schneeforge
           ./target/release/schneeforge --version
           ./target/release/schneeforge doctor
 
@@ -298,7 +298,7 @@ jobs:
         # Full link/bundle coverage is already required in release-artifact-check via
         # the release workflow's macOS DMG build script. Linux keeps a compile gate
         # without paying a second cold full desktop link/build on another runner.
-        run: nix develop --command cargo check --release --manifest-path apps/desktop/src-tauri/Cargo.toml
+        run: nix develop --command cargo check --locked --release --manifest-path apps/desktop/src-tauri/Cargo.toml
 
   # Branch protection はこの既存 context 名を required として参照している。
   # Worker の failure/cancel/skip を全て fail-closed で集約する。
@@ -337,24 +337,24 @@ jobs:
           key: windows
 
       - name: cargo check workspace
-        run: cargo check --workspace
+        run: cargo check --locked --workspace
 
       - name: compile core test targets
-        run: cargo test -p schneeforge-core --no-run
+        run: cargo test --locked -p schneeforge-core --no-run
 
       - name: core Windows backend contracts
-        run: cargo test -p schneeforge-core --test windows_backend_contract
+        run: cargo test --locked -p schneeforge-core --test windows_backend_contract
 
       - name: launcher unit tests
-        run: cargo test -p schneeforge --bin schneeforge
+        run: cargo test --locked -p schneeforge --bin schneeforge
 
       - name: Windows CLI contract tests
-        run: cargo test -p schneeforge --test windows_cli_contract
+        run: cargo test --locked -p schneeforge --test windows_cli_contract
 
       - name: launcher smoke
         shell: pwsh
         run: |
-          cargo build -p schneeforge
+          cargo build --locked -p schneeforge
           .\target\debug\schneeforge.exe --version
           .\target\debug\schneeforge.exe --help
 
@@ -380,7 +380,7 @@ jobs:
       # binary は rust-build-smoke と同じ release build を local で作る
       - name: bats test (source update dispatch)
         run: |
-          nix develop --command cargo build --release -p schneeforge
+          nix develop --command cargo build --locked --release -p schneeforge
           nix run nixpkgs#bats -- tests/source-update.bats
 
       - name: bats test (ci-scripts gate patterns)
