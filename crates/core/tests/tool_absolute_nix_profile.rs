@@ -116,7 +116,10 @@ fn assert_shell_uses_absolute_nix_profile(case: &str, inline_install: bool) {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        expected.canonicalize().expect("canonical profile tool").to_string_lossy(),
+        expected
+            .canonicalize()
+            .expect("canonical profile tool")
+            .to_string_lossy(),
         "absolute NIX_PROFILE must resolve the canonical profile-local executable"
     );
     let _ = fs::remove_dir_all(&root);
