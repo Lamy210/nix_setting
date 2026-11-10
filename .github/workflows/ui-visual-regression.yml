@@ -1,0 +1,81 @@
+name: UI visual regression
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'apps/desktop/dist/**'
+      - 'tests/ui/**'
+      - '.github/workflows/ui-visual-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-visual-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ui-visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: mcr.microsoft.com/playwright/python:v1.64.1-noble
+    steps:
+      - name: Checkout PR revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: candidate
+          persist-credentials: false
+
+      - name: Checkout baseline revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.base.sha || 'develop' }}
+          path: baseline
+          persist-credentials: false
+
+      - name: Install pinned image comparison dependencies
+        run: python -m pip install --disable-pip-version-check -r candidate/tests/ui/requirements.txt
+
+      - name: UI behavior tests (no privileged operations)
+        run: >-
+          python candidate/tests/ui/visual_regression.py
+          --mode behavior
+          --candidate candidate/apps/desktop/dist
+          --out ui-visual-artifacts
+
+      - name: Capture base, PR, and highlighted image diff
+        run: >-
+          python candidate/tests/ui/visual_regression.py
+          --mode compare
+          --baseline baseline/apps/desktop/dist
+          --candidate candidate/apps/desktop/dist
+          --out ui-visual-artifacts
+
+      - name: Upload comparison images
+        id: images
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: schneeforge-ui-visual-${{ github.run_id }}
+          path: ui-visual-artifacts/
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Add visual diff to job summary
+        if: always()
+        shell: bash
+        env:
+          ARTIFACT_URL: ${{ steps.images.outputs.artifact-url }}
+        run: |
+          if [ -f ui-visual-artifacts/summary.md ]; then
+            cat ui-visual-artifacts/summary.md >> "$GITHUB_STEP_SUMMARY"
+            printf '\n\n' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'UIテストまたは画面の取得に失敗したため、差分を生成できませんでした。' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -n "$ARTIFACT_URL" ]; then
+            printf '[変更前・変更後・差分PNGを確認](%s)\n' "$ARTIFACT_URL" >> "$GITHUB_STEP_SUMMARY"
+          fi
