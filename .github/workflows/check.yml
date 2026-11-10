@@ -512,6 +512,17 @@ jobs:
           cd /tmp/template-dev
           nix develop --command uv --version | grep -E '^uv 0\.13\.5([[:space:]]|$)'
 
+  # Always-on E2E acceptance: no path filters or skipped required checks.
+  # Reusable workflows are independently executable by workflow_dispatch.
+  ui-visual-acceptance:
+    uses: ./.github/workflows/ui-visual-regression.yml
+
+  distribution-download-acceptance:
+    uses: ./.github/workflows/distribution-download-acceptance.yml
+
+  linux-real-apply-acceptance:
+    uses: ./.github/workflows/linux-apply-e2e.yml
+
   # Shadow candidate for a future branch-protection migration. This job is not
   # configured as required by this change; it only demonstrates stable aggregation.
   ci-required:
@@ -523,6 +534,9 @@ jobs:
       - bootstrap-test
       - managed-nix-e2e
       - release-artifact-check
+      - ui-visual-acceptance
+      - distribution-download-acceptance
+      - linux-real-apply-acceptance
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -535,6 +549,9 @@ jobs:
           BOOTSTRAP_TEST: ${{ needs.bootstrap-test.result }}
           MANAGED_NIX_E2E: ${{ needs.managed-nix-e2e.result }}
           RELEASE_ARTIFACT_CHECK: ${{ needs.release-artifact-check.result }}
+          UI_VISUAL_ACCEPTANCE: ${{ needs.ui-visual-acceptance.result }}
+          DISTRIBUTION_DOWNLOAD_ACCEPTANCE: ${{ needs.distribution-download-acceptance.result }}
+          LINUX_REAL_APPLY_ACCEPTANCE: ${{ needs.linux-real-apply-acceptance.result }}
         run: |
           set -euo pipefail
           printf 'openspec-check=%s\n' "$OPENSPEC_CHECK"
@@ -544,6 +561,9 @@ jobs:
           printf 'bootstrap-test=%s\n' "$BOOTSTRAP_TEST"
           printf 'managed-nix-e2e=%s\n' "$MANAGED_NIX_E2E"
           printf 'release-artifact-check=%s\n' "$RELEASE_ARTIFACT_CHECK"
+          printf 'ui-visual-acceptance=%s\n' "$UI_VISUAL_ACCEPTANCE"
+          printf 'distribution-download-acceptance=%s\n' "$DISTRIBUTION_DOWNLOAD_ACCEPTANCE"
+          printf 'linux-real-apply-acceptance=%s\n' "$LINUX_REAL_APPLY_ACCEPTANCE"
           for result in \
             "$OPENSPEC_CHECK" \
             "$FLAKE_CHECK" \
@@ -551,7 +571,10 @@ jobs:
             "$LINT" \
             "$BOOTSTRAP_TEST" \
             "$MANAGED_NIX_E2E" \
-            "$RELEASE_ARTIFACT_CHECK"; do
+            "$RELEASE_ARTIFACT_CHECK" \
+            "$UI_VISUAL_ACCEPTANCE" \
+            "$DISTRIBUTION_DOWNLOAD_ACCEPTANCE" \
+            "$LINUX_REAL_APPLY_ACCEPTANCE"; do
             if [ "$result" != "success" ]; then
               echo "ERROR: a required CI job did not succeed" >&2
               exit 1
