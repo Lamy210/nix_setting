@@ -49,8 +49,8 @@ jobs:
         shell: pwsh
         run: |
           $manifest = Get-Content bootstrap-manifest.toml -Raw
-          $version = [regex]::Match($manifest, '(?m)^version\\s*=\\s*"([^"]+)"').Groups[1].Value
-          $sha = [regex]::Match($manifest, '(?m)^x86_64-linux\\s*=\\s*"([0-9a-f]{64})"').Groups[1].Value
+          $version = [regex]::Match($manifest, '(?m)^version\s*=\s*"([^"]+)"').Groups[1].Value
+          $sha = [regex]::Match($manifest, '(?m)^x86_64-linux\s*=\s*"([0-9a-f]{64})"').Groups[1].Value
           if (-not $version -or -not $sha) {
             throw 'Unable to read pinned WSL2 installer version and SHA256'
           }
