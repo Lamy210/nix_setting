@@ -13,13 +13,14 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from threading import Thread
 from urllib.parse import urlsplit
 
 from PIL import Image, ImageChops
 from playwright.sync_api import sync_playwright
 
-SCENARIOS = ("dashboard", "first-run", "nix-confirmation", "apply-result", "verify-result", "app-updater")
+SCENARIOS = ("dashboard", "first-run", "nix-confirmation", "nix-install-success", "nix-install-failure", "apply-result", "verify-result", "verify-failure", "app-updater", "app-update-result")
 VIEWPORTS = {"native-800x600": (800, 600), "wide-1100x850": (1100, 850)}
 MOCK = """
 (() => {
@@ -36,8 +37,8 @@ MOCK = """
       if (window.__failures[command]) {
         return { success: false, output: window.__failures[command] };
       }
-      const setup = scene === "first-run" || scene === "nix-confirmation";
-      const hasNix = scene !== "nix-confirmation";
+      const setup = ["first-run", "nix-confirmation", "nix-install-success", "nix-install-failure"].includes(scene);
+      const hasNix = !["nix-confirmation", "nix-install-success", "nix-install-failure"].includes(scene);
       switch (command) {
         case "get_status": return {
           host: "ci-test-host", platform: "linux", architecture: "x86_64",
@@ -54,7 +55,7 @@ MOCK = """
           available: ["minimal", "developer"], default: "minimal", selected: null
         };
         case "get_app_updater_capability": return {
-          enabled: scene === "app-updater", reason: "test fixture"
+          enabled: ["app-updater", "app-update-result"].includes(scene), reason: "test fixture"
         };
         case "fetch_app_update": return {
           version: "0.2.0-rc.8", currentVersion: "0.2.0-rc.7", notes: "CI update fixture"
@@ -130,12 +131,22 @@ def scene(browser, url: str, name: str, viewport: tuple[int, int] = (800, 600)):
     page.on("pageerror", lambda error: errors.append(str(error)))
     try:
         page.goto(url, wait_until="load", timeout=15000)
-        if name in ("first-run", "nix-confirmation"):
+        if name in ("first-run", "nix-confirmation", "nix-install-success", "nix-install-failure"):
             page.locator("#setup-view:not(.hidden)").wait_for(timeout=10000)
             page.get_by_text("Nix status").wait_for(timeout=10000)
-            if name == "nix-confirmation":
+            if name in ("nix-confirmation", "nix-install-success", "nix-install-failure"):
                 page.get_by_role("button", name="SchneeForge で導入").click()
                 page.get_by_role("button", name="導入する").wait_for(timeout=10000)
+                if name == "nix-install-success":
+                    page.get_by_role("button", name="導入する").click()
+                    page.get_by_text("Managed Nix の導入が完了しました。").wait_for(timeout=10000)
+                if name == "nix-install-failure":
+                    page.evaluate(
+                        "window.__failures.nix_install_escalated = 'HTTP 500 / download failed'"
+                    )
+                    page.get_by_role("button", name="導入する").click()
+                    page.get_by_text("HTTP 500 / download failed").wait_for(timeout=10000)
+                    page.get_by_role("button", name="再試行").wait_for(timeout=10000)
         else:
             page.locator("#ready-view:not(.hidden)").wait_for(timeout=10000)
             page.wait_for_function(
@@ -148,12 +159,27 @@ def scene(browser, url: str, name: str, viewport: tuple[int, int] = (800, 600)):
                     "document.getElementById('output').textContent.includes('設定の適用が完了しました')",
                     timeout=10000
                 )
-            if name == "verify-result":
+            if name in ("verify-result", "verify-failure"):
+                if name == "verify-failure":
+                    page.evaluate("""() => {
+                        window.__reportOverride = {
+                            checks: [{ name: 'Profile', ok: false }]
+                        };
+                    }""")
                 page.locator("#verify").click()
+                message = "すべて OK" if name == "verify-result" else "1 件 NG"
                 page.wait_for_function(
-                    "document.getElementById('output').textContent.includes('すべて OK')",
-                    timeout=10000
+                    "(message) => document.getElementById('output').textContent.includes(message)",
+                    arg=message, timeout=10000
                 )
+            if name == "app-update-result":
+                page.on("dialog", lambda d: (
+                    d.accept() if "更新しますか" in d.message else d.dismiss()
+                ))
+                page.locator("#app-update-check").click()
+                page.get_by_text(
+                    "signed update installed", exact=False
+                ).first.wait_for(timeout=10000)
         page.evaluate("document.fonts.ready")
         page.wait_for_timeout(100)
         if errors:
@@ -437,6 +463,56 @@ def validate_screenshot_artifacts(out: Path, results: list[dict]) -> list[dict]:
     return manifest
 
 
+
+def check_artifact_contract() -> None:
+    """Prove zero-diff captures survive and missing/corrupt images fail closed."""
+    with TemporaryDirectory(prefix="schneeforge-ui-evidence-") as temp:
+        out = Path(temp)
+        results = []
+        for viewport_name, (width, height) in VIEWPORTS.items():
+            scene_bytes = BytesIO()
+            Image.new("RGB", (width, height), (15, 23, 42)).save(
+                scene_bytes, format="PNG"
+            )
+            png = scene_bytes.getvalue()
+            for name in SCENARIOS:
+                label = f"{viewport_name}-{name}"
+                (out / f"{label}-before.png").write_bytes(png)
+                (out / f"{label}-after.png").write_bytes(png)
+                changed, _ = create_diff(png, png, out / f"{label}-diff.png")
+                assert changed == 0, "identical images must yield no visual difference"
+                results.append({"scenario": label, "changed_pixels": changed})
+
+        manifest = validate_screenshot_artifacts(out, results)
+        assert len(manifest) == len(SCENARIOS) * len(VIEWPORTS)
+        assert all(
+            all(kind in item["images"] for kind in ("before", "after", "diff"))
+            for item in manifest
+        ), "zero-difference captures must still be saved"
+
+        example = out / f"{VIEWPORTS.__iter__().__next__()}-{SCENARIOS[0]}-after.png"
+        original = example.read_bytes()
+        for value in (None, b"invalid PNG"):
+            if value is None:
+                example.unlink()
+            else:
+                example.write_bytes(value)
+            try:
+                validate_screenshot_artifacts(out, results)
+            except (AssertionError, OSError):
+                pass
+            else:
+                raise AssertionError("missing or corrupt screenshot was accepted")
+            example.write_bytes(original)
+
+        try:
+            validate_screenshot_artifacts(out, results[:-1])
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("missing scene was accepted")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("behavior", "compare"), required=True)
@@ -456,6 +532,7 @@ def main() -> None:
             with serve(args.candidate.resolve()) as candidate:
                 if args.mode == "behavior":
                     check_diff_algorithm(args.out)
+                    check_artifact_contract()
                     check_behavior(browser, candidate)
                     check_failure_scenarios(browser, candidate)
                     check_download_and_install_ui(browser, candidate)
