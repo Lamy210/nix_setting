@@ -484,7 +484,7 @@ def main() -> None:
                             print(f"{label}: {changed}/{total} pixels changed")
                     evidence = validate_screenshot_artifacts(args.out, results)
                     (args.out / "screenshots-manifest.json").write_text(
-                        json.dumps({"screenshots": evidence}, ensure_ascii=False, indent=2) + "\\n",
+                        json.dumps({"screenshots": evidence}, ensure_ascii=False, indent=2) + "\n",
                         encoding="utf-8"
                     )
                     (args.out / "results.json").write_text(
