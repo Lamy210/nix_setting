@@ -65,10 +65,20 @@ fn full_download_has_exact_size_digest_and_executable_permissions() {
     mock_http(http_response("200 OK", body.len(), body), |url| {
         download(&url, &scratch.file()).expect("download must complete");
         assert_eq!(std::fs::read(scratch.file()).unwrap(), body);
-        // A file digest must be computed from the bytes really downloaded.
+        // Expected digest is pinned independently of the downloaded bytes.
+        const EXPECTED_FIXTURE_SHA256: &str =
+            "e2407685cf87853a8fc6fb874a962050a451085c93e4674444c4b885d07936bd";
         let actual = sha256_hex(&scratch.file()).expect("sha256");
-        assert_eq!(actual.len(), 64);
-        assert!(verify_file(&scratch.file(), &actual).is_ok());
+        assert_eq!(actual, EXPECTED_FIXTURE_SHA256);
+        assert!(verify_file(&scratch.file(), EXPECTED_FIXTURE_SHA256).is_ok());
+        assert!(
+            verify_file(
+                &scratch.file(),
+                "0000000000000000000000000000000000000000000000000000000000000000",
+            )
+            .is_err(),
+            "incorrect SHA256 must be rejected"
+        );
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
