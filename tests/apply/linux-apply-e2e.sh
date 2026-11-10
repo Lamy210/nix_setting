@@ -2,7 +2,7 @@
 # Actual Home Manager application on disposable GitHub-hosted Linux only.
 set -euo pipefail
 
-if [[ "${GITHUB_ACTIONS:-}" != true || "${RUNNER_ENVIRONMENT:-}" != github-hosted || "${CI:-}" != true ]]; then
+if [[ ${GITHUB_ACTIONS:-} != true || ${RUNNER_ENVIRONMENT:-} != github-hosted || ${CI:-} != true ]]; then
   echo "ERROR: real apply E2E requires an ephemeral GitHub-hosted runner" >&2
   exit 2
 fi
@@ -10,7 +10,7 @@ if [[ "$(id -u)" == 0 || "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; t
   echo "ERROR: unsupported real-apply execution host" >&2
   exit 2
 fi
-if [[ -z "${GITHUB_WORKSPACE:-}" || "$(pwd -P)" != "$(realpath "$GITHUB_WORKSPACE")" ]]; then
+if [[ -z ${GITHUB_WORKSPACE:-} || "$(pwd -P)" != "$(realpath "$GITHUB_WORKSPACE")" ]]; then
   echo "ERROR: run only from GITHUB_WORKSPACE" >&2
   exit 2
 fi
@@ -50,7 +50,10 @@ echo "=== Repeat apply, proving no degradation ==="
 before="$(sha256sum "$HOME/.gitconfig" | cut -d ' ' -f 1)"
 "$SF" apply
 after="$(sha256sum "$HOME/.gitconfig" | cut -d ' ' -f 1)"
-[[ "$before" == "$after" ]] || { echo "ERROR: config drift on repeat apply" >&2; exit 1; }
+[[ $before == "$after" ]] || {
+  echo "ERROR: config drift on repeat apply" >&2
+  exit 1
+}
 "$SF" verify
 test -s "$HOME/.zshrc"
 echo "PASS: actual minimal profile applied, verified, and reapplied on disposable Linux runner"
