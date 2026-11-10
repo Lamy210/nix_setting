@@ -226,6 +226,17 @@ def check_diff_algorithm(out: Path) -> None:
     assert changed == 1, "one-channel delta of 1 must be detected at threshold 0"
     changed, _ = create_diff(before.getvalue(), tiny_bytes.getvalue(), out / "selftest-threshold.png", 1)
     assert changed == 0, "explicit threshold of 1 should ignore a channel delta of 1"
+    # Threshold boundary: a delta of 15 is ignored, 16 is detected at threshold=15.
+    for blue_value, expected_count in ((57, 0), (58, 1)):
+        boundary = unchanged.copy()
+        boundary.putpixel((3, 4), (15, 23, blue_value))
+        boundary_bytes = BytesIO()
+        boundary.save(boundary_bytes, format="PNG")
+        changed, _ = create_diff(
+            before.getvalue(), boundary_bytes.getvalue(),
+            out / f"selftest-threshold-{blue_value}.png", 15
+        )
+        assert changed == expected_count, "threshold boundary changed unexpectedly"
     # Image dimension changes are meaningful even if the added pixels match background.
     larger = Image.new("RGB", (9, 8), (15, 23, 42))
     large_bytes = BytesIO()
