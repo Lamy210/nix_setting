@@ -167,7 +167,7 @@ def self_test() -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
-    print("PASS: completed download, HTTP error, truncated transfer, SHA256 mismatch, TLS policy")
+    print("PASS: completed and no-length downloads; rejected oversized, malformed binary, HTTP error, truncation, SHA mismatch, and non-TLS")
 
 
 def main() -> None:
@@ -211,9 +211,9 @@ def main() -> None:
     )
     (args.out / "summary.md").write_text(
         "### Managed Nix: 全配布対象アセットの実ダウンロード確認\n\n"
-        + "| OS/CPU | バイト数 | SHA256 | 結果 |\n|---|---:|---|---|\n"
+        + "| OS/CPU | バイト数 | SHA256 | 取得検証 | 実行確認 |\n|---|---:|---|---|---|\n"
         + "".join(
-            f"| {item['target']} | {item['bytes']:,} | \`{item['sha256']}\` | OK |\n"
+            f"| {item['target']} | {item['bytes']:,} | \`{item['sha256']}\` | OK | {item['execution']} |\n"
             for item in verified
         )
         + "\n完全取得・ハッシュ・ELF/Mach-O形式の検査です。Linux x64は指定時に--helpの実起動も検査します。"
