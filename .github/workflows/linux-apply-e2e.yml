@@ -1,18 +1,8 @@
 name: Linux real configuration apply E2E
 
+# Invoked from the always-running check workflow; avoid path-filtered required checks.
 on:
-  pull_request:
-    branches: [main, develop]
-    paths:
-      - '.github/workflows/linux-apply-e2e.yml'
-      - 'tests/apply/**'
-      - 'flake.nix'
-      - 'flake.lock'
-      - 'modules/**'
-      - 'profiles/**'
-      - 'hosts/**'
-      - 'crates/core/**'
-      - 'crates/cli/**'
+  workflow_call:
   workflow_dispatch:
 
 permissions:
