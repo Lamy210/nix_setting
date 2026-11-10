@@ -1,13 +1,8 @@
 name: UI visual regression
 
+# Invoked from the always-running check workflow; avoid path-filtered required checks.
 on:
-  pull_request:
-    branches: [main, develop]
-    paths:
-      - 'apps/desktop/dist/**'
-      - 'apps/desktop/src-tauri/**'
-      - 'tests/ui/**'
-      - '.github/workflows/ui-visual-regression.yml'
+  workflow_call:
   workflow_dispatch:
 
 permissions:
