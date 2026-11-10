@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import re
+import subprocess
 import tempfile
 from threading import Thread
 import tomllib
@@ -82,6 +83,7 @@ def download_checked(
 
 class FixtureHandler(BaseHTTPRequestHandler):
     BODY = b"\x7fELF" + b"download-fixture" * 3
+    WRONG_FORMAT = b"NOT-AN-ELF" + b"download-fixture" * 3
 
     def log_message(self, _format, *args):
         pass
@@ -89,6 +91,24 @@ class FixtureHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/404":
             self.send_error(404)
+            return
+        if self.path == "/no-length":
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(self.BODY)
+            self.wfile.flush()
+            self.close_connection = True
+            return
+        if self.path == "/oversized":
+            self.send_response(200)
+            self.send_header("Content-Length", str(MAX_ASSET_BYTES + 1))
+            self.end_headers()
+            return
+        if self.path == "/bad-magic":
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(self.WRONG_FORMAT)))
+            self.end_headers()
+            self.wfile.write(self.WRONG_FORMAT)
             return
         if self.path == "/truncated":
             self.send_response(200)
@@ -114,6 +134,9 @@ def self_test() -> None:
         with tempfile.TemporaryDirectory() as tmp:
             for name, suffix, sha, success in (
                 ("complete", "/complete", digest, True),
+                ("without-length", "/no-length", digest, True),
+                ("bad-magic", "/bad-magic", hashlib.sha256(FixtureHandler.WRONG_FORMAT).hexdigest(), False),
+                ("oversized", "/oversized", digest, False),
                 ("badsha", "/complete", "0" * 64, False),
                 ("truncated", "/truncated", digest, False),
                 ("notfound", "/404", digest, False),
@@ -150,6 +173,7 @@ def self_test() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--native-help-smoke", action="store_true", help="execute verified Linux x64 --help on ephemeral CI")
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
@@ -168,7 +192,17 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="schneeforge-assets-") as temp:
         for target in TARGETS:
             url = f"https://github.com/NixOS/nix-installer/releases/download/{version}/nix-installer-{target}"
-            result = download_checked(url, pins[target], Path(temp) / target, target)
+            executable = Path(temp) / target
+            result = download_checked(url, pins[target], executable, target)
+            if args.native_help_smoke and target == "x86_64-linux":
+                executable.chmod(0o500)
+                subprocess.run(
+                    [str(executable), "--help"], check=True, timeout=25,
+                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
+                result["execution"] = "help_success"
+            else:
+                result["execution"] = "not_executed"
             verified.append(result)
             print(f"PASS: {target}: {result['bytes']} bytes, SHA256 {result['sha256']}")
     (args.out / "results.json").write_text(
@@ -182,7 +216,7 @@ def main() -> None:
             f"| {item['target']} | {item['bytes']:,} | \`{item['sha256']}\` | OK |\n"
             for item in verified
         )
-        + "\n完全取得・ハッシュ・ELF/Mach-O形式の検査です。"
+        + "\n完全取得・ハッシュ・ELF/Mach-O形式の検査です。Linux x64は指定時に--helpの実起動も検査します。"
           "macOS/ARM64で実際に導入・適用できる証明ではありません。\n",
         encoding="utf-8"
     )
