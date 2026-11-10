@@ -6,6 +6,7 @@ This does not validate a native Tauri window or real Nix installation.
 from __future__ import annotations
 
 import argparse
+import hashlib
 from contextlib import contextmanager
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -395,6 +396,47 @@ def check_download_and_install_ui(browser, url: str) -> None:
         context.close()
 
 
+
+def validate_screenshot_artifacts(out: Path, results: list[dict]) -> list[dict]:
+    """Fail if any expected full-page capture is missing or unreadable.
+
+    Even zero-difference scenes MUST produce before, after, and diff PNGs.
+    """
+    expected = {f"{viewport}-{scene}" for viewport in VIEWPORTS for scene in SCENARIOS}
+    actual = [item["scenario"] for item in results]
+    if len(actual) != len(expected) or set(actual) != expected:
+        raise AssertionError(f"incomplete UI scenarios: expected {sorted(expected)}, got {actual}")
+
+    manifest = []
+    for label in sorted(expected):
+        viewport_name = next(name for name in VIEWPORTS if label.startswith(f"{name}-"))
+        width, height = VIEWPORTS[viewport_name]
+        images = {}
+        for suffix in ("before", "after", "diff"):
+            filename = f"{label}-{suffix}.png"
+            file = out / filename
+            if not file.is_file() or file.stat().st_size == 0:
+                raise AssertionError(f"missing UI screenshot: {filename}")
+            with Image.open(file) as png:
+                if png.format != "PNG":
+                    raise AssertionError(f"UI screenshot is not PNG: {filename}")
+                png.load()  # detect a corrupt/truncated image
+                if png.width < width or png.height < height:
+                    raise AssertionError(
+                        f"UI screenshot does not cover viewport: {filename} "
+                        f"{png.width}x{png.height} < {width}x{height}"
+                    )
+                images[suffix] = {
+                    "file": filename,
+                    "width": png.width,
+                    "height": png.height,
+                    "bytes": file.stat().st_size,
+                    "sha256": hashlib.sha256(file.read_bytes()).hexdigest(),
+                }
+        manifest.append({"scenario": label, "images": images})
+    return manifest
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("behavior", "compare"), required=True)
@@ -440,6 +482,11 @@ def main() -> None:
                                 "pixel_threshold": args.pixel_threshold
                             })
                             print(f"{label}: {changed}/{total} pixels changed")
+                    evidence = validate_screenshot_artifacts(args.out, results)
+                    (args.out / "screenshots-manifest.json").write_text(
+                        json.dumps({"screenshots": evidence}, ensure_ascii=False, indent=2) + "\\n",
+                        encoding="utf-8"
+                    )
                     (args.out / "results.json").write_text(
                         json.dumps(results, ensure_ascii=False, indent=2) + "\n",
                         encoding="utf-8"
@@ -459,6 +506,8 @@ def main() -> None:
                         )
                     lines.extend([
                         "",
+                        f"全{len(evidence)}シナリオ・{len(evidence) * 3}枚のfull-page PNGを検証済み。差分0でも撮影・保存します。",
+                        "screenshots-manifest.jsonに各画像のサイズ・SHA256を記録します。",
                         "各画面の変更前・変更後・赤色で強調した差分PNGはArtifactsにあります。",
                         "Tauri IPCは固定fixtureであり、実インストールの保証ではありません。",
                         "",
