@@ -50,7 +50,7 @@ jobs:
           --candidate candidate/apps/desktop/dist
           --out ui-visual-artifacts
 
-      - name: Upload comparison images
+      - name: Upload all full-page screenshots (including zero-difference scenes)
         id: images
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -58,7 +58,7 @@ jobs:
           name: schneeforge-ui-visual-${{ github.run_id }}
           path: ui-visual-artifacts/
           retention-days: 7
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Add visual diff to job summary
         if: always()
@@ -68,6 +68,7 @@ jobs:
         run: |
           if [ -f ui-visual-artifacts/summary.md ]; then
             cat ui-visual-artifacts/summary.md >> "$GITHUB_STEP_SUMMARY"
+            echo '全画面のbefore/after/diff PNGは差分ゼロでも保存・検証されます。' >> "$GITHUB_STEP_SUMMARY"
             printf '\n\n' >> "$GITHUB_STEP_SUMMARY"
           else
             echo 'UIテストまたは画面の取得に失敗したため、差分を生成できませんでした。' >> "$GITHUB_STEP_SUMMARY"
