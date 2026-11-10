@@ -563,7 +563,9 @@ mod tests {
         let resolver = ToolResolver::with_known_paths(vec![]);
         let resolved = resolver.resolve_tool("mytool-prio").unwrap();
         assert_eq!(resolved.source, ToolSource::EnvOverride);
-        assert_eq!(resolved.path, env_path);
+        // ToolResolver deliberately returns canonical paths. macOS /var is a
+        // symlink to /private/var, so comparing to the raw temp path is wrong.
+        assert_eq!(resolved.path, env_path.canonicalize().unwrap());
         env::remove_var("SCHNEEFORGE_MYTOOL_PRIO_BIN");
         let _ = fs::remove_dir_all(&path_dir);
         let _ = fs::remove_dir_all(&env_dir);

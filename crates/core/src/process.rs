@@ -167,7 +167,6 @@ mod tests {
     fn run_capture_preserves_non_utf8_argument_bytes() {
         use std::ffi::OsString;
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
-        use std::os::unix::fs::PermissionsExt;
 
         let dir =
             std::env::temp_dir().join(format!("sf-process-native-argv-{}", std::process::id()));
@@ -176,12 +175,20 @@ mod tests {
         let script = dir.join("capture-argv");
         let output = dir.join("argv.bin");
         std::fs::write(&script, "#!/bin/sh\nprintf '%s' \"$2\" > \"$1\"\n").unwrap();
-        let mut permissions = std::fs::metadata(&script).unwrap().permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&script, permissions).unwrap();
 
         let native = OsString::from_vec(b"repo-\xff-path".to_vec());
-        run_capture(&script, &[output.clone().into_os_string(), native.clone()]).unwrap();
+        // /bin/sh executes the freshly written fixture without racing kernel
+        // execution of a recently opened script (ETXTBSY on Linux CI).
+        // The raw argv still passes unmodified through run_capture.
+        run_capture(
+            Path::new("/bin/sh"),
+            &[
+                script.into_os_string(),
+                output.clone().into_os_string(),
+                native.clone(),
+            ],
+        )
+        .unwrap();
 
         assert_eq!(
             std::fs::read(&output).unwrap(),
