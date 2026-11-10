@@ -318,7 +318,11 @@ def check_download_and_install_ui(browser, url: str) -> None:
             else:
                 page.evaluate("window.__rejections.nix_install_escalated = 'connection reset'")
             page.get_by_role("button", name="導入する").click()
-            page.get_by_text("失敗", exact=False).wait_for(timeout=10000)
+            expected_error = (
+                "HTTP 500 / download failed" if failure_type == "result"
+                else "導入に失敗しました: Error: connection reset"
+            )
+            page.locator("#setup-step").get_by_text(expected_error, exact=False).wait_for(timeout=10000)
             page.get_by_role("button", name="再試行").wait_for()
             assert "導入が完了しました" not in page.locator("#setup-step").inner_text()
         finally:
