@@ -23,7 +23,7 @@ jobs:
       - name: Verify failure injection for truncated/corrupted downloads
         run: python3 tests/distribution/validate_assets.py --self-test
       - name: Download and verify complete assets for Linux x64/ARM64 and macOS ARM64
-        run: python3 tests/distribution/validate_assets.py --manifest bootstrap-manifest.toml --out distribution-report
+        run: python3 tests/distribution/validate_assets.py --manifest bootstrap-manifest.toml --out distribution-report --native-help-smoke
       - name: Upload verification report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
