@@ -15,6 +15,8 @@ if [[ -z ${GITHUB_WORKSPACE:-} || "$(pwd -P)" != "$(realpath "$GITHUB_WORKSPACE"
   exit 2
 fi
 
+export NIX_SETTING_DIR="$GITHUB_WORKSPACE"
+
 SF="$PWD/target/release/schneeforge"
 test -x "$SF"
 command -v nix >/dev/null
