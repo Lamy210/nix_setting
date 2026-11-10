@@ -91,6 +91,14 @@ fn full_download_has_exact_size_digest_and_executable_permissions() {
                 0
             );
         }
+        // A single-byte corruption must invalidate the independently pinned digest.
+        let mut corrupted = std::fs::read(scratch.file()).unwrap();
+        corrupted[0] ^= 1;
+        std::fs::write(scratch.file(), &corrupted).unwrap();
+        assert!(
+            verify_file(&scratch.file(), EXPECTED_FIXTURE_SHA256).is_err(),
+            "modified installer bytes must be rejected"
+        );
     });
 }
 
