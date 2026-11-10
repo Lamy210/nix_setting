@@ -61,7 +61,7 @@ MOCK = """
         };
         case "run_apply": return { success: true, output: "設定の適用が完了しました" };
         case "run_plan": return { success: true, output: "変更予定なし" };
-        default: return { success: true, output: "fixture: " + command };
+        default: throw new Error("Unmocked Tauri IPC command: " + command);
       }
     }},
     event: { listen: async () => () => {} }
@@ -165,6 +165,22 @@ def create_diff(before: bytes, after: bytes, dest: Path) -> tuple[int, int]:
         return mask.histogram()[255], dimensions[0] * dimensions[1]
 
 
+def check_diff_algorithm(out: Path) -> None:
+    """Prove that a one-pixel visual change produces a nonempty red diff."""
+    unchanged = Image.new("RGB", (8, 8), (15, 23, 42))
+    modified = unchanged.copy()
+    modified.putpixel((3, 4), (255, 255, 255))
+    before, after = BytesIO(), BytesIO()
+    unchanged.save(before, format="PNG")
+    modified.save(after, format="PNG")
+    result_file = out / "selftest-diff.png"
+    changed, total = create_diff(before.getvalue(), after.getvalue(), result_file)
+    assert (changed, total) == (1, 64), f"visual diff calculation failed: {changed}/{total}"
+    with Image.open(result_file) as visual:
+        red, green, blue, _ = visual.getpixel((3, 4))
+        assert red > green and red > blue, "changed pixel must be highlighted red"
+
+
 def check_behavior(browser, url: str) -> None:
     context, page = scene(browser, url, "dashboard")
     try:
@@ -215,6 +231,7 @@ def main() -> None:
         try:
             with serve(args.candidate.resolve()) as candidate:
                 if args.mode == "behavior":
+                    check_diff_algorithm(args.out)
                     check_behavior(browser, candidate)
                     print("PASS: UI behavior and cancellation")
                     return
