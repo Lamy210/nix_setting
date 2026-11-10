@@ -40,37 +40,44 @@ def download_checked(
         raise ValueError("expected digest is not a SHA256 hex digest")
     sha = hashlib.sha256()
     count = 0
-    with urlopen(url, timeout=65) as response:
-        if response.status != 200:
-            raise ValueError(f"unexpected HTTP status {response.status}")
-        if urlsplit(response.url).scheme != parsed.scheme:
-            raise ValueError("unexpected redirect protocol change")
-        advertised = response.headers.get("Content-Length")
-        expected_bytes = int(advertised) if advertised is not None else None
-        if expected_bytes is not None and (expected_bytes <= 0 or expected_bytes > MAX_ASSET_BYTES):
-            raise ValueError("invalid Content-Length")
-        with dest.open("xb") as file:
-            while True:
-                block = response.read(128 * 1024)
-                if not block:
-                    break
-                count += len(block)
-                if count > MAX_ASSET_BYTES:
-                    raise ValueError("download exceeds maximum allowed size")
-                sha.update(block)
-                file.write(block)
-    if count == 0 or (expected_bytes is not None and count != expected_bytes):
-        raise ValueError(f"incomplete download: {count} bytes, advertised {expected_bytes}")
-    digest = sha.hexdigest()
-    if not hmac.compare_digest(digest.lower(), expected.lower()):
-        raise ValueError(f"SHA256 mismatch for {target}: {digest}")
-    with dest.open("rb") as file:
-        magic = file.read(4)
-    if target.endswith("-linux") and magic != b"\x7fELF":
-        raise ValueError(f"Linux asset is not ELF: {magic!r}")
-    if target.endswith("-darwin") and magic not in MACHO_MAGIC:
-        raise ValueError(f"Darwin asset is not Mach-O: {magic!r}")
-    return {"target": target, "bytes": count, "sha256": digest, "status": "verified"}
+    # Verify the entire downloaded object before publishing its final path.
+    staging = dest.with_name(dest.name + ".part")
+    try:
+        with urlopen(url, timeout=65) as response:
+            if response.status != 200:
+                raise ValueError(f"unexpected HTTP status {response.status}")
+            if urlsplit(response.url).scheme != parsed.scheme:
+                raise ValueError("unexpected redirect protocol change")
+            advertised = response.headers.get("Content-Length")
+            expected_bytes = int(advertised) if advertised is not None else None
+            if expected_bytes is not None and (expected_bytes <= 0 or expected_bytes > MAX_ASSET_BYTES):
+                raise ValueError("invalid Content-Length")
+            with staging.open("xb") as file:
+                while True:
+                    block = response.read(128 * 1024)
+                    if not block:
+                        break
+                    count += len(block)
+                    if count > MAX_ASSET_BYTES:
+                        raise ValueError("download exceeds maximum allowed size")
+                    sha.update(block)
+                    file.write(block)
+        if count == 0 or (expected_bytes is not None and count != expected_bytes):
+            raise ValueError(f"incomplete download: {count} bytes, advertised {expected_bytes}")
+        digest = sha.hexdigest()
+        if not hmac.compare_digest(digest.lower(), expected.lower()):
+            raise ValueError(f"SHA256 mismatch for {target}: {digest}")
+        with staging.open("rb") as file:
+            magic = file.read(4)
+        if target.endswith("-linux") and magic != b"\x7fELF":
+            raise ValueError(f"Linux asset is not ELF: {magic!r}")
+        if target.endswith("-darwin") and magic not in MACHO_MAGIC:
+            raise ValueError(f"Darwin asset is not Mach-O: {magic!r}")
+        staging.replace(dest)
+        return {"target": target, "bytes": count, "sha256": digest, "status": "verified"}
+    except Exception:
+        staging.unlink(missing_ok=True)
+        raise
 
 
 class FixtureHandler(BaseHTTPRequestHandler):
@@ -123,6 +130,9 @@ def self_test() -> None:
                     if not success:
                         raise AssertionError(f"{name}: an invalid transfer was accepted")
                     assert result["bytes"] == len(FixtureHandler.BODY)
+                if not success:
+                    assert not (Path(tmp) / name).exists(), "invalid download was published"
+                    assert not (Path(tmp) / (name + ".part")).exists(), "partial cache leaked"
             # The scheme is always enforced outside explicit localhost tests.
             try:
                 download_checked(url + "/complete", digest, Path(tmp) / "denied", "x86_64-linux")
