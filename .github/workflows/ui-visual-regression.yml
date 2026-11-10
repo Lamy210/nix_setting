@@ -67,9 +67,11 @@ jobs:
           ARTIFACT_URL: ${{ steps.images.outputs.artifact-url }}
         run: |
           if [ -f ui-visual-artifacts/summary.md ]; then
-            cat ui-visual-artifacts/summary.md >> "$GITHUB_STEP_SUMMARY"
-            echo '全画面のbefore/after/diff PNGは差分ゼロでも保存・検証されます。' >> "$GITHUB_STEP_SUMMARY"
-            printf '\n\n' >> "$GITHUB_STEP_SUMMARY"
+            {
+              cat ui-visual-artifacts/summary.md
+              echo '全画面のbefore/after/diff PNGは差分ゼロでも保存・検証されます。'
+              printf '\n\n'
+            } >> "$GITHUB_STEP_SUMMARY"
           else
             echo 'UIテストまたは画面の取得に失敗したため、差分を生成できませんでした。' >> "$GITHUB_STEP_SUMMARY"
           fi
