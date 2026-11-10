@@ -258,6 +258,20 @@ def check_behavior(browser, url: str) -> None:
         page.wait_for_function(
             "document.getElementById('output').textContent.includes('simulated failure')"
         )
+        # A missing report or truthy but non-boolean ok must never display success.
+        for report, expected in (
+            ({"checks": []}, "検証エラー"),
+            ({"checks": [{"name": "Profile", "ok": "false"}]}, "1 件 NG"),
+            ({"checks": [{"name": "Profile", "ok": 1}]}, "1 件 NG"),
+            ({"checks": [None]}, "1 件 NG"),
+        ):
+            page.evaluate("(r) => { window.__reportOverride = r; }", report)
+            page.locator("#verify").click()
+            page.wait_for_function(
+                "(message) => document.getElementById('output').textContent.includes(message)",
+                arg=expected, timeout=10000
+            )
+            assert "すべて OK" not in page.locator("#output").inner_text()
     finally:
         context.close()
 
@@ -290,6 +304,22 @@ def check_failure_scenarios(browser, url: str) -> None:
             page.get_by_text(message, exact=False).wait_for(timeout=10000)
             page.get_by_role("button", name="再試行").wait_for(timeout=10000)
             assert not page.locator("#setup-step").inner_text().startswith("適用が完了")
+        finally:
+            context.close()
+
+    # Invalid and empty verification reports must also block wizard completion.
+    for report, expected in (
+        ({"checks": []}, "検証に失敗しました"),
+        ({"checks": [{"name": "Profile", "ok": "false"}]}, "1 件 NG"),
+    ):
+        context, page = scene(browser, url, "first-run")
+        try:
+            page.evaluate("""(report) => {
+                window.__reportOverride = report;
+                setupStep = 6; renderStep();
+            }""", report)
+            page.get_by_text(expected, exact=False).wait_for(timeout=10000)
+            assert page.get_by_role("button", name="完了").count() == 0
         finally:
             context.close()
 
