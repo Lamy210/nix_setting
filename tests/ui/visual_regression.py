@@ -18,15 +18,20 @@ from urllib.parse import urlsplit
 from PIL import Image, ImageChops
 from playwright.sync_api import sync_playwright
 
-SCENARIOS = ("dashboard", "first-run", "nix-confirmation", "apply-result", "verify-result")
+SCENARIOS = ("dashboard", "first-run", "nix-confirmation", "apply-result", "verify-result", "app-updater")
+VIEWPORTS = {"native-800x600": (800, 600), "wide-1100x850": (1100, 850)}
 MOCK = """
 (() => {
   const scene = window.__scene;
   window.__calls = [];
   window.__failures = {};
+  window.__rejections = {};
+  window.__listeners = {};
+  window.__emit = (name, payload) => window.__listeners[name]?.({ payload });
   window.__TAURI__ = {
     core: { invoke: async (command, args) => {
       window.__calls.push({ command, args: args || null });
+      if (window.__rejections[command]) throw new Error(window.__rejections[command]);
       if (window.__failures[command]) {
         return { success: false, output: window.__failures[command] };
       }
@@ -48,8 +53,16 @@ MOCK = """
           available: ["minimal", "developer"], default: "minimal", selected: null
         };
         case "get_app_updater_capability": return {
-          enabled: false, reason: "test fixture"
+          enabled: scene === "app-updater", reason: "test fixture"
         };
+        case "fetch_app_update": return {
+          version: "0.2.0-rc.8", currentVersion: "0.2.0-rc.7", notes: "CI update fixture"
+        };
+        case "install_app_update":
+          window.__emit("app-update-progress", { phase: "downloading", downloaded: 100, contentLength: 100 });
+          window.__emit("app-update-progress", { phase: "downloaded" });
+          window.__emit("app-update-progress", { phase: "installed" });
+          return { success: true, output: "signed update installed" };
         case "run_preflight": return {
           nix_installed: hasNix, git_installed: true, flakes_enabled: true
         };
@@ -61,10 +74,18 @@ MOCK = """
         };
         case "run_apply": return { success: true, output: "設定の適用が完了しました" };
         case "run_plan": return { success: true, output: "変更予定なし" };
+        case "nix_install_escalated":
+          window.__emit("nix-install-progress", { phase: "download", message: "download complete" });
+          window.__emit("nix-install-progress", { phase: "verify", message: "SHA256 verified" });
+          window.__emit("nix-install-progress", { phase: "install", message: "completed" });
+          return { success: true, output: "Managed Nix installed" };
         default: throw new Error("Unmocked Tauri IPC command: " + command);
       }
     }},
-    event: { listen: async () => () => {} }
+    event: { listen: async (name, handler) => {
+      window.__listeners[name] = handler;
+      return () => { delete window.__listeners[name]; };
+    } }
   };
 })();
 """
@@ -92,9 +113,10 @@ def serve(root: Path):
         thread.join(timeout=5)
 
 
-def scene(browser, url: str, name: str):
+def scene(browser, url: str, name: str, viewport: tuple[int, int] = (800, 600)):
+    width, height = viewport
     context = browser.new_context(
-        viewport={"width": 1100, "height": 850}, device_scale_factor=1,
+        viewport={"width": width, "height": height}, device_scale_factor=1,
         locale="ja-JP", color_scheme="dark", reduced_motion="reduce"
     )
     context.add_init_script(f"window.__scene={json.dumps(name)};" + MOCK)
@@ -141,8 +163,8 @@ def scene(browser, url: str, name: str):
         raise
 
 
-def snapshot(browser, url: str, name: str) -> bytes:
-    context, page = scene(browser, url, name)
+def snapshot(browser, url: str, name: str, viewport: tuple[int, int]) -> bytes:
+    context, page = scene(browser, url, name, viewport)
     try:
         return page.screenshot(full_page=True, animations="disabled", caret="hide")
     finally:
@@ -156,9 +178,16 @@ def create_diff(before: bytes, after: bytes, dest: Path) -> tuple[int, int]:
         second = Image.new("RGB", dimensions, (15, 23, 42))
         first.paste(left.convert("RGB"))
         second.paste(right.convert("RGB"))
-        mask = ImageChops.difference(first, second).convert("L").point(
+        red, green, blue = ImageChops.difference(first, second).split()
+        mask = ImageChops.lighter(ImageChops.lighter(red, green), blue).point(
             lambda pixel: 255 if pixel > 15 else 0
         )
+        # A taller/wider screenshot must be reported even when the added
+        # pixels happen to match the padding color.
+        if left.width != right.width:
+            mask.paste(255, (min(left.width, right.width), 0, dimensions[0], dimensions[1]))
+        if left.height != right.height:
+            mask.paste(255, (0, min(left.height, right.height), dimensions[0], dimensions[1]))
         overlay = Image.new("RGBA", dimensions, (255, 48, 48, 0))
         overlay.putalpha(mask.point(lambda pixel: 165 if pixel else 0))
         Image.alpha_composite(second.convert("RGBA"), overlay).save(dest)
@@ -179,6 +208,21 @@ def check_diff_algorithm(out: Path) -> None:
     with Image.open(result_file) as visual:
         red, green, blue, _ = visual.getpixel((3, 4))
         assert red > green and red > blue, "changed pixel must be highlighted red"
+    # Regression: grayscale conversion previously missed a 50-level blue change.
+    blue_changed = unchanged.copy()
+    blue_changed.putpixel((3, 4), (15, 23, 92))
+    blue_bytes = BytesIO()
+    blue_changed.save(blue_bytes, format="PNG")
+    changed, _ = create_diff(before.getvalue(), blue_bytes.getvalue(), out / "selftest-blue.png")
+    assert changed == 1, "blue-only changes must not be ignored"
+    # Image dimension changes are meaningful even if the added pixels match background.
+    larger = Image.new("RGB", (9, 8), (15, 23, 42))
+    large_bytes = BytesIO()
+    larger.save(large_bytes, format="PNG")
+    changed, _ = create_diff(before.getvalue(), large_bytes.getvalue(), out / "selftest-size.png")
+    assert changed >= 8, "screenshot size differences must be detected"
+    unchanged_count, _ = create_diff(before.getvalue(), before.getvalue(), out / "selftest-equal.png")
+    assert unchanged_count == 0, "identical screenshots must have no differences"
 
 
 def check_behavior(browser, url: str) -> None:
@@ -217,6 +261,89 @@ def check_behavior(browser, url: str) -> None:
         context.close()
 
 
+def check_failure_scenarios(browser, url: str) -> None:
+    # Wizard apply/plan/verify must remain usable after rejected IPC promises.
+    for step, command, message in (
+        (3, "run_plan", "プラン失敗"),
+        (5, "run_apply", "適用に失敗"),
+        (6, "run_verify", "検証に失敗"),
+    ):
+        context, page = scene(browser, url, "first-run")
+        try:
+            page.evaluate(
+                "(cmd) => { window.__rejections[cmd] = 'simulated network error'; }", command
+            )
+            page.evaluate("(step) => { setupStep = step; renderStep(); }", step)
+            if step == 3:
+                page.get_by_role("button", name="プラン実行").click()
+            page.get_by_text(message, exact=False).wait_for(timeout=10000)
+            page.get_by_role("button", name="再試行").wait_for(timeout=10000)
+            assert not page.locator("#setup-step").inner_text().startswith("適用が完了")
+        finally:
+            context.close()
+
+    # Negative verification reports must block completion.
+    context, page = scene(browser, url, "first-run")
+    try:
+        page.evaluate("""() => {
+            window.__failures.run_verify = null;
+            const original = window.__TAURI__.core.invoke;
+            window.__TAURI__.core.invoke = async (command, args) =>
+                command === 'run_verify'
+                    ? { checks: [{ name: 'Profile', ok: false }] }
+                    : original(command, args);
+            setupStep = 6; renderStep();
+        }""")
+        page.get_by_text("1 件 NG").wait_for()
+        assert page.get_by_role("button", name="完了").count() == 0
+    finally:
+        context.close()
+
+
+def check_download_and_install_ui(browser, url: str) -> None:
+    # No installation is allowed before the explicit confirmation.
+    context, page = scene(browser, url, "nix-confirmation")
+    try:
+        assert "nix_install_escalated" not in page.evaluate(
+            "window.__calls.map(call => call.command)"
+        )
+        page.get_by_role("button", name="導入する").click()
+        page.get_by_text("Managed Nix の導入が完了しました。").wait_for(timeout=10000)
+        commands = page.evaluate("window.__calls.map(call => call.command)")
+        assert commands.index("nix_prepare_plan") < commands.index("nix_install_escalated")
+        page.get_by_role("button", name="前提確認へ戻る").wait_for()
+    finally:
+        context.close()
+
+    for failure_type in ("result", "reject"):
+        context, page = scene(browser, url, "nix-confirmation")
+        try:
+            if failure_type == "result":
+                page.evaluate("window.__failures.nix_install_escalated = 'HTTP 500 / download failed'")
+            else:
+                page.evaluate("window.__rejections.nix_install_escalated = 'connection reset'")
+            page.get_by_role("button", name="導入する").click()
+            page.get_by_text("失敗", exact=False).wait_for(timeout=10000)
+            page.get_by_role("button", name="再試行").wait_for()
+            assert "導入が完了しました" not in page.locator("#setup-step").inner_text()
+        finally:
+            context.close()
+
+    # App updater progress / successful install is UI-only; no real bytes fetched.
+    context, page = scene(browser, url, "app-updater")
+    try:
+        page.on("dialog", lambda d: (
+            d.accept() if "更新しますか" in d.message else d.dismiss()
+        ))
+        page.locator("#app-update-check").click()
+        page.get_by_text("signed update installed", exact=False).first.wait_for(timeout=10000)
+        commands = page.evaluate("window.__calls.map(call => call.command)")
+        assert commands.index("fetch_app_update") < commands.index("install_app_update")
+        assert "restart_app" not in commands, "cancelled restart must not be invoked"
+    finally:
+        context.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("behavior", "compare"), required=True)
@@ -233,27 +360,29 @@ def main() -> None:
                 if args.mode == "behavior":
                     check_diff_algorithm(args.out)
                     check_behavior(browser, candidate)
-                    print("PASS: UI behavior and cancellation")
+                    check_failure_scenarios(browser, candidate)
+                    check_download_and_install_ui(browser, candidate)
+                    print("PASS: UI behavior, failure recovery, update display, and cancellation")
                     return
                 if not args.baseline:
                     parser.error("--baseline required for comparison")
                 with serve(args.baseline.resolve()) as baseline:
                     results = []
-                    for name in SCENARIOS:
-                        before, after = (
-                            snapshot(browser, baseline, name),
-                            snapshot(browser, candidate, name)
-                        )
-                        (args.out / f"{name}-before.png").write_bytes(before)
-                        (args.out / f"{name}-after.png").write_bytes(after)
-                        changed, total = create_diff(
-                            before, after, args.out / f"{name}-diff.png"
-                        )
-                        results.append({
-                            "scenario": name, "changed_pixels": changed,
-                            "total_pixels": total, "ratio": round(changed / total, 6)
-                        })
-                        print(f"{name}: {changed}/{total} pixels changed")
+                    for viewport_name, viewport in VIEWPORTS.items():
+                        for name in SCENARIOS:
+                            label = f"{viewport_name}-{name}"
+                            before = snapshot(browser, baseline, name, viewport)
+                            after = snapshot(browser, candidate, name, viewport)
+                            (args.out / f"{label}-before.png").write_bytes(before)
+                            (args.out / f"{label}-after.png").write_bytes(after)
+                            changed, total = create_diff(
+                                before, after, args.out / f"{label}-diff.png"
+                            )
+                            results.append({
+                                "scenario": label, "changed_pixels": changed,
+                                "total_pixels": total, "ratio": round(changed / total, 6)
+                            })
+                            print(f"{label}: {changed}/{total} pixels changed")
                     (args.out / "results.json").write_text(
                         json.dumps(results, ensure_ascii=False, indent=2) + "\n",
                         encoding="utf-8"
