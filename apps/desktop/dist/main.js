@@ -669,8 +669,8 @@ async function stepVerify(box, actions) {
     if (!report || !Array.isArray(report.checks) || report.checks.length === 0) {
       throw new Error("検証結果が空、または不正です");
     }
-    const rows = report.checks.map((c) => row(c.name, c.ok ? "OK" : "NG")).join("");
-    const failed = report.checks.filter((c) => !c.ok).length;
+    const rows = report.checks.map((c) => row(c?.name ?? "不明な検査", c?.ok === true ? "OK" : "NG")).join("");
+    const failed = report.checks.filter((c) => c?.ok !== true).length;
     box.innerHTML = "<p>検証結果:</p>" + rows +
       `<p>${failed === 0 ? "すべて OK" : `${failed} 件 NG`}</p>`;
     if (failed === 0) {
@@ -735,10 +735,13 @@ async function verify() {
   $("output").textContent = "検証中...";
   try {
     const report = await invoke("run_verify");
+    if (!report || !Array.isArray(report.checks) || report.checks.length === 0) {
+      throw new Error("検証結果が空、または不正です");
+    }
     const rows = report.checks
-      .map((c) => `${c.ok ? "✅" : "❌"} ${c.name}`)
+      .map((c) => `${c?.ok === true ? "✅" : "❌"} ${c?.name ?? "不明な検査"}`)
       .join("\n");
-    const failed = report.checks.filter((c) => !c.ok).length;
+    const failed = report.checks.filter((c) => c?.ok !== true).length;
     $("output").textContent = `検証結果:\n${rows}\n\n${
       failed === 0 ? "すべて OK" : `${failed} 件 NG`
     }`;
