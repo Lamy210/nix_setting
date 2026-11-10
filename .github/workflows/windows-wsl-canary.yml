@@ -6,6 +6,12 @@ on:
   schedule:
     - cron: "23 3 * * 1"
   workflow_dispatch:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - ".github/workflows/windows-wsl-canary.yml"
+      - "tests/fixtures/wsl-download-smoke.sh"
+      - "bootstrap-manifest.toml"
 
 permissions:
   contents: read
@@ -38,6 +44,20 @@ jobs:
           wsl --install Ubuntu --no-launch --web-download
           wsl -d Ubuntu -- true
           wsl --list --verbose
+
+      - name: Download and execute the pinned Linux installer inside WSL2
+        shell: pwsh
+        run: |
+          $manifest = Get-Content bootstrap-manifest.toml -Raw
+          $version = [regex]::Match($manifest, '(?m)^version\\s*=\\s*"([^"]+)"').Groups[1].Value
+          $sha = [regex]::Match($manifest, '(?m)^x86_64-linux\\s*=\\s*"([0-9a-f]{64})"').Groups[1].Value
+          if (-not $version -or -not $sha) {
+            throw 'Unable to read pinned WSL2 installer version and SHA256'
+          }
+          wsl -d Ubuntu --cd "$env:GITHUB_WORKSPACE" -- bash ./tests/fixtures/wsl-download-smoke.sh $version $sha
+          if ($LASTEXITCODE -ne 0) {
+            throw "WSL2 native installer download smoke failed (exit $LASTEXITCODE)"
+          }
 
       - name: Install transport-only helper fixture
         shell: pwsh
