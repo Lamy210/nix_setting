@@ -4,9 +4,9 @@
 
 UI変更PRでは、PRベースコミットとHEADを同じLinux Chromiumで描画して画像を比較します。比較結果はGitHub Actions artifactsに保存されます。
 
-- 対象画面: dashboard、first-run、nix-confirmation、apply-result、verify-result、app-updater（800×600／1100×850の2サイズ）
+- 対象画面: dashboard、first-run、nix-confirmation、nix-install-success、nix-install-failure、apply-result、verify-result、verify-failure、app-updater、app-update-result（800×600／1100×850の2サイズ）
 - 出力: before.png、after.png、diff.png（変更領域を赤色表示）、results.json（`pixel_threshold`含む）、screenshots-manifest.json（各PNGのピクセル寸法・バイト数・SHA256）
-- すべての定義済みシナリオを画面全体（Playwright `full_page=True`）で撮影し、**差分が0であっても変更前・変更後・差分PNGを必ず保存**します。現行は6シナリオ×2 viewport=12組、計36枚です。
+- すべての定義済みシナリオを画面全体（Playwright `full_page=True`）で撮影し、**差分が0であっても変更前・変更後・差分PNGを必ず保存**します。現行は10シナリオ×2 viewport=20組、計60枚です。
 - 画像の欠落・空ファイル・破損PNG・viewportより小さい画像・シナリオ欠落を検出したらCIを失敗させます。撮影が完了していない場合、成功したという証跡を残しません。
 - この12組は定義済み画面状態の網羅であり、全てのネイティブ画面・モーダル・OS環境を網羅した保証ではありません。
 - Job Summaryに差分ピクセル数・比率・RGB差分閾値とartifactリンクを表示します。
