@@ -171,7 +171,9 @@ def snapshot(browser, url: str, name: str, viewport: tuple[int, int]) -> bytes:
         context.close()
 
 
-def create_diff(before: bytes, after: bytes, dest: Path) -> tuple[int, int]:
+def create_diff(before: bytes, after: bytes, dest: Path, pixel_threshold: int = 0) -> tuple[int, int]:
+    if not 0 <= pixel_threshold <= 255:
+        raise ValueError("pixel threshold must be 0..255")
     with Image.open(BytesIO(before)) as left, Image.open(BytesIO(after)) as right:
         dimensions = (max(left.width, right.width), max(left.height, right.height))
         first = Image.new("RGB", dimensions, (15, 23, 42))
@@ -180,7 +182,7 @@ def create_diff(before: bytes, after: bytes, dest: Path) -> tuple[int, int]:
         second.paste(right.convert("RGB"))
         red, green, blue = ImageChops.difference(first, second).split()
         mask = ImageChops.lighter(ImageChops.lighter(red, green), blue).point(
-            lambda pixel: 255 if pixel > 15 else 0
+            lambda pixel: 255 if pixel > pixel_threshold else 0
         )
         # A taller/wider screenshot must be reported even when the added
         # pixels happen to match the padding color.
@@ -215,6 +217,15 @@ def check_diff_algorithm(out: Path) -> None:
     blue_changed.save(blue_bytes, format="PNG")
     changed, _ = create_diff(before.getvalue(), blue_bytes.getvalue(), out / "selftest-blue.png")
     assert changed == 1, "blue-only changes must not be ignored"
+    # A single-level channel change must be visible with strict pixel comparison.
+    tiny_changed = unchanged.copy()
+    tiny_changed.putpixel((3, 4), (15, 23, 43))
+    tiny_bytes = BytesIO()
+    tiny_changed.save(tiny_bytes, format="PNG")
+    changed, _ = create_diff(before.getvalue(), tiny_bytes.getvalue(), out / "selftest-tiny.png")
+    assert changed == 1, "one-channel delta of 1 must be detected at threshold 0"
+    changed, _ = create_diff(before.getvalue(), tiny_bytes.getvalue(), out / "selftest-threshold.png", 1)
+    assert changed == 0, "explicit threshold of 1 should ignore a channel delta of 1"
     # Image dimension changes are meaningful even if the added pixels match background.
     larger = Image.new("RGB", (9, 8), (15, 23, 42))
     large_bytes = BytesIO()
@@ -349,7 +360,11 @@ def main() -> None:
     parser.add_argument("--candidate", type=Path, required=True)
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--pixel-threshold", type=int, default=0,
+                        help="max per-channel delta ignored (0=strict, 0..255)")
     args = parser.parse_args()
+    if not 0 <= args.pixel_threshold <= 255:
+        parser.error("--pixel-threshold must be between 0 and 255")
     args.out.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as playwright:
@@ -375,11 +390,13 @@ def main() -> None:
                             (args.out / f"{label}-before.png").write_bytes(before)
                             (args.out / f"{label}-after.png").write_bytes(after)
                             changed, total = create_diff(
-                                before, after, args.out / f"{label}-diff.png"
+                                before, after, args.out / f"{label}-diff.png",
+                                args.pixel_threshold
                             )
                             results.append({
                                 "scenario": label, "changed_pixels": changed,
-                                "total_pixels": total, "ratio": round(changed / total, 6)
+                                "total_pixels": total, "ratio": round(changed / total, 6),
+                                "pixel_threshold": args.pixel_threshold
                             })
                             print(f"{label}: {changed}/{total} pixels changed")
                     (args.out / "results.json").write_text(
@@ -388,6 +405,8 @@ def main() -> None:
                     )
                     lines = [
                         "### SchneeForge UI画像差分（PRベースとの比較）",
+                        "",
+                        f"RGB各チャンネルの許容差: {args.pixel_threshold}（0=厳密比較）",
                         "",
                         "| 画面 | 差分ピクセル | 差分率 |",
                         "|---|---:|---:|",
