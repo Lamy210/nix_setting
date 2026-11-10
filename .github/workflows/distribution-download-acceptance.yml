@@ -1,0 +1,48 @@
+name: Managed Nix distribution download acceptance
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'bootstrap-manifest.toml'
+      - 'crates/core/src/managed_nix/**'
+      - 'tests/distribution/**'
+      - '.github/workflows/distribution-download-acceptance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: distribution-download-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  download-verify-matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify failure injection for truncated/corrupted downloads
+        run: python3 tests/distribution/validate_assets.py --self-test
+      - name: Download and verify complete assets for Linux x64/ARM64 and macOS ARM64
+        run: python3 tests/distribution/validate_assets.py --manifest bootstrap-manifest.toml --out distribution-report
+      - name: Upload verification report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: installer-download-verification-${{ github.run_id }}
+          path: distribution-report/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Summarize evidence
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f distribution-report/summary.md ]]; then
+            cat distribution-report/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'FAIL: 一部の配布物が完全取得・検証できていません。' >> "$GITHUB_STEP_SUMMARY"
+          fi
