@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 from PIL import Image, ImageChops
 from playwright.sync_api import sync_playwright
 
-SCENARIOS = ("dashboard", "first-run", "nix-confirmation", "nix-install-success", "nix-install-failure", "apply-result", "verify-result", "verify-failure", "app-updater", "app-update-result")
+SCENARIOS = ("dashboard", "first-run", "wizard-source", "wizard-machine", "wizard-plan", "wizard-confirm", "wizard-apply", "wizard-verify", "nix-confirmation", "nix-install-success", "nix-install-failure", "apply-result", "verify-result", "verify-failure", "app-updater", "app-update-result")
 VIEWPORTS = {"native-800x600": (800, 600), "wide-1100x850": (1100, 850)}
 MOCK = """
 (() => {
@@ -37,7 +37,7 @@ MOCK = """
       if (window.__failures[command]) {
         return { success: false, output: window.__failures[command] };
       }
-      const setup = ["first-run", "nix-confirmation", "nix-install-success", "nix-install-failure"].includes(scene);
+      const setup = scene.startsWith("wizard-") || ["first-run", "nix-confirmation", "nix-install-success", "nix-install-failure"].includes(scene);
       const hasNix = !["nix-confirmation", "nix-install-success", "nix-install-failure"].includes(scene);
       switch (command) {
         case "get_status": return {
@@ -65,6 +65,7 @@ MOCK = """
           window.__emit("app-update-progress", { phase: "downloaded" });
           window.__emit("app-update-progress", { phase: "installed" });
           return { success: true, output: "signed update installed" };
+        case "machine_facts": return { success: true, output: "CI machine facts fixture" };
         case "run_preflight": return {
           nix_installed: hasNix, git_installed: true, flakes_enabled: true
         };
@@ -131,9 +132,28 @@ def scene(browser, url: str, name: str, viewport: tuple[int, int] = (800, 600)):
     page.on("pageerror", lambda error: errors.append(str(error)))
     try:
         page.goto(url, wait_until="load", timeout=15000)
-        if name in ("first-run", "nix-confirmation", "nix-install-success", "nix-install-failure"):
+        if name.startswith("wizard-") or name in ("first-run", "nix-confirmation", "nix-install-success", "nix-install-failure"):
             page.locator("#setup-view:not(.hidden)").wait_for(timeout=10000)
             page.get_by_text("Nix status").wait_for(timeout=10000)
+            if name.startswith("wizard-"):
+                steps = {
+                    "wizard-source": 1, "wizard-machine": 2, "wizard-plan": 3,
+                    "wizard-confirm": 4, "wizard-apply": 5, "wizard-verify": 6,
+                }
+                page.evaluate("(step) => { setupStep = step; renderStep(); }", steps[name])
+                if name == "wizard-source":
+                    page.get_by_text("configuration source", exact=False).wait_for(timeout=10000)
+                elif name == "wizard-machine":
+                    page.get_by_text("machine 情報を検出しました:", exact=False).wait_for(timeout=10000)
+                elif name == "wizard-plan":
+                    page.get_by_role("button", name="プラン実行").click()
+                    page.get_by_text("プラン結果:", exact=False).wait_for(timeout=10000)
+                elif name == "wizard-confirm":
+                    page.get_by_text("適用の準備ができました。", exact=False).wait_for(timeout=10000)
+                elif name == "wizard-apply":
+                    page.get_by_text("適用が完了しました。", exact=False).wait_for(timeout=10000)
+                elif name == "wizard-verify":
+                    page.get_by_text("検証結果:", exact=False).wait_for(timeout=10000)
             if name in ("nix-confirmation", "nix-install-success", "nix-install-failure"):
                 page.get_by_role("button", name="SchneeForge で導入").click()
                 page.get_by_role("button", name="導入する").wait_for(timeout=10000)
