@@ -1,13 +1,8 @@
 name: Managed Nix distribution download acceptance
 
+# Invoked from the always-running check workflow; avoid path-filtered required checks.
 on:
-  pull_request:
-    branches: [main, develop]
-    paths:
-      - 'bootstrap-manifest.toml'
-      - 'crates/core/src/managed_nix/**'
-      - 'tests/distribution/**'
-      - '.github/workflows/distribution-download-acceptance.yml'
+  workflow_call:
   workflow_dispatch:
 
 permissions:
