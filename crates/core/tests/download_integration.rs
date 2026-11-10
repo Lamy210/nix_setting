@@ -94,9 +94,14 @@ fn full_download_has_exact_size_digest_and_executable_permissions() {
         // A single-byte corruption must invalidate the independently pinned digest.
         let mut corrupted = std::fs::read(scratch.file()).unwrap();
         corrupted[0] ^= 1;
-        std::fs::write(scratch.file(), &corrupted).unwrap();
+        // The verified download is deliberately read-only: mutate an
+        // independent writable fixture, not the published executable.
+        let corrupt_scratch = Scratch::new("tampered");
+        let corrupt_path = corrupt_scratch.file();
+        std::fs::create_dir_all(corrupt_path.parent().unwrap()).unwrap();
+        std::fs::write(&corrupt_path, corrupted).unwrap();
         assert!(
-            verify_file(&scratch.file(), EXPECTED_FIXTURE_SHA256).is_err(),
+            verify_file(&corrupt_path, EXPECTED_FIXTURE_SHA256).is_err(),
             "modified installer bytes must be rejected"
         );
     });
