@@ -5,6 +5,7 @@ on:
     branches: [main, develop]
     paths:
       - 'apps/desktop/dist/**'
+      - 'apps/desktop/src-tauri/**'
       - 'tests/ui/**'
       - '.github/workflows/ui-visual-regression.yml'
   workflow_dispatch:
