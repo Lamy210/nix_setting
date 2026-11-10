@@ -490,7 +490,7 @@ def check_artifact_contract() -> None:
             for item in manifest
         ), "zero-difference captures must still be saved"
 
-        example = out / f"{VIEWPORTS.__iter__().__next__()}-{SCENARIOS[0]}-after.png"
+        example = out / f"{next(iter(VIEWPORTS))}-{SCENARIOS[0]}-after.png"
         original = example.read_bytes()
         for value in (None, b"invalid PNG"):
             if value is None:
