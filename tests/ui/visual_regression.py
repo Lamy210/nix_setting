@@ -69,7 +69,7 @@ MOCK = """
         case "nix_prepare_plan": return {
           success: true, output: "InstallPlan: verified download fixture"
         };
-        case "run_verify": return {
+        case "run_verify": return window.__reportOverride || {
           checks: [{ name: "Nix store", ok: true }, { name: "Profile", ok: true }]
         };
         case "run_apply": return { success: true, output: "設定の適用が完了しました" };
@@ -286,12 +286,7 @@ def check_failure_scenarios(browser, url: str) -> None:
     context, page = scene(browser, url, "first-run")
     try:
         page.evaluate("""() => {
-            window.__failures.run_verify = null;
-            const original = window.__TAURI__.core.invoke;
-            window.__TAURI__.core.invoke = async (command, args) =>
-                command === 'run_verify'
-                    ? { checks: [{ name: 'Profile', ok: false }] }
-                    : original(command, args);
+            window.__reportOverride = { checks: [{ name: 'Profile', ok: false }] };
             setupStep = 6; renderStep();
         }""")
         page.get_by_text("1 件 NG").wait_for()
