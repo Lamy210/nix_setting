@@ -1127,6 +1127,13 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$MOCK_CALLS"
 case "$1" in
   rm) exit 0 ;;
+  build)
+    if [ "$MOCK_MODE" = buildfail ]; then
+      echo "mock image build failed" >&2
+      exit 62
+    fi
+    exit 0
+    ;;
   run)
     if [ "$MOCK_MODE" = runfail ]; then
       echo "mock docker daemon unavailable" >&2
@@ -1139,7 +1146,7 @@ case "$1" in
     exit 127
     ;;
   inspect) echo false ;;
-  logs) echo "mock apt update failed" >&2 ;;
+  logs) echo "mock systemd boot diagnostic" >&2 ;;
   *) exit 42 ;;
 esac
 SH
@@ -1149,16 +1156,27 @@ SH
     bash "$helper" schneeforge-e2e-bats ubuntu:24.04
   [ "$status" -ne 0 ]
   [[ "$output" == *"exited before systemd became ready"* ]]
-  [[ "$output" == *"mock apt update failed"* ]]
+  [[ "$output" == *"mock systemd boot diagnostic"* ]]
+  grep -Fq "build --build-arg BASE_IMAGE=ubuntu:24.04" "$calls"
   grep -Fq "inspect --format" "$calls"
-  grep -Fq "logs --tail 120" "$calls"
+  grep -Fq "logs --tail 160" "$calls"
 
   : > "$calls"
   run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=ready \
     bash "$helper" schneeforge-e2e-bats ubuntu:24.04
   [ "$status" -eq 0 ]
+  grep -Fq "build --build-arg BASE_IMAGE=ubuntu:24.04" "$calls"
   grep -Fq "exec schneeforge-e2e-bats" "$calls"
   run grep -Fq "logs --tail" "$calls"
+  [ "$status" -ne 0 ]
+
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=buildfail \
+    bash "$helper" schneeforge-e2e-bats ubuntu:24.04
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"mock image build failed"* ]]
+  [[ "$output" == *"Could not build the disposable managed Nix systemd image"* ]]
+  run grep -Fq "run -d" "$calls"
   [ "$status" -ne 0 ]
 
   : > "$calls"
