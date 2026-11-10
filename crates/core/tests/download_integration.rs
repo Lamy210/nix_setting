@@ -62,25 +62,26 @@ fn http_response(status: &str, announced_size: usize, body: &[u8]) -> Vec<u8> {
 fn full_download_has_exact_size_digest_and_executable_permissions() {
     let scratch = Scratch::new("complete");
     let body = b"managed-nix-fixture-complete";
-    let sha = "3d1db56e5054a3de26b72a1b9055b1ef7e1241e928599e9c13995c911a13f84d";
-    mock_http(
-        http_response("200 OK", body.len(), body),
-        |url| {
-            download(&url, &scratch.file()).expect("download must complete");
-            assert_eq!(std::fs::read(scratch.file()).unwrap(), body);
-            // A file digest must be computed from the bytes really downloaded.
-            let actual = sha256_hex(&scratch.file()).expect("sha256");
-            assert_eq!(actual.len(), 64);
-            assert!(verify_file(&scratch.file(), &actual).is_ok());
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                assert_ne!(std::fs::metadata(scratch.file()).unwrap().permissions().mode() & 0o100, 0);
-            }
-        },
-    );
-    // Deliberately avoid pinning a fixture digest without computing it.
-    assert_eq!(sha.len(), 64);
+    mock_http(http_response("200 OK", body.len(), body), |url| {
+        download(&url, &scratch.file()).expect("download must complete");
+        assert_eq!(std::fs::read(scratch.file()).unwrap(), body);
+        // A file digest must be computed from the bytes really downloaded.
+        let actual = sha256_hex(&scratch.file()).expect("sha256");
+        assert_eq!(actual.len(), 64);
+        assert!(verify_file(&scratch.file(), &actual).is_ok());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_ne!(
+                std::fs::metadata(scratch.file())
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o100,
+                0
+            );
+        }
+    });
 }
 
 #[test]
@@ -90,7 +91,9 @@ fn http_not_found_never_creates_a_finished_file() {
         assert!(download(&url, &scratch.file()).is_err());
         assert!(!scratch.file().exists());
         assert_eq!(
-            std::fs::read_dir(scratch.file().parent().unwrap()).unwrap().count(),
+            std::fs::read_dir(scratch.file().parent().unwrap())
+                .unwrap()
+                .count(),
             0,
             "failed transfer must not leave partial files"
         );
@@ -101,10 +104,18 @@ fn http_not_found_never_creates_a_finished_file() {
 fn interrupted_transfer_fails_without_partial_cache() {
     let scratch = Scratch::new("truncated");
     mock_http(http_response("200 OK", 400, b"partial"), |url| {
-        assert!(download(&url, &scratch.file()).is_err(), "incomplete body must fail");
-        assert!(!scratch.file().exists(), "incomplete download must not be published");
+        assert!(
+            download(&url, &scratch.file()).is_err(),
+            "incomplete body must fail"
+        );
+        assert!(
+            !scratch.file().exists(),
+            "incomplete download must not be published"
+        );
         assert_eq!(
-            std::fs::read_dir(scratch.file().parent().unwrap()).unwrap().count(),
+            std::fs::read_dir(scratch.file().parent().unwrap())
+                .unwrap()
+                .count(),
             0,
             "temporary .part file must be cleaned"
         );

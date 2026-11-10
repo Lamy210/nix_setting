@@ -6,12 +6,6 @@ on:
   schedule:
     - cron: "23 3 * * 1"
   workflow_dispatch:
-  pull_request:
-    branches: [main, develop]
-    paths:
-      - ".github/workflows/windows-wsl-canary.yml"
-      - "tests/fixtures/wsl-download-smoke.sh"
-      - "bootstrap-manifest.toml"
 
 permissions:
   contents: read
