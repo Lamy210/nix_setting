@@ -219,7 +219,7 @@ PY
 
   rust_check_block="$(workflow_job_block rust-check)"
   echo "$rust_check_block" | grep -q 'needs: \[rust-quality, rust-build-smoke\]'
-  echo "$rust_check_block" | grep -q 'if:.*always()'
+  echo "$rust_check_block" | grep -q 'if:.*!cancelled()'
   echo "$rust_check_block" | grep -q 'needs.rust-quality.result'
   echo "$rust_check_block" | grep -q 'needs.rust-build-smoke.result'
 }
