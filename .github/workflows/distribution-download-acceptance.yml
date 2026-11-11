@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - name: Verify failure injection for truncated/corrupted downloads
@@ -26,7 +26,7 @@ jobs:
         run: python3 tests/distribution/validate_assets.py --manifest bootstrap-manifest.toml --out distribution-report --native-help-smoke
       - name: Upload verification report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: installer-download-verification-${{ github.run_id }}
           path: distribution-report/
