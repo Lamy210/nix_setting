@@ -182,7 +182,7 @@ jobs:
         run: nix run nixpkgs#actionlint
 
       - name: shellcheck
-        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh scripts/ci/build-release-macos-cli.sh scripts/ci/build-release-linux-cli.sh scripts/ci/build-release-macos-dmg.sh scripts/ci/check-macos-portability.sh scripts/ci/attest-release-assets.sh scripts/ci/macos-managed-nix-lifecycle.sh scripts/ci/prepare-upstream-bump-branch.sh scripts/ci/ensure-installer-bump-pr.sh scripts/ci/start-managed-nix-e2e-container.sh scripts/ci/check-actions-runtime-policy.sh scripts/security/audit-node-host.sh tests/managed-nix-e2e.bats tests/install-sh.bats tests/ci-scripts.bats
+        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh scripts/ci/build-release-macos-cli.sh scripts/ci/build-release-linux-cli.sh scripts/ci/build-release-macos-dmg.sh scripts/ci/check-macos-portability.sh scripts/ci/attest-release-assets.sh scripts/ci/macos-managed-nix-lifecycle.sh scripts/ci/prepare-upstream-bump-branch.sh scripts/ci/ensure-installer-bump-pr.sh scripts/ci/start-managed-nix-e2e-container.sh scripts/ci/check-actions-runtime-policy.sh scripts/ci/install-apt-packages.sh scripts/security/audit-node-host.sh tests/managed-nix-e2e.bats tests/install-sh.bats tests/ci-scripts.bats tests/ci-apt.bats
 
       - name: statix check
         run: nix run nixpkgs#statix -- check .
@@ -389,6 +389,9 @@ jobs:
       - name: bats test (ci-scripts gate patterns)
         run: nix run nixpkgs#bats -- tests/ci-scripts.bats
 
+      - name: bats test (APT DNS recovery, fail-closed)
+        run: nix run nixpkgs#bats -- tests/ci-apt.bats
+
       # pin 済み nix-installer 実 binary との invocation contract 検証
       # (install <plan> positional / SHA256 pin / --plan long flag 不在)
       - name: bats test (managed-nix contract)
@@ -411,8 +414,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: install musl toolchain
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+      - name: install musl toolchain (bounded APT DNS retry)
+        run: bash scripts/ci/install-apt-packages.sh musl-tools
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
@@ -434,7 +437,7 @@ jobs:
 
       - name: bats test (managed-nix E2E, Docker)
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq bats
+          bash scripts/ci/install-apt-packages.sh bats
           bats tests/managed-nix-e2e.bats
 
   secret-scan:
