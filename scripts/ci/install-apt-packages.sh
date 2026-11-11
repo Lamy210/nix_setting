@@ -13,13 +13,13 @@ fi
 for attempt in 1 2 3; do
   printf 'APT dependencies (attempt %d/3): %s\n' "$attempt" "$*"
   if timeout --signal=TERM --kill-after=5s 120s \
+    sudo apt-get -o Acquire::Retries=1 \
+    -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 \
+    -o APT::Update::Error-Mode=any update -qq &&
+    timeout --signal=TERM --kill-after=5s 180s \
       sudo apt-get -o Acquire::Retries=1 \
-        -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 \
-        -o APT::Update::Error-Mode=any update -qq \
-    && timeout --signal=TERM --kill-after=5s 180s \
-      sudo apt-get -o Acquire::Retries=1 \
-        -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 \
-        install -y -qq -- "$@"; then
+      -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 \
+      install -y -qq -- "$@"; then
     echo "PASS: mandatory APT dependencies installed: $*"
     exit 0
   fi
