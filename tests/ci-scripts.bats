@@ -8,6 +8,37 @@
 
 
 
+# Prevent accidental reintroduction of deprecated Node.js 20 actions and
+# implicit Ubuntu OS migration into the always-on required CI path.
+@test "required CI pins Node.js 24 Actions and explicit Ubuntu 24.04" {
+  local workflow
+  for workflow in \
+    .github/workflows/check.yml \
+    .github/workflows/ui-visual-regression.yml \
+    .github/workflows/distribution-download-acceptance.yml \
+    .github/workflows/linux-apply-e2e.yml; do
+    [ -f "$workflow" ]
+    run grep -nE 'ubuntu-latest|actions/checkout@11d5960a326750d5838078e36cf38b85af677262|actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' "$workflow"
+    [ "$status" -ne 0 ]
+    grep -Fq 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' "$workflow"
+  done
+  grep -Fq 'runs-on: ubuntu-24.04' .github/workflows/check.yml
+  grep -Fq 'runs-on: ubuntu-24.04' .github/workflows/ui-visual-regression.yml
+  grep -Fq 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9' .github/workflows/ui-visual-regression.yml
+  grep -Fq 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9' .github/workflows/distribution-download-acceptance.yml
+}
+
+@test "Node.js 24 audit auto-discovers canary and rejects unapproved actions" {
+  audit=scripts/ci/check-actions-runtime-policy.sh
+  [ -f "$audit" ]
+  grep -Fq 'workflows=(.github/workflows/*.yml .github/workflows/*.yaml)' "$audit"
+  [ -f .github/workflows/extended-platform-compat-canary.yml ]
+  grep -Fq 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' .github/workflows/extended-platform-compat-canary.yml
+  run bash "$audit"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS:"* ]]
+}
+
 # scripts/ci/build-release-*.sh の gate logic を検証する。
 # 実 binary build は CI job が担うため、ここでは grep pattern の
 # 検出力 (false-negative / false-positive) を fixture で保証する。
@@ -188,7 +219,7 @@ PY
 
   rust_check_block="$(workflow_job_block rust-check)"
   echo "$rust_check_block" | grep -q 'needs: \[rust-quality, rust-build-smoke\]'
-  echo "$rust_check_block" | grep -q 'if:.*always()'
+  echo "$rust_check_block" | grep -q 'if:.*!cancelled()'
   echo "$rust_check_block" | grep -q 'needs.rust-quality.result'
   echo "$rust_check_block" | grep -q 'needs.rust-build-smoke.result'
 }
@@ -218,13 +249,16 @@ PY
   [ "$status" -ne 0 ]
 }
 
-@test "shadow ci-required aggregates the existing seven required contexts" {
+@test "ci-required aggregates required, macOS, and acceptance checks fail-closed" {
   ci_required_block="$(workflow_job_block ci-required)"
   [ -n "$ci_required_block" ]
-  echo "$ci_required_block" | grep -q 'if:.*always()'
-  for job in openspec-check flake-check rust-check lint bootstrap-test managed-nix-e2e release-artifact-check; do
-    echo "$ci_required_block" | grep -q "needs.$job.result"
+  echo "$ci_required_block" | grep -Fq "if: \${{ !cancelled() }}"
+  for job in macos-check openspec-check flake-check rust-check lint bootstrap-test managed-nix-e2e release-artifact-check ui-visual-acceptance distribution-download-acceptance linux-real-apply-acceptance; do
+    echo "$ci_required_block" | grep -Fq "needs.$job.result"
   done
+  echo "$ci_required_block" | grep -Fq "MACOS_CHECK: \${{ needs.macos-check.result }}"
+  echo "$ci_required_block" | grep -Fq "\"\$MACOS_CHECK\""
+  echo "$ci_required_block" | grep -Fq "if [ \"\$result\" != \"success\" ]; then"
 }
 
 # --- macOS compatibility matrix contract (add-macos-compatibility-matrix) ---
@@ -241,14 +275,17 @@ PY
   echo "$block" | grep -Fq "DEVELOPER_DIR: \${{ matrix.xcode }}"
 }
 
-@test "macos-check aggregates stable matrix fail-closed and stays out of ci-required" {
+@test "macos-check remains fail-closed and is required by ci-required" {
   macos_check="$(workflow_job_block macos-check)"
   echo "$macos_check" | grep -q 'needs: \[macos-stable\]'
-  echo "$macos_check" | grep -q 'if:.*always()'
-  echo "$macos_check" | grep -q 'needs.macos-stable.result'
+  echo "$macos_check" | grep -Fq "if: \${{ !cancelled() }}"
+  echo "$macos_check" | grep -Fq 'needs.macos-stable.result'
+  echo "$macos_check" | grep -Fq "if [ \"\$MACOS_STABLE\" != \"success\" ]; then"
   ci_required="$(workflow_job_block ci-required)"
-  run grep -q 'macos-check' <<<"$ci_required"
-  [ "$status" -ne 0 ]
+  echo "$ci_required" | grep -Fq 'needs.macos-check.result'
+  rust_check="$(workflow_job_block rust-check)"
+  echo "$rust_check" | grep -Fq "if: \${{ !cancelled() }}"
+  echo "$rust_check" | grep -Fq "if [ \"\$result\" != \"success\" ]; then"
 }
 
 @test "shipping macOS paths pin macos-26 and Xcode 26.6" {
@@ -1127,6 +1164,13 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$MOCK_CALLS"
 case "$1" in
   rm) exit 0 ;;
+  build)
+    if [ "$MOCK_MODE" = buildfail ]; then
+      echo "mock image build failed" >&2
+      exit 62
+    fi
+    exit 0
+    ;;
   run)
     if [ "$MOCK_MODE" = runfail ]; then
       echo "mock docker daemon unavailable" >&2
@@ -1139,7 +1183,7 @@ case "$1" in
     exit 127
     ;;
   inspect) echo false ;;
-  logs) echo "mock apt update failed" >&2 ;;
+  logs) echo "mock systemd boot diagnostic" >&2 ;;
   *) exit 42 ;;
 esac
 SH
@@ -1149,16 +1193,27 @@ SH
     bash "$helper" schneeforge-e2e-bats ubuntu:24.04
   [ "$status" -ne 0 ]
   [[ "$output" == *"exited before systemd became ready"* ]]
-  [[ "$output" == *"mock apt update failed"* ]]
+  [[ "$output" == *"mock systemd boot diagnostic"* ]]
+  grep -Fq "build --build-arg BASE_IMAGE=ubuntu:24.04" "$calls"
   grep -Fq "inspect --format" "$calls"
-  grep -Fq "logs --tail 120" "$calls"
+  grep -Fq "logs --tail 160" "$calls"
 
   : > "$calls"
   run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=ready \
     bash "$helper" schneeforge-e2e-bats ubuntu:24.04
   [ "$status" -eq 0 ]
+  grep -Fq "build --build-arg BASE_IMAGE=ubuntu:24.04" "$calls"
   grep -Fq "exec schneeforge-e2e-bats" "$calls"
   run grep -Fq "logs --tail" "$calls"
+  [ "$status" -ne 0 ]
+
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=buildfail \
+    bash "$helper" schneeforge-e2e-bats ubuntu:24.04
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"mock image build failed"* ]]
+  [[ "$output" == *"Could not build the disposable managed Nix systemd image"* ]]
+  run grep -Fq "run -d" "$calls"
   [ "$status" -ne 0 ]
 
   : > "$calls"

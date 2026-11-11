@@ -67,6 +67,21 @@ fn darwin_rollback_args_native(source: &EffectiveSourceRef, overrides: &[String]
     args
 }
 
+/// Path-native Linux rollback through the Home Manager CLI pinned by the
+/// current flake.lock. Home Manager switch --rollback reactivates the prior
+/// profile generation; nh home switch does not implement this flag.
+fn linux_rollback_args_native(source: &EffectiveSourceRef) -> Vec<OsString> {
+    vec![
+        OsString::from("run"),
+        OsString::from("--inputs-from"),
+        source.as_nix_arg(),
+        OsString::from("home-manager#home-manager"),
+        OsString::from("--"),
+        OsString::from("switch"),
+        OsString::from("--rollback"),
+    ]
+}
+
 fn upgrade_args_native(repo: &Path) -> Vec<OsString> {
     vec![
         OsString::from("flake"),
@@ -181,11 +196,8 @@ pub(crate) fn rollback_native(
         let args = darwin_rollback_args_native(source, &profile::override_args(repo)?);
         run_stream(&nix.path, &args)
     } else {
-        let nh = tc
-            .nh
-            .as_ref()
-            .ok_or_else(|| Error::Precondition("nh is required for Linux rollback".to_string()))?;
-        run_stream(&nh.path, &linux_rollback_args())
+        let nix = tc.require_nix()?;
+        run_stream(&nix.path, &linux_rollback_args_native(source))
     }
 }
 
@@ -203,11 +215,8 @@ pub(crate) fn rollback_captured_native(
         let args = darwin_rollback_args_native(source, &profile::override_args(repo)?);
         run_capture(&nix.path, &args)
     } else {
-        let nh = tc
-            .nh
-            .as_ref()
-            .ok_or_else(|| Error::Precondition("nh is required for Linux rollback".to_string()))?;
-        run_capture(&nh.path, &linux_rollback_args())
+        let nix = tc.require_nix()?;
+        run_capture(&nix.path, &linux_rollback_args_native(source))
     }
 }
 
@@ -347,11 +356,15 @@ fn darwin_rollback_args(repo: &str, overrides: &[String]) -> Vec<String> {
     args
 }
 
-/// Linux rollback の引数 (`nh home switch --rollback`)
-/// rollback は apply 後（nh 導入済み）の便利操作のため nh 依存を許容
-fn linux_rollback_args() -> Vec<String> {
+/// Test-only UTF-8 bridge. Operational paths use linux_rollback_args_native.
+#[cfg(test)]
+fn linux_rollback_args(repo: &str) -> Vec<String> {
     vec![
-        "home".to_string(),
+        "run".to_string(),
+        "--inputs-from".to_string(),
+        repo.to_string(),
+        "home-manager#home-manager".to_string(),
+        "--".to_string(),
         "switch".to_string(),
         "--rollback".to_string(),
     ]
@@ -368,11 +381,8 @@ pub(crate) fn rollback(target: &ConfigurationTarget, repo: &str, tc: &ToolInvent
         let args = darwin_rollback_args(repo, &profile::override_args(repo)?);
         run_stream(&nix.path, &args)
     } else {
-        let nh = tc
-            .nh
-            .as_ref()
-            .ok_or_else(|| Error::Precondition("nh is required for Linux rollback".to_string()))?;
-        run_stream(&nh.path, &linux_rollback_args())
+        let nix = tc.require_nix()?;
+        run_stream(&nix.path, &linux_rollback_args(repo))
     }
 }
 
@@ -590,10 +600,24 @@ mod tests {
     }
 
     #[test]
-    fn rollback_linux_without_nh_returns_precondition_error() {
+    fn rollback_linux_requires_nix_and_uses_pinned_home_manager_cli() {
         let target = detect_target_for("linux", "x86_64");
-        let err = rollback(&target, "/tmp/repo", &dummy_tc()).unwrap_err();
-        assert!(matches!(err, Error::Precondition(_)));
+        let mut tc = dummy_tc();
+        tc.nix = None;
+        let err = rollback(&target, "/tmp/repo", &tc).unwrap_err();
+        assert!(err.to_string().contains("nix not found"));
+        assert_eq!(
+            linux_rollback_args("/tmp/repo"),
+            vec![
+                "run",
+                "--inputs-from",
+                "/tmp/repo",
+                "home-manager#home-manager",
+                "--",
+                "switch",
+                "--rollback"
+            ]
+        );
     }
 
     #[test]

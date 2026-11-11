@@ -7,7 +7,7 @@ let setupStep = 0;
 let appUpdaterEnabled = false;
 
 function row(key, val) {
-  return `<div class="row"><span class="key">${key}</span><span class="val">${val}</span></div>`;
+  return `<div class="row"><span class="key">${escapeHtml(key)}</span><span class="val">${escapeHtml(val)}</span></div>`;
 }
 
 function actionBtn(label, onClick) {
@@ -18,7 +18,7 @@ function actionBtn(label, onClick) {
 }
 
 function errorBlock(msg) {
-  return `<p class="err">${msg}</p>`;
+  return `<p class="err">${escapeHtml(msg)}</p>`;
 }
 
 // ---------- ready view ----------
@@ -366,7 +366,7 @@ async function stepPrereq(box, actions) {
     // 崩れるため案内しない
     const statusNote =
       nixStatus && nixStatus !== "Missing"
-        ? `<br>現在の状態は ${nixStatus} です — まず修復が必要です: ${nixNextAction}`
+        ? ` 現在の状態は ${nixStatus} です — まず修復が必要です: ${nixNextAction}`
         : "";
     if (nixStatus && nixStatus !== "Missing") {
       // Missing 以外 (Broken 等) は GUI install を offering しない
@@ -389,10 +389,8 @@ async function stepPrereq(box, actions) {
   } else {
     box.innerHTML += errorBlock(
       !gitOk
-        ? "Git が見つかりません。Xcode Command Line Tools をインストールしてください:<br>" +
-            "<code>xcode-select --install</code>"
-        : "flakes が無効です。Nix 設定に追加してください:<br>" +
-            "<code>experimental-features = nix-command flakes</code>"
+        ? "Git が見つかりません。Xcode Command Line Tools をインストールしてください: xcode-select --install"
+        : "flakes が無効です。Nix 設定に experimental-features = nix-command flakes を追加してください。"
     );
     actions.appendChild(actionBtn("再確認", () => renderStep()));
   }
@@ -627,14 +625,14 @@ function stepPlan(box, actions) {
   actions.appendChild(
     actionBtn("プラン実行", async () => {
       box.textContent = "プラン実行中...";
-      const r = await invoke("run_plan");
-      if (r.success) {
-        box.innerHTML = "<p>プラン結果:</p><pre>" + (r.output || "(空)") + "</pre>";
-        actions.innerHTML = "";
+      actions.innerHTML = "";
+      try {
+        const r = await invoke("run_plan");
+        if (!r.success) throw new Error(r.output || "plan failed");
+        box.innerHTML = "<p>プラン結果:</p><pre>" + escapeHtml(r.output || "(空)") + "</pre>";
         actions.appendChild(actionBtn("次へ", next));
-      } else {
-        box.innerHTML = errorBlock(`プラン失敗: ${r.output}`);
-        actions.innerHTML = "";
+      } catch (e) {
+        box.innerHTML = errorBlock(`プラン失敗: ${e}`);
         actions.appendChild(actionBtn("再試行", () => renderStep()));
       }
     })
@@ -649,31 +647,39 @@ function stepConfirm(box, actions) {
   actions.appendChild(actionBtn("キャンセル", showReady));
 }
 
-function stepApply(box, actions) {
+async function stepApply(box, actions) {
   box.textContent = "適用中... (nix ビルドには数分かかります)";
-  invoke("run_apply").then((r) => {
-    if (r.success) {
-      box.innerHTML = "<p>適用が完了しました。</p>";
-      actions.innerHTML = "";
-      actions.appendChild(actionBtn("検証へ", next));
-    } else {
-      box.innerHTML = errorBlock(`適用に失敗しました: ${r.output}`);
-      actions.innerHTML = "";
-      actions.appendChild(actionBtn("再試行", () => renderStep()));
-    }
-  });
+  actions.innerHTML = "";
+  try {
+    const r = await invoke("run_apply");
+    if (!r.success) throw new Error(r.output || "apply failed");
+    box.innerHTML = "<p>適用が完了しました。</p>";
+    actions.appendChild(actionBtn("検証へ", next));
+  } catch (e) {
+    box.innerHTML = errorBlock(`適用に失敗しました: ${e}`);
+    actions.appendChild(actionBtn("再試行", () => renderStep()));
+  }
 }
 
 async function stepVerify(box, actions) {
   box.textContent = "検証中...";
-  const report = await invoke("run_verify");
-  const rows = report.checks.map((c) => row(c.name, c.ok ? "OK" : "NG")).join("");
-  const failed = report.checks.filter((c) => !c.ok).length;
-  box.innerHTML = "<p>検証結果:</p>" + rows + `<p>${failed === 0 ? "すべて OK" : `${failed} 件 NG`}</p>`;
   actions.innerHTML = "";
-  if (failed === 0) {
-    actions.appendChild(actionBtn("完了", showReady));
-  } else {
+  try {
+    const report = await invoke("run_verify");
+    if (!report || !Array.isArray(report.checks) || report.checks.length === 0) {
+      throw new Error("検証結果が空、または不正です");
+    }
+    const rows = report.checks.map((c) => row(c?.name ?? "不明な検査", c?.ok === true ? "OK" : "NG")).join("");
+    const failed = report.checks.filter((c) => c?.ok !== true).length;
+    box.innerHTML = "<p>検証結果:</p>" + rows +
+      `<p>${failed === 0 ? "すべて OK" : `${failed} 件 NG`}</p>`;
+    if (failed === 0) {
+      actions.appendChild(actionBtn("完了", showReady));
+    } else {
+      actions.appendChild(actionBtn("再試行", () => renderStep()));
+    }
+  } catch (e) {
+    box.innerHTML = errorBlock(`検証に失敗しました: ${e}`);
     actions.appendChild(actionBtn("再試行", () => renderStep()));
   }
 }
@@ -729,10 +735,13 @@ async function verify() {
   $("output").textContent = "検証中...";
   try {
     const report = await invoke("run_verify");
+    if (!report || !Array.isArray(report.checks) || report.checks.length === 0) {
+      throw new Error("検証結果が空、または不正です");
+    }
     const rows = report.checks
-      .map((c) => `${c.ok ? "✅" : "❌"} ${c.name}`)
+      .map((c) => `${c?.ok === true ? "✅" : "❌"} ${c?.name ?? "不明な検査"}`)
       .join("\n");
-    const failed = report.checks.filter((c) => !c.ok).length;
+    const failed = report.checks.filter((c) => c?.ok !== true).length;
     $("output").textContent = `検証結果:\n${rows}\n\n${
       failed === 0 ? "すべて OK" : `${failed} 件 NG`
     }`;
