@@ -8,6 +8,26 @@
 
 
 
+# Prevent accidental reintroduction of deprecated Node.js 20 actions and
+# implicit Ubuntu OS migration into the always-on required CI path.
+@test "required CI pins Node.js 24 Actions and explicit Ubuntu 24.04" {
+  local workflow
+  for workflow in \
+    .github/workflows/check.yml \
+    .github/workflows/ui-visual-regression.yml \
+    .github/workflows/distribution-download-acceptance.yml \
+    .github/workflows/linux-apply-e2e.yml; do
+    [ -f "$workflow" ]
+    run grep -nE 'ubuntu-latest|actions/checkout@11d5960a326750d5838078e36cf38b85af677262|actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' "$workflow"
+    [ "$status" -ne 0 ]
+    grep -Fq 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' "$workflow"
+  done
+  grep -Fq 'runs-on: ubuntu-24.04' .github/workflows/check.yml
+  grep -Fq 'runs-on: ubuntu-24.04' .github/workflows/ui-visual-regression.yml
+  grep -Fq 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9' .github/workflows/ui-visual-regression.yml
+  grep -Fq 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9' .github/workflows/distribution-download-acceptance.yml
+}
+
 # scripts/ci/build-release-*.sh の gate logic を検証する。
 # 実 binary build は CI job が担うため、ここでは grep pattern の
 # 検出力 (false-negative / false-positive) を fixture で保証する。
