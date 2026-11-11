@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 from PIL import Image, ImageChops
 from playwright.sync_api import sync_playwright
 
-SCENARIOS = ("dashboard", "first-run", "wizard-source", "wizard-machine", "wizard-plan", "wizard-confirm", "wizard-apply", "wizard-verify", "nix-confirmation", "nix-install-success", "nix-install-failure", "apply-result", "verify-result", "verify-failure", "app-updater", "app-update-result")
+SCENARIOS = ("dashboard", "first-run", "wizard-source", "wizard-machine", "wizard-plan", "wizard-confirm", "wizard-apply", "wizard-verify", "nix-confirmation", "nix-install-success", "nix-install-failure", "apply-result", "verify-result", "verify-failure", "app-updater", "app-update-result", "scan-result", "scan-failure", "plan-result", "rollback-result", "source-update-result", "upgrade-result", "profile-selected", "profile-cleared")
 VIEWPORTS = {"native-800x600": (800, 600), "wide-1100x850": (1100, 850)}
 MOCK = """
 (() => {
@@ -28,6 +28,7 @@ MOCK = """
   window.__calls = [];
   window.__failures = {};
   window.__rejections = {};
+  window.__selectedProfile = null;
   window.__listeners = {};
   window.__emit = (name, payload) => window.__listeners[name]?.({ payload });
   window.__TAURI__ = {
@@ -42,7 +43,8 @@ MOCK = """
       switch (command) {
         case "get_status": return {
           host: "ci-test-host", platform: "linux", architecture: "x86_64",
-          profile: "minimal", repo_exists: !setup, managed_source: !setup,
+          profile: window.__selectedProfile || "minimal", repo_exists: !setup,
+          managed_source: !setup && scene !== "upgrade-result",
           applied_revision: "abc1234", state_error: null,
           nix_status: { status: hasNix ? "Healthy" : "Missing", next_action: null },
           tools: { nix: { available: hasNix }, homebrew: { available: false } }
@@ -52,8 +54,18 @@ MOCK = """
           available: null, available_error: "offline fixture", update_available: false
         };
         case "get_profiles": return {
-          available: ["minimal", "developer"], default: "minimal", selected: null
+          available: ["minimal", "developer"], default: "minimal", selected: window.__selectedProfile
         };
+        case "set_profile":
+          window.__selectedProfile = args.name;
+          return { success: true, output: "profile updated" };
+        case "clear_profile":
+          window.__selectedProfile = null;
+          return { success: true, output: "profile cleared" };
+        case "run_scan": return { success: true, output: "Scan: tools detected" };
+        case "run_rollback": return { success: true, output: "Rollback: previous generation restored" };
+        case "run_update": return { success: true, output: "Source: updated successfully" };
+        case "run_upgrade": return { success: true, output: "Upgrade: flake.lock updated" };
         case "get_app_updater_capability": return {
           enabled: ["app-updater", "app-update-result"].includes(scene), reason: "test fixture"
         };
@@ -173,6 +185,49 @@ def scene(browser, url: str, name: str, viewport: tuple[int, int] = (800, 600)):
                 "document.getElementById('dash-installed').textContent === 'v0.2.0-rc.7'",
                 timeout=10000
             )
+            ready_actions = {
+                "scan-result": ("scan", "Scan: tools detected", "run_scan"),
+                "scan-failure": ("scan", "simulated scan failure", "run_scan"),
+                "plan-result": ("plan", "変更予定なし", "run_plan"),
+                "rollback-result": ("rollback", "previous generation restored", "run_rollback"),
+                "source-update-result": ("update", "Source: updated successfully", "run_update"),
+                "upgrade-result": ("upgrade", "Upgrade: flake.lock updated", "run_upgrade"),
+            }
+            if name in ready_actions:
+                button, output, command = ready_actions[name]
+                if name == "scan-failure":
+                    page.evaluate("window.__failures.run_scan = 'simulated scan failure'")
+                page.locator(f"#{button}").click()
+                page.wait_for_function(
+                    "(value) => document.getElementById('output').textContent.includes(value)",
+                    arg=output, timeout=10000
+                )
+                page.wait_for_function(
+                    "(id) => !document.getElementById(id).disabled", arg=button,
+                    timeout=10000
+                )
+                assert command in page.evaluate("window.__calls.map(c => c.command)")
+            if name in ("profile-selected", "profile-cleared"):
+                page.locator("#dash-profile-select").select_option("developer")
+                page.locator("#profile-set").click()
+                page.get_by_text(
+                    "選択は次回の「適用」から反映されます", exact=False
+                ).wait_for(timeout=10000)
+                if name == "profile-cleared":
+                    page.locator("#profile-clear").click()
+                    page.wait_for_function(
+                        "document.getElementById('profile-clear').disabled",
+                        timeout=10000
+                    )
+                    assert page.locator("#dash-profile-select").input_value() == "minimal"
+                    assert "clear_profile" in page.evaluate(
+                        "window.__calls.map(c => c.command)"
+                    )
+                else:
+                    assert page.locator("#dash-profile-select").input_value() == "developer"
+                    assert "set_profile" in page.evaluate(
+                        "window.__calls.map(c => c.command)"
+                    )
             if name == "apply-result":
                 page.locator("#apply").click()
                 page.wait_for_function(
@@ -364,6 +419,24 @@ def check_failure_scenarios(browser, url: str) -> None:
             assert not page.locator("#setup-step").inner_text().startswith("適用が完了")
         finally:
             context.close()
+
+    # A rejected operational IPC must show an error and restore the UI control.
+    context, page = scene(browser, url, "dashboard")
+    try:
+        page.evaluate(
+            "window.__rejections.run_rollback = 'simulated rollback failure'"
+        )
+        page.locator("#rollback").click()
+        page.get_by_text(
+            "ロールバック エラー: Error: simulated rollback failure",
+            exact=False
+        ).wait_for(timeout=10000)
+        page.wait_for_function(
+            "!document.getElementById('rollback').disabled", timeout=10000
+        )
+        assert "run_rollback" in page.evaluate("window.__calls.map(c => c.command)")
+    finally:
+        context.close()
 
     # Invalid and empty verification reports must also block wizard completion.
     for report, expected in (
