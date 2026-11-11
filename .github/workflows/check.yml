@@ -282,10 +282,8 @@ jobs:
 
       # Linux desktop compile gate requires WebKit/GTK headers. Keep these out of
       # rust-quality; the macOS release-artifact-check remains the full bundle gate.
-      - name: install Tauri system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: install Tauri system deps (bounded APT mirror fallback)
+        run: bash scripts/ci/install-apt-packages.sh libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev
 
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
         with:
