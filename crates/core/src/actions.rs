@@ -608,7 +608,15 @@ mod tests {
         assert!(err.to_string().contains("nix not found"));
         assert_eq!(
             linux_rollback_args("/tmp/repo"),
-            vec!["run", "--inputs-from", "/tmp/repo", "home-manager#home-manager", "--", "switch", "--rollback"]
+            vec![
+                "run",
+                "--inputs-from",
+                "/tmp/repo",
+                "home-manager#home-manager",
+                "--",
+                "switch",
+                "--rollback"
+            ]
         );
     }
 
