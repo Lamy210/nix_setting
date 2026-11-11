@@ -1271,8 +1271,25 @@ SH
   grep -Fq 'SCHNEEFORGE_CI_RUNNER_ENVIRONMENT' "$script"
   grep -Fq 'runner.environment' "$workflow"
   grep -Fq 'prepare-managed-nix-e2e-image.sh' "$workflow"
+  grep -Fq 'SCHNEEFORGE_E2E_SYSTEMD_IMAGE' "$workflow"
+  grep -Fq 'gh attestation verify' "$script"
+  grep -Fq 'signer-workflow Lamy210/nix_setting/.github/workflows/managed-nix-e2e-image.yml' "$script"
+  grep -Fq 'actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6' .github/workflows/managed-nix-e2e-image.yml
+  grep -Fq "if: github.ref == 'refs/heads/develop'" .github/workflows/managed-nix-e2e-image.yml
+  grep -Fq 'id-token: write' .github/workflows/managed-nix-e2e-image.yml
   run grep -F 'apt-get' scripts/ci/start-managed-nix-e2e-container.sh
   [ "$status" -ne 0 ]
+}
+
+@test "systemd E2E image preparation rejects self-hosted runners and mutable tags" {
+  script=scripts/ci/prepare-managed-nix-e2e-image.sh
+  run env GITHUB_ACTIONS=true SCHNEEFORGE_CI_RUNNER_ENVIRONMENT=self-hosted bash "$script"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"restricted to disposable GitHub-hosted runners"* ]]
+
+  run env GITHUB_ACTIONS=false SCHNEEFORGE_E2E_SYSTEMD_IMAGE=ghcr.io/lamy210/nix-setting-managed-nix-e2e:latest bash "$script"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"pinned by SHA256 digest"* ]]
 }
 
 
