@@ -29,6 +29,10 @@ if [[ -n $pinned_image ]]; then
     echo "ERROR: GitHub CLI required to verify container provenance" >&2
     exit 1
   }
+  if [[ -n ${GH_TOKEN:-} && -n ${GITHUB_ACTOR:-} ]]; then
+    printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+    trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
+  fi
   gh attestation verify "oci://$pinned_image" \
     --repo Lamy210/nix_setting \
     --signer-workflow Lamy210/nix_setting/.github/workflows/managed-nix-e2e-image.yml \
