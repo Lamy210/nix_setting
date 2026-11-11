@@ -15,6 +15,40 @@ if [[ ${GITHUB_ACTIONS:-} == true && ${SCHNEEFORGE_CI_RUNNER_ENVIRONMENT:-} != g
   exit 1
 fi
 
+# An approved GHCR image can be consumed by immutable digest only. Verify
+# GitHub OIDC provenance from this repository's protected manual build.
+# A tag, arbitrary repository, missing attestation or wrong signing workflow
+# MUST NOT fall back silently to an unverified container.
+pinned_image="${SCHNEEFORGE_E2E_SYSTEMD_IMAGE:-}"
+if [[ -n $pinned_image ]]; then
+  if [[ ! $pinned_image =~ ^ghcr\.io/lamy210/nix-setting-managed-nix-e2e@sha256:[a-f0-9]{64}$ ]]; then
+    echo "ERROR: GHCR test image must be the approved repository pinned by SHA256 digest" >&2
+    exit 1
+  fi
+  command -v gh >/dev/null 2>&1 || {
+    echo "ERROR: GitHub CLI required to verify container provenance" >&2
+    exit 1
+  }
+  gh attestation verify "oci://$pinned_image" \
+    --repo Lamy210/nix_setting \
+    --signer-workflow Lamy210/nix_setting/.github/workflows/managed-nix-e2e-image.yml \
+    --source-ref refs/heads/develop \
+    --deny-self-hosted-runners
+  docker pull "$pinned_image"
+  docker tag "$pinned_image" "$image"
+  docker run --rm "$image" /bin/bash -euc '
+    . /etc/os-release
+    test "$ID" = ubuntu
+    test "$VERSION_ID" = 24.04
+    test -x /sbin/init
+    dpkg-query -W -f="${Status}\n" systemd systemd-sysv | grep -c "^install ok installed$" | grep -qx 2
+    test ! -e /nix
+    command -v systemctl >/dev/null
+  '
+  echo "PASS: attested and digest-pinned GHCR systemd E2E image ready"
+  exit 0
+fi
+
 for command in curl gpg gpgv sha256sum docker awk grep; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "ERROR: missing required verification tool: $command" >&2
