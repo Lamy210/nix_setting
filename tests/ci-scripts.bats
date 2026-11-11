@@ -28,6 +28,17 @@
   grep -Fq 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9' .github/workflows/distribution-download-acceptance.yml
 }
 
+@test "Node.js 24 audit auto-discovers canary and rejects unapproved actions" {
+  audit=scripts/ci/check-actions-runtime-policy.sh
+  [ -f "$audit" ]
+  grep -Fq 'workflows=(.github/workflows/*.yml .github/workflows/*.yaml)' "$audit"
+  [ -f .github/workflows/extended-platform-compat-canary.yml ]
+  grep -Fq 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' .github/workflows/extended-platform-compat-canary.yml
+  run bash "$audit"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS:"* ]]
+}
+
 # scripts/ci/build-release-*.sh の gate logic を検証する。
 # 実 binary build は CI job が担うため、ここでは grep pattern の
 # 検出力 (false-negative / false-positive) を fixture で保証する。
