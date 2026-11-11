@@ -18,7 +18,7 @@ if [[ -r /etc/os-release && -r /usr/share/keyrings/ubuntu-archive-keyring.gpg ]]
   . /etc/os-release
   if [[ ${ID:-} == ubuntu && ${VERSION_CODENAME:-} == noble ]]; then
     fallback_sources="$(mktemp "${RUNNER_TEMP:-/tmp}/schneeforge-ubuntu-apt.XXXXXX.list")"
-    cat > "$fallback_sources" <<'SOURCES'
+    cat >"$fallback_sources" <<'SOURCES'
 deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu noble noble-updates noble-backports main restricted universe multiverse
 deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://security.ubuntu.com/ubuntu noble-security main restricted universe multiverse
 SOURCES
