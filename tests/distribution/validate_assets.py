@@ -213,7 +213,7 @@ def main() -> None:
         "### Managed Nix: 全配布対象アセットの実ダウンロード確認\n\n"
         + "| OS/CPU | バイト数 | SHA256 | 取得検証 | 実行確認 |\n|---|---:|---|---|---|\n"
         + "".join(
-            f"| {item['target']} | {item['bytes']:,} | \`{item['sha256']}\` | OK | {item['execution']} |\n"
+            f"| {item['target']} | {item['bytes']:,} | `{item['sha256']}` | OK | {item['execution']} |\n"
             for item in verified
         )
         + "\n完全取得・ハッシュ・ELF/Mach-O形式の検査です。Linux x64は指定時に--helpの実起動も検査します。"

@@ -20,6 +20,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Reject Python syntax warnings
+        run: python3 -W error::SyntaxWarning -m py_compile tests/distribution/validate_assets.py
       - name: Verify failure injection for truncated/corrupted downloads
         run: python3 tests/distribution/validate_assets.py --self-test
       - name: Download and verify complete assets for Linux x64/ARM64 and macOS ARM64
