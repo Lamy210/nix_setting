@@ -15,9 +15,9 @@ concurrency:
 
 jobs:
   openspec-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
         with:
@@ -27,9 +27,9 @@ jobs:
         run: nix run nixpkgs#openspec -- validate --all --strict --no-interactive
 
   flake-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
         with:
@@ -65,7 +65,7 @@ jobs:
     env:
       DEVELOPER_DIR: ${{ matrix.xcode }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
 
@@ -93,7 +93,7 @@ jobs:
   macos-check:
     needs: [macos-stable]
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: require stable macOS matrix
         env:
@@ -116,7 +116,7 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
 
@@ -148,9 +148,9 @@ jobs:
           ./scripts/ci/generate-release-metadata.sh v9.9.9 0123456789abcdef0123456789abcdef01234567 /tmp/rel-meta-stable.json
 
   docker-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Build Docker image
         run: docker build -t nix-sandbox .
@@ -162,9 +162,9 @@ jobs:
         run: docker run --rm -v "$PWD:/workspace" nix-sandbox "nix develop --command echo 'dev shell ready'"
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
         with:
@@ -229,9 +229,9 @@ jobs:
           echo "OK: no raw tool spawns"
 
   rust-quality:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: enforce emSign TLS advisory floors in Cargo lockfiles
         run: |
@@ -273,9 +273,9 @@ jobs:
         run: nix develop --command cargo clippy --locked -- -D warnings
 
   rust-build-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       # Linux desktop compile gate requires WebKit/GTK headers. Keep these out of
       # rust-quality; the macOS release-artifact-check remains the full bundle gate.
@@ -305,7 +305,7 @@ jobs:
   rust-check:
     needs: [rust-quality, rust-build-smoke]
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: require all Rust workers
         env:
@@ -328,7 +328,7 @@ jobs:
   windows-check:
     runs-on: windows-2025
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
 
@@ -359,9 +359,9 @@ jobs:
           .\target\debug\schneeforge.exe --help
 
   bootstrap-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
         with:
@@ -403,10 +403,10 @@ jobs:
   # の Linux asset が /nix/store interpreter 向きで exit 127)、E2E が検証する
   # binary を release artifact と同一構成に固定する。
   managed-nix-e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: install musl toolchain
         run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
@@ -435,9 +435,9 @@ jobs:
           bats tests/managed-nix-e2e.bats
 
   secret-scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
 
@@ -456,9 +456,9 @@ jobs:
             -not -path './apps/desktop/src-tauri/icons/*' | grep .
 
   devshell-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
         with:
@@ -478,12 +478,12 @@ jobs:
           nix develop .#rust --command bash -c 'command -v rustc && rustc --version && command -v cargo && cargo --version'
 
   template-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         template: [devenv, node, python, rust, flutter]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
         with:
@@ -538,7 +538,7 @@ jobs:
       - distribution-download-acceptance
       - linux-real-apply-acceptance
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: require all current required checks
         env:
