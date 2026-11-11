@@ -1173,7 +1173,7 @@ ROWS
 # The managed Nix full lifecycle gate must distinguish container provisioning
 # errors from real Nix lifecycle failures and must not idle for 300 seconds
 # after the disposable container exits.
-@test "managed Nix E2E startup fails fast with container diagnostics" {
+@test "managed Nix E2E requires verified image and reports boot failures" {
   fixture="$(mktemp -d)"
   mkdir -p "$fixture/bin"
   helper="$PWD/scripts/ci/start-managed-nix-e2e-container.sh"
@@ -1185,12 +1185,11 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$MOCK_CALLS"
 case "$1" in
   rm) exit 0 ;;
-  build)
-    if [ "$MOCK_MODE" = buildfail ]; then
-      echo "mock image build failed" >&2
-      exit 62
+  image)
+    if [ "$MOCK_MODE" = missing ]; then
+      exit 1
     fi
-    exit 0
+    echo "sha256:mock-verified-image"
     ;;
   run)
     if [ "$MOCK_MODE" = runfail ]; then
@@ -1210,31 +1209,31 @@ esac
 SH
   chmod +x "$fixture/bin/docker"
 
+  run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=missing \
+    bash "$helper" schneeforge-e2e-bats ubuntu:24.04
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Verified Canonical systemd image not prepared"* ]]
+  run grep -Fq 'run -d' "$calls"
+  [ "$status" -ne 0 ]
+
+  : > "$calls"
   run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=exited \
     bash "$helper" schneeforge-e2e-bats ubuntu:24.04
   [ "$status" -ne 0 ]
   [[ "$output" == *"exited before systemd became ready"* ]]
   [[ "$output" == *"mock systemd boot diagnostic"* ]]
-  grep -Fq "build --build-arg BASE_IMAGE=ubuntu:24.04" "$calls"
-  grep -Fq "inspect --format" "$calls"
-  grep -Fq "logs --tail 160" "$calls"
+  grep -Fq 'image inspect --format' "$calls"
+  grep -Fq 'run -d --privileged' "$calls"
+  grep -Fq 'inspect --format' "$calls"
+  grep -Fq 'logs --tail 160' "$calls"
 
   : > "$calls"
   run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=ready \
     bash "$helper" schneeforge-e2e-bats ubuntu:24.04
   [ "$status" -eq 0 ]
-  grep -Fq "build --build-arg BASE_IMAGE=ubuntu:24.04" "$calls"
-  grep -Fq "exec schneeforge-e2e-bats" "$calls"
-  run grep -Fq "logs --tail" "$calls"
-  [ "$status" -ne 0 ]
-
-  : > "$calls"
-  run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=buildfail \
-    bash "$helper" schneeforge-e2e-bats ubuntu:24.04
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"mock image build failed"* ]]
-  [[ "$output" == *"Could not build the disposable managed Nix systemd image"* ]]
-  run grep -Fq "run -d" "$calls"
+  grep -Fq 'image inspect --format' "$calls"
+  grep -Fq 'exec schneeforge-e2e-bats' "$calls"
+  run grep -Fq 'logs --tail' "$calls"
   [ "$status" -ne 0 ]
 
   : > "$calls"
@@ -1245,11 +1244,37 @@ SH
   [[ "$output" == *"Could not start managed Nix E2E container"* ]]
 
   : > "$calls"
+  run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=ready \
+    bash "$helper" schneeforge-e2e-bats ubuntu:22.04
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"requires Ubuntu 24.04"* ]]
+  run grep -Fq 'run -d' "$calls"
+  [ "$status" -ne 0 ]
+
+  : > "$calls"
   run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=ready bash "$helper"
   [ "$status" -eq 2 ]
   [ ! -s "$calls" ]
   rm -rf "$fixture"
 }
+
+@test "Canonical cloud image preparation is signed, pinned and fails closed" {
+  script=scripts/ci/prepare-managed-nix-e2e-image.sh
+  workflow=.github/workflows/check.yml
+  grep -Fq 'release-20261027' "$script"
+  grep -Fq 'D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81' "$script"
+  grep -Fq 'SHA256SUMS.gpg' "$script"
+  grep -Fq 'gpgv --status-fd' "$script"
+  grep -Fq 'sha256sum --check --status' "$script"
+  grep -Fq 'docker import' "$script"
+  grep -Fq 'test ! -e /nix' "$script"
+  grep -Fq 'SCHNEEFORGE_CI_RUNNER_ENVIRONMENT' "$script"
+  grep -Fq 'runner.environment' "$workflow"
+  grep -Fq 'prepare-managed-nix-e2e-image.sh' "$workflow"
+  run grep -F 'apt-get' scripts/ci/start-managed-nix-e2e-container.sh
+  [ "$status" -ne 0 ]
+}
+
 
 # --- Node host read-only audit: fail-closed error handling (#275 / #304) ---
 
