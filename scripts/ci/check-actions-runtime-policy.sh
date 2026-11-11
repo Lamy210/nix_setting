@@ -36,7 +36,7 @@ for workflow in "${workflows[@]}"; do
     exit 1
   fi
   while IFS= read -r line; do
-    if [[ "$line" =~ uses:[[:space:]]+([^[:space:]#]+) ]]; then
+    if [[ $line =~ uses:[[:space:]]+([^[:space:]#]+) ]]; then
       ref="${BASH_REMATCH[1]}"
     else
       echo "ERROR: cannot parse action reference: $line" >&2
@@ -44,12 +44,12 @@ for workflow in "${workflows[@]}"; do
     fi
     approved=false
     for known in "${approved_refs[@]}"; do
-      if [[ "$ref" == "$known" ]]; then
+      if [[ $ref == "$known" ]]; then
         approved=true
         break
       fi
     done
-    if [[ "$approved" != true ]]; then
+    if [[ $approved != true ]]; then
       echo "ERROR: unapproved action version or Node.js runtime in $workflow: $ref" >&2
       exit 1
     fi
