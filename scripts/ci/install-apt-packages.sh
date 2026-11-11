@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Install mandatory CI dependencies without treating transient APT DNS outages
-# as a product failure. Exhausted retries are fatal: never skip an E2E gate.
+# Install mandatory CI dependencies. Transient mirror/DNS failure may recover,
+# but exhausted retries MUST fail the job (no skipped E2E or hidden failures).
 set -euo pipefail
 
 if (($# == 0)); then
@@ -8,17 +8,47 @@ if (($# == 0)); then
   exit 2
 fi
 
-# Keep individual attempts bounded. APT sometimes stalls while resolving
-# azure.archive.ubuntu.com on GitHub-hosted ubuntu-24.04 runners.
+# On the disposable Ubuntu 24.04 x64 runner, the Azure mirror can hang while
+# the official Ubuntu archives remain reachable. Use an isolated sources list
+# after the first failure rather than modifying the runner's system APT config.
+# This retains Ubuntu archive signature verification via the trusted keyring.
+fallback_sources=""
+if [[ -r /etc/os-release && -r /usr/share/keyrings/ubuntu-archive-keyring.gpg ]]; then
+  # shellcheck source=/dev/null
+  . /etc/os-release
+  if [[ ${ID:-} == ubuntu && ${VERSION_CODENAME:-} == noble ]]; then
+    fallback_sources="$(mktemp "${RUNNER_TEMP:-/tmp}/schneeforge-ubuntu-apt.XXXXXX.list")"
+    cat > "$fallback_sources" <<'SOURCES'
+deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu noble noble-updates noble-backports main restricted universe multiverse
+deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://security.ubuntu.com/ubuntu noble-security main restricted universe multiverse
+SOURCES
+    trap 'rm -f -- "$fallback_sources"' EXIT
+  fi
+fi
+
+apt_opts=(
+  -o Acquire::Retries=1
+  -o Acquire::http::Timeout=15
+  -o Acquire::https::Timeout=15
+)
+
 for attempt in 1 2 3; do
-  printf 'APT dependencies (attempt %d/3): %s\n' "$attempt" "$*"
-  if timeout --signal=TERM --kill-after=5s 120s \
-    sudo apt-get -o Acquire::Retries=1 \
-    -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 \
+  sources=()
+  if ((attempt > 1)) && [[ -n $fallback_sources ]]; then
+    sources=(
+      -o "Dir::Etc::sourcelist=$fallback_sources"
+      -o Dir::Etc::sourceparts=-
+    )
+    echo "APT retry $attempt/3: using signed official Ubuntu archives (temporary sources file)"
+  else
+    echo "APT dependencies attempt $attempt/3: runner image configured mirrors"
+  fi
+
+  if timeout --signal=TERM --kill-after=5s 75s \
+    sudo apt-get "${apt_opts[@]}" "${sources[@]}" \
     -o APT::Update::Error-Mode=any update -qq &&
-    timeout --signal=TERM --kill-after=5s 180s \
-      sudo apt-get -o Acquire::Retries=1 \
-      -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 \
+    timeout --signal=TERM --kill-after=5s 135s \
+      sudo apt-get "${apt_opts[@]}" "${sources[@]}" \
       install -y -qq -- "$@"; then
     echo "PASS: mandatory APT dependencies installed: $*"
     exit 0
