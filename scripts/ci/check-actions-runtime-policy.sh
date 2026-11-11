@@ -1,23 +1,15 @@
 #!/usr/bin/env bash
-# Audit workflows changed by PR #316. Workflows added only to develop after
-# this branch was created are outside this PR's tree and need a separate update.
+# Audit every workflow in this checkout, including newly added canary jobs.
+# Pin to reviewed Node.js 24 action SHAs; do not silently ignore new files.
 set -euo pipefail
 
-workflows=(
-  .github/workflows/check.yml
-  .github/workflows/distribution-download-acceptance.yml
-  .github/workflows/linux-apply-e2e.yml
-  .github/workflows/macos-managed-nix-lifecycle.yml
-  .github/workflows/macos-preview-canary.yml
-  .github/workflows/managed-nix-bump-acceptance.yml
-  .github/workflows/pr-close-cancel.yml
-  .github/workflows/release.yml
-  .github/workflows/ui-visual-regression.yml
-  .github/workflows/update.yml
-  .github/workflows/upstream-nix-installer.yml
-  .github/workflows/weekly.yml
-  .github/workflows/windows-wsl-canary.yml
-)
+shopt -s nullglob
+workflows=(.github/workflows/*.yml .github/workflows/*.yaml)
+if (("${#workflows[@]}" == 0)); then
+  echo "ERROR: no workflow files found" >&2
+  exit 1
+fi
+
 approved_refs=(
   actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
   actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -56,4 +48,4 @@ for workflow in "${workflows[@]}"; do
   done < <(grep -E '^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]+(actions/(checkout|upload-artifact|download-artifact)|softprops/action-gh-release)@' "$workflow" || true)
 done
 
-echo 'PASS: reviewed workflows use SHA-pinned Node.js 24 actions and Ubuntu 24.04'
+printf 'PASS: %s workflows use approved SHA-pinned Actions and no floating ubuntu-latest runner\n' "${#workflows[@]}"
