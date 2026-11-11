@@ -68,8 +68,9 @@ teardown() {
     bash scripts/ci/install-apt-packages.sh musl-tools
   [ "$status" -ne 0 ]
   [ "$(grep -c ' update -qq' "$APT_TEST_LOG")" -eq 3 ]
-  ! grep -Fq ' install -y -qq -- ' "$APT_TEST_LOG"
   [[ "$output" == *"ERROR: mandatory APT dependencies unavailable"* ]]
+  run grep -Fq ' install -y -qq -- ' "$APT_TEST_LOG"
+  [ "$status" -ne 0 ]
 }
 
 @test "APT installer requires at least one package" {
