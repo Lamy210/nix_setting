@@ -252,13 +252,13 @@ PY
 @test "ci-required aggregates required, macOS, and acceptance checks fail-closed" {
   ci_required_block="$(workflow_job_block ci-required)"
   [ -n "$ci_required_block" ]
-  echo "$ci_required_block" | grep -Fq 'if: ${{ !cancelled() }}'
+  echo "$ci_required_block" | grep -Fq "if: \${{ !cancelled() }}"
   for job in macos-check openspec-check flake-check rust-check lint bootstrap-test managed-nix-e2e release-artifact-check ui-visual-acceptance distribution-download-acceptance linux-real-apply-acceptance; do
     echo "$ci_required_block" | grep -Fq "needs.$job.result"
   done
-  echo "$ci_required_block" | grep -Fq 'MACOS_CHECK: ${{ needs.macos-check.result }}'
-  echo "$ci_required_block" | grep -Fq '"$MACOS_CHECK"'
-  echo "$ci_required_block" | grep -Fq 'if [ "$result" != "success" ]; then'
+  echo "$ci_required_block" | grep -Fq "MACOS_CHECK: \${{ needs.macos-check.result }}"
+  echo "$ci_required_block" | grep -Fq "\"\$MACOS_CHECK\""
+  echo "$ci_required_block" | grep -Fq "if [ \"\$result\" != \"success\" ]; then"
 }
 
 # --- macOS compatibility matrix contract (add-macos-compatibility-matrix) ---
@@ -278,14 +278,14 @@ PY
 @test "macos-check remains fail-closed and is required by ci-required" {
   macos_check="$(workflow_job_block macos-check)"
   echo "$macos_check" | grep -q 'needs: \[macos-stable\]'
-  echo "$macos_check" | grep -Fq 'if: ${{ !cancelled() }}'
+  echo "$macos_check" | grep -Fq "if: \${{ !cancelled() }}"
   echo "$macos_check" | grep -Fq 'needs.macos-stable.result'
-  echo "$macos_check" | grep -Fq 'if [ "$MACOS_STABLE" != "success" ]; then'
+  echo "$macos_check" | grep -Fq "if [ \"\$MACOS_STABLE\" != \"success\" ]; then"
   ci_required="$(workflow_job_block ci-required)"
   echo "$ci_required" | grep -Fq 'needs.macos-check.result'
   rust_check="$(workflow_job_block rust-check)"
-  echo "$rust_check" | grep -Fq 'if: ${{ !cancelled() }}'
-  echo "$rust_check" | grep -Fq 'if [ "$result" != "success" ]; then'
+  echo "$rust_check" | grep -Fq "if: \${{ !cancelled() }}"
+  echo "$rust_check" | grep -Fq "if [ \"\$result\" != \"success\" ]; then"
 }
 
 @test "shipping macOS paths pin macos-26 and Xcode 26.6" {
