@@ -45,7 +45,7 @@
   grep -Fq 'nix shell --inputs-from . nixpkgs#bats --command bats tests/managed-nix-e2e.bats' .github/workflows/check.yml
   grep -Fq 'musl-gcc is required for the static release build' scripts/ci/build-release-linux-cli.sh
   [ -x scripts/ci/build-release-linux-cli.sh ]
-  grep -Fq 'readelf -l "$BIN"' scripts/ci/build-release-linux-cli.sh
+  grep -Fq "readelf -l \"\$BIN\"" scripts/ci/build-release-linux-cli.sh
   run grep -F 'apt-get' .github/workflows/check.yml
   [ "$status" -ne 0 ]
 }
