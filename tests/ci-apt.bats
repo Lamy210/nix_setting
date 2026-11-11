@@ -16,6 +16,19 @@ case "${APT_TEST_FAILURE:-}" in
   always)
     exit 100
     ;;
+  mirror_unavailable)
+    if [[ "$*" != *"Dir::Etc::sourcelist="* ]]; then
+      exit 100
+    fi
+    for arg in "$@"; do
+      if [[ "$arg" == Dir::Etc::sourcelist=* ]]; then
+        sources="${arg#*=}"
+        grep -Fq 'signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg' "$sources" || exit 90
+        grep -Fq 'https://archive.ubuntu.com/ubuntu noble' "$sources" || exit 91
+        grep -Fq 'https://security.ubuntu.com/ubuntu noble-security' "$sources" || exit 92
+      fi
+    done
+    ;;
   update_once)
     if [[ "$*" == *" update -qq" ]]; then
       count="$(grep -c ' update -qq' "$APT_TEST_LOG")"
@@ -61,6 +74,16 @@ teardown() {
   [ "$status" -eq 0 ]
   [ "$(grep -c ' update -qq' "$APT_TEST_LOG")" -eq 2 ]
   [ "$(grep -c ' install -y -qq -- ' "$APT_TEST_LOG")" -eq 2 ]
+}
+
+@test "unavailable runner mirror switches to signed Ubuntu archives without bypass" {
+  run env PATH="$APT_TEST_TEMP:$PATH" APT_TEST_FAILURE=mirror_unavailable \
+    bash scripts/ci/install-apt-packages.sh musl-tools
+  [ "$status" -eq 0 ]
+  [ "$(grep -c ' update -qq' "$APT_TEST_LOG")" -eq 2 ]
+  grep -Fq 'Dir::Etc::sourcelist=' "$APT_TEST_LOG"
+  grep -Fq 'Dir::Etc::sourceparts=-' "$APT_TEST_LOG"
+  [[ "$output" == *"using signed official Ubuntu archives"* ]]
 }
 
 @test "permanent APT failures remain fatal after three attempts" {
