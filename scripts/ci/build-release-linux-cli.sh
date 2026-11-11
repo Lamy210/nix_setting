@@ -9,7 +9,7 @@ if ! command -v musl-gcc >/dev/null; then
   exit 1
 fi
 
-cargo build --release -p schneeforge --target x86_64-unknown-linux-musl
+cargo build --locked --release -p schneeforge --target x86_64-unknown-linux-musl
 
 BIN="target/x86_64-unknown-linux-musl/release/schneeforge"
 "$BIN" --version

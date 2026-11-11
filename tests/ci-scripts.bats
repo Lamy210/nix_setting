@@ -44,6 +44,7 @@
   grep -Fq 'nix shell --inputs-from . nixpkgs#musl.dev --command ./scripts/ci/build-release-linux-cli.sh' .github/workflows/release.yml
   grep -Fq 'nix shell --inputs-from . nixpkgs#bats --command bats tests/managed-nix-e2e.bats' .github/workflows/check.yml
   grep -Fq 'musl-gcc is required for the static release build' scripts/ci/build-release-linux-cli.sh
+  grep -Fq 'cargo build --locked --release -p schneeforge' scripts/ci/build-release-linux-cli.sh
   [ -x scripts/ci/build-release-linux-cli.sh ]
   grep -Fq "readelf -l \"\$BIN\"" scripts/ci/build-release-linux-cli.sh
   run grep -F 'apt-get' .github/workflows/check.yml
@@ -192,7 +193,7 @@ PY
 @test "critical Cargo build/test/check/clippy gates must reject lockfile mutation" {
   workflow=.github/workflows/check.yml
   # Only executable Cargo invocations are scanned: comments and step labels are excluded.
-  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
+  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop( \.[^[:space:]]+)? --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
   matching_count="$(grep -Ec "$pattern" "$workflow")"
   [ "$matching_count" -ge 11 ]
   run bash -c 'grep -E "$1" "$2" | grep -v -- "--locked"' _ "$pattern" "$workflow"
@@ -206,10 +207,20 @@ PY
   grep -qF 'cargo check --locked --release --manifest-path apps/desktop/src-tauri/Cargo.toml' .github/workflows/check.yml
 }
 
+@test "unlocked Cargo command inside named Nix devShell is rejected" {
+  tmp="$(mktemp)"
+  printf 'run: nix develop .#schneeforge-desktop --command cargo check --release\n' > "$tmp"
+  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop( \\.[^[:space:]]+)? --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
+  run bash -c 'grep -E "$1" "$2" | grep -v -- "--locked"' _ "$pattern" "$tmp"
+  rm -f -- "$tmp"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"cargo check --release"* ]]
+}
+
 @test "unlocked Cargo invocation is detected by the CI contract rule" {
   tmp="$(mktemp)"
   printf 'run: cargo test --locked\nrun: cargo build --release -p schneeforge\n' > "$tmp"
-  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
+  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop( \.[^[:space:]]+)? --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
   run bash -c 'grep -E "$1" "$2" | grep -v -- "--locked"' _ "$pattern" "$tmp"
   rm -f "$tmp"
   [ "$status" -eq 0 ]
