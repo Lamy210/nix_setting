@@ -21,4 +21,4 @@ UI変更PRでは、PRベースコミットとHEADを同じLinux Chromiumで描�
 
 Playwright 1.64.1／Pillow 13.0.0を固定し、同じジョブで両コミットの画面を撮ります。画面サイズ、表示言語、フォント環境、モック応答を固定し、127.0.0.1以外への通信を拒否します。GitHub-hosted runnerと `contents:read` 権限だけを使います。`check.yml`から常時呼び出す再利用可能ワークフローであり、個別ワークフローのpathフィルターでCIの必須判定を迂回しません。
 
-実HTTPダウンロードの障害注入とLinux実適用E2Eは別のCIジョブで実施します。一方、TauriネイティブE2E、macOS/WSL2の実インストール・実適用、Home Manager世代ロールバックは未検証です。実機受入の完了とは区別してください。
+実HTTPダウンロードの障害注入とLinux実適用E2Eは別のCIジョブで実施します。Linux x86_64の使い捨てGitHub-hosted runnerでは、SchneeForge CLIによる設定A→B→AのHome Manager世代・管理ファイル復旧を別E2Eで検証します。最新HEADのCIが成功した場合のみ実証完了と判断します。一方、TauriネイティブE2E、macOS/WSL2の実インストール・実適用、リリース配布環境の復旧は依然として未検証です。実機受入の完了とは区別してください。
