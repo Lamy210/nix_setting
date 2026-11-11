@@ -13,7 +13,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: x86_64-unknown-linux-musl
             artifact: schneeforge-x86_64-linux
           - os: macos-26
@@ -22,7 +22,7 @@ jobs:
             xcode: /Applications/Xcode_26.6.app/Contents/Developer
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       # --- Linux (musl static) ---
       # `nix build` 産 binary は ELF interpreter が /nix/store/... 向きになり、
@@ -90,7 +90,7 @@ jobs:
           "dist/${{ matrix.artifact }}" --version
 
       - name: upload binary
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.artifact }}
@@ -116,7 +116,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
 
@@ -144,14 +144,14 @@ jobs:
         run: ./scripts/ci/build-release-macos-dmg.sh
 
       - name: upload DMG
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: schneeforge-dmg
           path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
 
       - name: upload signed updater artifacts
         if: ${{ env.SCHNEEFORGE_UPDATER_ACTIVATED == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: schneeforge-updater
           path: |
@@ -161,7 +161,7 @@ jobs:
 
   release:
     needs: [build-binaries, build-dmg]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       SCHNEEFORGE_UPDATER_ACTIVATED: ${{ vars.SCHNEEFORGE_UPDATER_ACTIVATED || 'false' }}
     # job level で上書き: attestation に必要な OIDC (id-token) と
@@ -174,14 +174,14 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
       - name: download binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           path: dist
 
