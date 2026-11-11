@@ -29,6 +29,32 @@ nix --version
 "$SF" profile show
 "$SF" plan
 
+# Home Manager links ~/.gitconfig to the read-only Nix store. The checkout
+# post-job hook copies that file into a temporary git config and then tries to
+# add safe.directory. Preserve the runner's original file for post-job cleanup.
+# This is safe only on the guarded, disposable GitHub-hosted runner.
+git_config_backup="$(mktemp "${RUNNER_TEMP:-/tmp}/schneeforge-gitconfig.XXXXXXXX")"
+git_config_existed=false
+if [[ -e "$HOME/.gitconfig" ]]; then
+  cp -L -- "$HOME/.gitconfig" "$git_config_backup"
+  git_config_existed=true
+fi
+
+restore_runner_git_config() {
+  local prior_status=$?
+  trap - EXIT
+  if [[ -e "$HOME/.gitconfig" || -L "$HOME/.gitconfig" ]]; then
+    rm -f -- "$HOME/.gitconfig" || return 1
+  fi
+  if [[ $git_config_existed == true ]]; then
+    install -m 600 -- "$git_config_backup" "$HOME/.gitconfig" || return 1
+  fi
+  rm -f -- "$git_config_backup"
+  echo "Restored runner .gitconfig for checkout post-job cleanup"
+  return "$prior_status"
+}
+trap restore_runner_git_config EXIT
+
 echo "=== Real minimal Home Manager apply ==="
 "$SF" apply
 
