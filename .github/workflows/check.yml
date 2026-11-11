@@ -182,7 +182,7 @@ jobs:
         run: nix run nixpkgs#actionlint
 
       - name: shellcheck
-        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh scripts/ci/build-release-macos-cli.sh scripts/ci/build-release-linux-cli.sh scripts/ci/build-release-macos-dmg.sh scripts/ci/check-macos-portability.sh scripts/ci/attest-release-assets.sh scripts/ci/macos-managed-nix-lifecycle.sh scripts/ci/prepare-upstream-bump-branch.sh scripts/ci/ensure-installer-bump-pr.sh scripts/ci/start-managed-nix-e2e-container.sh scripts/ci/check-actions-runtime-policy.sh scripts/security/audit-node-host.sh tests/managed-nix-e2e.bats tests/install-sh.bats tests/ci-scripts.bats
+        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh scripts/ci/build-release-macos-cli.sh scripts/ci/build-release-linux-cli.sh scripts/ci/build-release-macos-dmg.sh scripts/ci/check-macos-portability.sh scripts/ci/attest-release-assets.sh scripts/ci/macos-managed-nix-lifecycle.sh scripts/ci/prepare-upstream-bump-branch.sh scripts/ci/ensure-installer-bump-pr.sh scripts/ci/start-managed-nix-e2e-container.sh scripts/ci/prepare-managed-nix-e2e-image.sh scripts/ci/check-actions-runtime-policy.sh scripts/security/audit-node-host.sh tests/managed-nix-e2e.bats tests/install-sh.bats tests/ci-scripts.bats
 
       - name: statix check
         run: nix run nixpkgs#statix -- check .
@@ -430,6 +430,13 @@ jobs:
         run: |
           mkdir -p target/release
           cp target/x86_64-unknown-linux-musl/release/schneeforge target/release/schneeforge
+
+      # Keep privileged lifecycle operations entirely inside a disposable
+      # GitHub-hosted runner and its verified Ubuntu 24.04 Docker container.
+      - name: prepare Canonical-signed Ubuntu systemd image (APT-free)
+        env:
+          SCHNEEFORGE_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: bash scripts/ci/prepare-managed-nix-e2e-image.sh
 
       - name: bats test (managed-nix E2E, Docker)
         run: nix shell --inputs-from . nixpkgs#bats --command bats tests/managed-nix-e2e.bats
