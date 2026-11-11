@@ -131,7 +131,7 @@ PY
 test -f "$HOME/.schneeforge-rollback-probe"
 grep -Fxq generation-B "$HOME/.schneeforge-rollback-probe"
 generation_b="$(readlink -f "$hm_profile")"
-[[ "$generation_b" != "$generation_a" ]] || {
+[[ $generation_b != "$generation_a" ]] || {
   echo "ERROR: B did not create a distinct Home Manager generation" >&2
   exit 1
 }
@@ -141,7 +141,7 @@ echo "B generation: $generation_b"
 cp -- "$profile_source_backup" "$GITHUB_WORKSPACE/profiles/minimal.nix"
 "$SF" rollback
 generation_after_rollback="$(readlink -f "$hm_profile")"
-[[ "$generation_after_rollback" == "$generation_a" ]] || {
+[[ $generation_after_rollback == "$generation_a" ]] || {
   echo "ERROR: rollback selected the wrong Home Manager generation" >&2
   exit 1
 }
@@ -152,4 +152,3 @@ test ! -e "$HOME/.schneeforge-rollback-probe" || {
 cmp "$HOME/.gitconfig" "$GITHUB_WORKSPACE/config/git/gitconfig"
 "$SF" verify
 echo "PASS: A -> B -> A Home Manager generation, managed-file rollback, and verify"
-
