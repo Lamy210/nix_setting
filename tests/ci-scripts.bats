@@ -210,7 +210,7 @@ PY
 @test "unlocked Cargo command inside named Nix devShell is rejected" {
   tmp="$(mktemp)"
   printf 'run: nix develop .#schneeforge-desktop --command cargo check --release\n' > "$tmp"
-  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop( \\.[^[:space:]]+)? --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
+  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop( \.[^[:space:]]+)? --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
   run bash -c 'grep -E "$1" "$2" | grep -v -- "--locked"' _ "$pattern" "$tmp"
   rm -f -- "$tmp"
   [ "$status" -eq 0 ]
