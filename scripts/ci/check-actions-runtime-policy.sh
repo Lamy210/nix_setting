@@ -27,7 +27,7 @@ approved_refs=(
 )
 
 for workflow in "${workflows[@]}"; do
-  if [[ ! -f "$workflow" ]]; then
+  if [[ ! -f $workflow ]]; then
     echo "ERROR: expected workflow is missing: $workflow" >&2
     exit 1
   fi
