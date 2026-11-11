@@ -433,9 +433,11 @@ jobs:
 
       # Keep privileged lifecycle operations entirely inside a disposable
       # GitHub-hosted runner and its verified Ubuntu 24.04 Docker container.
-      - name: prepare Canonical-signed Ubuntu systemd image (APT-free)
+      - name: prepare verified Ubuntu systemd image (APT-free)
         env:
           SCHNEEFORGE_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          SCHNEEFORGE_E2E_SYSTEMD_IMAGE: ${{ vars.SCHNEEFORGE_E2E_SYSTEMD_IMAGE }}
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/prepare-managed-nix-e2e-image.sh
 
       - name: bats test (managed-nix E2E, Docker)
