@@ -96,6 +96,15 @@ teardown() {
   [ "$status" -ne 0 ]
 }
 
+@test "CI and release share the mandatory APT installer" {
+  grep -Fq 'bash scripts/ci/install-apt-packages.sh musl-tools' .github/workflows/check.yml
+  grep -Fq 'bash scripts/ci/install-apt-packages.sh musl-tools' .github/workflows/release.yml
+  grep -Fq 'bash scripts/ci/install-apt-packages.sh bats' .github/workflows/check.yml
+  grep -Fq 'bash scripts/ci/install-apt-packages.sh libwebkit2gtk-4.1-dev' .github/workflows/check.yml
+  run grep -F 'sudo apt-get install' .github/workflows/check.yml
+  [ "$status" -ne 0 ]
+}
+
 @test "APT installer requires at least one package" {
   run env PATH="$APT_TEST_TEMP:$PATH" bash scripts/ci/install-apt-packages.sh
   [ "$status" -eq 2 ]
