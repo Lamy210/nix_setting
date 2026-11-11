@@ -25,7 +25,7 @@ _: {
         pname = "schneeforge-desktop";
         version = "0.2.0-rc.7";
         src = ../..;
-        cargoHash = "sha256-7+VTcjt7+N0NRW0/dSj01VqYSksCXDi89wMPVo8pyn4=";
+        cargoHash = "sha256-zLLZ0KbzJotVgRihvB3KsQt+ihr5ix4LpriMHuUkL+o=";
         nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [
           pkgs.pkg-config
         ];
