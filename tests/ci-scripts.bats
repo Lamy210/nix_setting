@@ -39,6 +39,16 @@
   [[ "$output" == *"PASS:"* ]]
 }
 
+@test "Linux release and E2E use identical flake-locked musl toolchain" {
+  grep -Fq 'nix shell --inputs-from . nixpkgs#musl.dev --command ./scripts/ci/build-release-linux-cli.sh' .github/workflows/check.yml
+  grep -Fq 'nix shell --inputs-from . nixpkgs#musl.dev --command ./scripts/ci/build-release-linux-cli.sh' .github/workflows/release.yml
+  grep -Fq 'nix shell --inputs-from . nixpkgs#bats --command bats tests/managed-nix-e2e.bats' .github/workflows/check.yml
+  grep -Fq 'musl-gcc is required for the static release build' scripts/ci/build-release-linux-cli.sh
+  grep -Fq 'readelf -l "$BIN"' scripts/ci/build-release-linux-cli.sh
+  run grep -F 'apt-get' .github/workflows/check.yml
+  [ "$status" -ne 0 ]
+}
+
 # scripts/ci/build-release-*.sh の gate logic を検証する。
 # 実 binary build は CI job が担うため、ここでは grep pattern の
 # 検出力 (false-negative / false-positive) を fixture で保証する。
@@ -224,17 +234,16 @@ PY
   echo "$rust_check_block" | grep -q 'needs.rust-build-smoke.result'
 }
 
-@test "build smoke owns Tauri deps and uses desktop compile gate" {
-  workflow=.github/workflows/check.yml
-  [ "$(grep -c 'libwebkit2gtk-4.1-dev' "$workflow")" -eq 1 ]
+@test "build smoke uses locked Nix desktop dependencies and checks compilation" {
   build_block="$(workflow_job_block rust-build-smoke)"
   quality_block="$(workflow_job_block rust-quality)"
-  echo "$build_block" | grep -q 'libwebkit2gtk-4.1-dev'
-  echo "$build_block" | grep -q 'cargo build --locked --release -p schneeforge'
-  echo "$build_block" | grep -q 'cargo check --locked --release --manifest-path apps/desktop/src-tauri/Cargo.toml'
+  echo "$build_block" | grep -Fq 'nix develop .#schneeforge-desktop --command cargo check --locked --release'
+  echo "$build_block" | grep -Fq 'cargo build --locked --release -p schneeforge'
+  grep -Fq 'webkitgtk_4_1' modules/flake-parts/packages.nix
+  grep -Fq 'libayatana-appindicator' modules/flake-parts/packages.nix
   run grep -q 'cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml' <<<"$build_block"
   [ "$status" -ne 0 ]
-  run grep -q 'libwebkit2gtk-4.1-dev' <<<"$quality_block"
+  run grep -q 'cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml' <<<"$quality_block"
   [ "$status" -ne 0 ]
 }
 

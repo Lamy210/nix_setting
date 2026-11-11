@@ -28,9 +28,14 @@ jobs:
       # `nix build` 産 binary は ELF interpreter が /nix/store/... 向きになり、
       # Nix 未導入 machine (install.sh の想定環境) で実行できないため、
       # host rustc + musl target で完全 static にする。
-      - name: install musl toolchain (bounded APT mirror fallback)
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
         if: runner.os == 'Linux'
-        run: bash scripts/ci/install-apt-packages.sh musl-tools
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Check musl-gcc from flake-locked nixpkgs
+        if: runner.os == 'Linux'
+        run: nix shell --inputs-from . nixpkgs#musl.dev --command musl-gcc --version
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         if: runner.os == 'Linux'
@@ -41,7 +46,7 @@ jobs:
       # (PR CI の release-artifact-check と同一 script。drift が rc.2 事故の原因)
       - name: build binary (musl static, same script as PR CI)
         if: runner.os == 'Linux'
-        run: ./scripts/ci/build-release-linux-cli.sh
+        run: nix shell --inputs-from . nixpkgs#musl.dev --command ./scripts/ci/build-release-linux-cli.sh
 
       - name: package binary (Linux)
         if: runner.os == 'Linux'
