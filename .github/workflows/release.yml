@@ -90,7 +90,7 @@ jobs:
           "dist/${{ matrix.artifact }}" --version
 
       - name: upload binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.artifact }}
@@ -144,14 +144,14 @@ jobs:
         run: ./scripts/ci/build-release-macos-dmg.sh
 
       - name: upload DMG
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: schneeforge-dmg
           path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
 
       - name: upload signed updater artifacts
         if: ${{ env.SCHNEEFORGE_UPDATER_ACTIVATED == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: schneeforge-updater
           path: |
