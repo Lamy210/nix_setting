@@ -45,7 +45,7 @@ if [[ -n $pinned_image ]]; then
     test "$ID" = ubuntu
     test "$VERSION_ID" = 24.04
     test -x /sbin/init
-    dpkg-query -W -f="${Status}\n" systemd systemd-sysv | grep -c "^install ok installed$" | grep -qx 2
+    dpkg-query -W -f="\${Status}\n" systemd systemd-sysv | grep -c "^install ok installed$" | grep -qx 2
     test ! -e /nix
     command -v systemctl >/dev/null
   '
@@ -120,7 +120,7 @@ docker run --rm "$image" /bin/bash -euc '
   test "$ID" = ubuntu
   test "$VERSION_ID" = 24.04
   test -x /sbin/init
-  dpkg-query -W -f="${Status}\n" systemd systemd-sysv | grep -c "^install ok installed$" | grep -qx 2
+  dpkg-query -W -f="\${Status}\n" systemd systemd-sysv | grep -c "^install ok installed$" | grep -qx 2
   test ! -e /nix
   command -v systemctl >/dev/null
 '
