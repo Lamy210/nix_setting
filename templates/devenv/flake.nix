@@ -14,7 +14,11 @@
       devShells = forAllSystems (
         system:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
+          # Standalone template: preserve original bmake hash on cold builds.
+          pkgs = import nixpkgs {
+            inherit system;
+            config.rewriteURL = import ./fetchurl-rewrite.nix;
+          };
         in
         devenv.lib.mkShell {
           inherit pkgs inputs;

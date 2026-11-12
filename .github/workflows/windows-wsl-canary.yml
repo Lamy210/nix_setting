@@ -18,7 +18,7 @@ jobs:
   launcher-transport:
     runs-on: windows-2025
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
 
@@ -38,6 +38,20 @@ jobs:
           wsl --install Ubuntu --no-launch --web-download
           wsl -d Ubuntu -- true
           wsl --list --verbose
+
+      - name: Download and execute the pinned Linux installer inside WSL2
+        shell: pwsh
+        run: |
+          $manifest = Get-Content bootstrap-manifest.toml -Raw
+          $version = [regex]::Match($manifest, '(?m)^version\s*=\s*"([^"]+)"').Groups[1].Value
+          $sha = [regex]::Match($manifest, '(?m)^x86_64-linux\s*=\s*"([0-9a-f]{64})"').Groups[1].Value
+          if (-not $version -or -not $sha) {
+            throw 'Unable to read pinned WSL2 installer version and SHA256'
+          }
+          wsl -d Ubuntu --cd "$env:GITHUB_WORKSPACE" -- bash ./tests/fixtures/wsl-download-smoke.sh $version $sha
+          if ($LASTEXITCODE -ne 0) {
+            throw "WSL2 native installer download smoke failed (exit $LASTEXITCODE)"
+          }
 
       - name: Install transport-only helper fixture
         shell: pwsh

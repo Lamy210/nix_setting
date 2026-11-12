@@ -1,5 +1,44 @@
 #!/usr/bin/env bats
 
+# A dependency bot must never bypass human review of workflow/installer changes.
+@test "Renovate must not automatically merge dependency-update pull requests" {
+  run python3 -c 'import json; from pathlib import Path; config=json.loads(Path("renovate.json").read_text(encoding="utf-8")); rules=config.get("packageRules", []); assert rules; assert config.get("automerge") is not True; assert all(rule.get("automerge") is not True for rule in rules)'
+  [ "$status" -eq 0 ]
+}
+
+
+
+# Prevent accidental reintroduction of deprecated Node.js 20 actions and
+# implicit Ubuntu OS migration into the always-on required CI path.
+@test "required CI pins Node.js 24 Actions and explicit Ubuntu 24.04" {
+  local workflow
+  for workflow in \
+    .github/workflows/check.yml \
+    .github/workflows/ui-visual-regression.yml \
+    .github/workflows/distribution-download-acceptance.yml \
+    .github/workflows/linux-apply-e2e.yml; do
+    [ -f "$workflow" ]
+    run grep -nE 'ubuntu-latest|actions/checkout@11d5960a326750d5838078e36cf38b85af677262|actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' "$workflow"
+    [ "$status" -ne 0 ]
+    grep -Fq 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' "$workflow"
+  done
+  grep -Fq 'runs-on: ubuntu-24.04' .github/workflows/check.yml
+  grep -Fq 'runs-on: ubuntu-24.04' .github/workflows/ui-visual-regression.yml
+  grep -Fq 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9' .github/workflows/ui-visual-regression.yml
+  grep -Fq 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9' .github/workflows/distribution-download-acceptance.yml
+}
+
+@test "Node.js 24 audit auto-discovers canary and rejects unapproved actions" {
+  audit=scripts/ci/check-actions-runtime-policy.sh
+  [ -f "$audit" ]
+  grep -Fq 'workflows=(.github/workflows/*.yml .github/workflows/*.yaml)' "$audit"
+  [ -f .github/workflows/extended-platform-compat-canary.yml ]
+  grep -Fq 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' .github/workflows/extended-platform-compat-canary.yml
+  run bash "$audit"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS:"* ]]
+}
+
 # scripts/ci/build-release-*.sh の gate logic を検証する。
 # 実 binary build は CI job が担うため、ここでは grep pattern の
 # 検出力 (false-negative / false-positive) を fixture で保証する。
@@ -139,6 +178,33 @@ PY
   [ "$status" -ne 0 ]
 }
 
+@test "critical Cargo build/test/check/clippy gates must reject lockfile mutation" {
+  workflow=.github/workflows/check.yml
+  # Only executable Cargo invocations are scanned: comments and step labels are excluded.
+  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
+  matching_count="$(grep -Ec "$pattern" "$workflow")"
+  [ "$matching_count" -ge 11 ]
+  run bash -c 'grep -E "$1" "$2" | grep -v -- "--locked"' _ "$pattern" "$workflow"
+  [ "$status" -eq 1 ]
+}
+
+@test "root and desktop lockfiles are both checked without dependency resolution" {
+  [ -s Cargo.lock ]
+  [ -s apps/desktop/src-tauri/Cargo.lock ]
+  grep -qF 'cargo test --locked' .github/workflows/check.yml
+  grep -qF 'cargo check --locked --release --manifest-path apps/desktop/src-tauri/Cargo.toml' .github/workflows/check.yml
+}
+
+@test "unlocked Cargo invocation is detected by the CI contract rule" {
+  tmp="$(mktemp)"
+  printf 'run: cargo test --locked\nrun: cargo build --release -p schneeforge\n' > "$tmp"
+  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
+  run bash -c 'grep -E "$1" "$2" | grep -v -- "--locked"' _ "$pattern" "$tmp"
+  rm -f "$tmp"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'cargo build --release -p schneeforge'* ]]
+}
+
 # --- check.yml critical-path contract (refactor-ci-critical-path) ---
 
 @test "rust required check fans out to two workers and aggregates fail-closed" {
@@ -153,7 +219,7 @@ PY
 
   rust_check_block="$(workflow_job_block rust-check)"
   echo "$rust_check_block" | grep -q 'needs: \[rust-quality, rust-build-smoke\]'
-  echo "$rust_check_block" | grep -q 'if:.*always()'
+  echo "$rust_check_block" | grep -q 'if:.*!cancelled()'
   echo "$rust_check_block" | grep -q 'needs.rust-quality.result'
   echo "$rust_check_block" | grep -q 'needs.rust-build-smoke.result'
 }
@@ -164,8 +230,8 @@ PY
   build_block="$(workflow_job_block rust-build-smoke)"
   quality_block="$(workflow_job_block rust-quality)"
   echo "$build_block" | grep -q 'libwebkit2gtk-4.1-dev'
-  echo "$build_block" | grep -q 'cargo build --release -p schneeforge'
-  echo "$build_block" | grep -q 'cargo check --release --manifest-path apps/desktop/src-tauri/Cargo.toml'
+  echo "$build_block" | grep -q 'cargo build --locked --release -p schneeforge'
+  echo "$build_block" | grep -q 'cargo check --locked --release --manifest-path apps/desktop/src-tauri/Cargo.toml'
   run grep -q 'cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml' <<<"$build_block"
   [ "$status" -ne 0 ]
   run grep -q 'libwebkit2gtk-4.1-dev' <<<"$quality_block"
@@ -183,13 +249,16 @@ PY
   [ "$status" -ne 0 ]
 }
 
-@test "shadow ci-required aggregates the existing seven required contexts" {
+@test "ci-required aggregates required, macOS, and acceptance checks fail-closed" {
   ci_required_block="$(workflow_job_block ci-required)"
   [ -n "$ci_required_block" ]
-  echo "$ci_required_block" | grep -q 'if:.*always()'
-  for job in openspec-check flake-check rust-check lint bootstrap-test managed-nix-e2e release-artifact-check; do
-    echo "$ci_required_block" | grep -q "needs.$job.result"
+  echo "$ci_required_block" | grep -Fq "if: \${{ !cancelled() }}"
+  for job in macos-check openspec-check flake-check rust-check lint bootstrap-test managed-nix-e2e release-artifact-check ui-visual-acceptance distribution-download-acceptance linux-real-apply-acceptance; do
+    echo "$ci_required_block" | grep -Fq "needs.$job.result"
   done
+  echo "$ci_required_block" | grep -Fq "MACOS_CHECK: \${{ needs.macos-check.result }}"
+  echo "$ci_required_block" | grep -Fq "\"\$MACOS_CHECK\""
+  echo "$ci_required_block" | grep -Fq "if [ \"\$result\" != \"success\" ]; then"
 }
 
 # --- macOS compatibility matrix contract (add-macos-compatibility-matrix) ---
@@ -206,14 +275,17 @@ PY
   echo "$block" | grep -Fq "DEVELOPER_DIR: \${{ matrix.xcode }}"
 }
 
-@test "macos-check aggregates stable matrix fail-closed and stays out of ci-required" {
+@test "macos-check remains fail-closed and is required by ci-required" {
   macos_check="$(workflow_job_block macos-check)"
   echo "$macos_check" | grep -q 'needs: \[macos-stable\]'
-  echo "$macos_check" | grep -q 'if:.*always()'
-  echo "$macos_check" | grep -q 'needs.macos-stable.result'
+  echo "$macos_check" | grep -Fq "if: \${{ !cancelled() }}"
+  echo "$macos_check" | grep -Fq 'needs.macos-stable.result'
+  echo "$macos_check" | grep -Fq "if [ \"\$MACOS_STABLE\" != \"success\" ]; then"
   ci_required="$(workflow_job_block ci-required)"
-  run grep -q 'macos-check' <<<"$ci_required"
-  [ "$status" -ne 0 ]
+  echo "$ci_required" | grep -Fq 'needs.macos-check.result'
+  rust_check="$(workflow_job_block rust-check)"
+  echo "$rust_check" | grep -Fq "if: \${{ !cancelled() }}"
+  echo "$rust_check" | grep -Fq "if [ \"\$result\" != \"success\" ]; then"
 }
 
 @test "shipping macOS paths pin macos-26 and Xcode 26.6" {
@@ -250,10 +322,10 @@ PY
 
   windows_check="$(workflow_job_block windows-check)"
   echo "$windows_check" | grep -q 'runs-on: windows-2025'
-  echo "$windows_check" | grep -q 'cargo check --workspace'
-  echo "$windows_check" | grep -q 'cargo test -p schneeforge-core'
-  echo "$windows_check" | grep -q 'cargo test -p schneeforge --bin schneeforge'
-  echo "$windows_check" | grep -q 'cargo test -p schneeforge --test windows_cli_contract'
+  echo "$windows_check" | grep -q 'cargo check --locked --workspace'
+  echo "$windows_check" | grep -q 'cargo test --locked -p schneeforge-core'
+  echo "$windows_check" | grep -q 'cargo test --locked -p schneeforge --bin schneeforge'
+  echo "$windows_check" | grep -q 'cargo test --locked -p schneeforge --test windows_cli_contract'
   echo "$windows_check" | grep -q 'schneeforge.exe --version'
   echo "$windows_check" | grep -q 'schneeforge.exe --help'
 
@@ -1092,6 +1164,13 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$MOCK_CALLS"
 case "$1" in
   rm) exit 0 ;;
+  build)
+    if [ "$MOCK_MODE" = buildfail ]; then
+      echo "mock image build failed" >&2
+      exit 62
+    fi
+    exit 0
+    ;;
   run)
     if [ "$MOCK_MODE" = runfail ]; then
       echo "mock docker daemon unavailable" >&2
@@ -1104,7 +1183,7 @@ case "$1" in
     exit 127
     ;;
   inspect) echo false ;;
-  logs) echo "mock apt update failed" >&2 ;;
+  logs) echo "mock systemd boot diagnostic" >&2 ;;
   *) exit 42 ;;
 esac
 SH
@@ -1114,16 +1193,27 @@ SH
     bash "$helper" schneeforge-e2e-bats ubuntu:24.04
   [ "$status" -ne 0 ]
   [[ "$output" == *"exited before systemd became ready"* ]]
-  [[ "$output" == *"mock apt update failed"* ]]
+  [[ "$output" == *"mock systemd boot diagnostic"* ]]
+  grep -Fq "build --build-arg BASE_IMAGE=ubuntu:24.04" "$calls"
   grep -Fq "inspect --format" "$calls"
-  grep -Fq "logs --tail 120" "$calls"
+  grep -Fq "logs --tail 160" "$calls"
 
   : > "$calls"
   run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=ready \
     bash "$helper" schneeforge-e2e-bats ubuntu:24.04
   [ "$status" -eq 0 ]
+  grep -Fq "build --build-arg BASE_IMAGE=ubuntu:24.04" "$calls"
   grep -Fq "exec schneeforge-e2e-bats" "$calls"
   run grep -Fq "logs --tail" "$calls"
+  [ "$status" -ne 0 ]
+
+  : > "$calls"
+  run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=buildfail \
+    bash "$helper" schneeforge-e2e-bats ubuntu:24.04
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"mock image build failed"* ]]
+  [[ "$output" == *"Could not build the disposable managed Nix systemd image"* ]]
+  run grep -Fq "run -d" "$calls"
   [ "$status" -ne 0 ]
 
   : > "$calls"
@@ -1138,4 +1228,160 @@ SH
   [ "$status" -eq 2 ]
   [ ! -s "$calls" ]
   rm -rf "$fixture"
+}
+
+# --- Node host read-only audit: fail-closed error handling (#275 / #304) ---
+
+@test "node host audit exits UNKNOWN when node is absent from PATH" {
+  fake_bin="$BATS_TEST_TMPDIR/node-absent"
+  mkdir -p "$fake_bin"
+  ln -s "$(command -v uname)" "$fake_bin/uname"
+  run env PATH="$fake_bin" /bin/bash scripts/security/audit-node-host.sh
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"Node not found on PATH"* ]]
+}
+
+@test "node host audit exits UNKNOWN when executable path probe fails" {
+  fake_bin="$BATS_TEST_TMPDIR/node-probe-fails"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/node" <<'NODE'
+#!/usr/bin/env bash
+if [ "$1" = "-p" ]; then exit 9; fi
+printf '%s\n' '{"status":"PASS"}'
+NODE
+  chmod +x "$fake_bin/node"
+  run env PATH="$fake_bin:$PATH" /bin/bash scripts/security/audit-node-host.sh
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"Cannot resolve the active Node executable"* ]]
+}
+
+@test "node host audit rejects non-absolute executable paths" {
+  fake_bin="$BATS_TEST_TMPDIR/node-relative-path"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/node" <<'NODE'
+#!/usr/bin/env bash
+if [ "$1" = "-p" ]; then
+  printf '%s\n' 'relative/node'
+else
+  printf '%s\n' '{"status":"PASS"}'
+fi
+NODE
+  chmod +x "$fake_bin/node"
+  run env PATH="$fake_bin:$PATH" /bin/bash scripts/security/audit-node-host.sh
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"non-absolute executable path"* ]]
+}
+
+@test "node host audit strips NODE_OPTIONS and NODE_PATH from both probes" {
+  fake_bin="$BATS_TEST_TMPDIR/node-env-isolated"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/node" <<'NODE'
+#!/usr/bin/env bash
+if [ -n "$NODE_OPTIONS" ] || [ -n "$NODE_PATH" ]; then
+  printf '%s\n' 'Node probe inherited an unsafe environment' >&2
+  exit 9
+fi
+if [ "$1" = "-p" ]; then
+  printf '%s\n' '/tmp/node-audit-fixture'
+else
+  printf '%s\n' '{"status":"PASS"}'
+fi
+NODE
+  chmod +x "$fake_bin/node"
+  run env NODE_OPTIONS='--require /does-not-exist' NODE_PATH='/tmp/untrusted' PATH="$fake_bin:$PATH" /bin/bash scripts/security/audit-node-host.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Active Node is outside /nix/store"* ]]
+  [[ "$output" != *"unsafe environment"* ]]
+}
+
+@test "node host audit preserves a reported version-floor failure" {
+  fake_bin="$BATS_TEST_TMPDIR/node-reported-fail"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/node" <<'NODE'
+#!/usr/bin/env bash
+if [ "$1" = "-p" ]; then
+  printf '%s\n' '/tmp/node-audit-fixture'
+  exit 0
+fi
+printf '%s\n' '{"status":"FAIL"}'
+exit 1
+NODE
+  chmod +x "$fake_bin/node"
+  run env PATH="$fake_bin:$PATH" /bin/bash scripts/security/audit-node-host.sh
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'"status":"FAIL"'* ]]
+}
+
+@test "node host audit maps an unexpected runtime probe exit to UNKNOWN" {
+  fake_bin="$BATS_TEST_TMPDIR/node-runtime-crashes"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/node" <<'NODE'
+#!/usr/bin/env bash
+if [ "$1" = "-p" ]; then
+  printf '%s\n' '/tmp/node-audit-fixture'
+  exit 0
+fi
+printf '%s\n' 'simulated execution failure' >&2
+exit 9
+NODE
+  chmod +x "$fake_bin/node"
+  run env PATH="$fake_bin:$PATH" /bin/bash scripts/security/audit-node-host.sh
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"Node runtime probe failed unexpectedly"* ]]
+}
+
+# Exercise the embedded JS floor comparisons using a real Node interpreter
+# with deliberately substituted process.versions test data. This does not
+# claim the underlying host binary or shared libraries are patched.
+audit_node_version_case() {
+  local wanted_node="$1" wanted_brotli="$2" wanted_ares="$3"
+  local real_node fake_bin
+  real_node="$(command -v node)" || skip "Node interpreter is unavailable on this runner"
+  fake_bin="$BATS_TEST_TMPDIR/node-version-boundary"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/node" <<'NODE'
+#!/usr/bin/env bash
+if [ "$1" = "-p" ]; then
+  printf '%s\n' '/tmp/node-audit-fixture'
+  exit 0
+fi
+{
+  printf 'Object.defineProperty(process.versions,"node",{value:"%s"});\n' "$AUDIT_CASE_NODE"
+  printf 'Object.defineProperty(process.versions,"brotli",{value:"%s"});\n' "$AUDIT_CASE_BROTLI"
+  printf 'Object.defineProperty(process.versions,"ares",{value:"%s"});\n' "$AUDIT_CASE_ARES"
+  cat
+} | "$AUDIT_CASE_REAL_NODE"
+NODE
+  chmod +x "$fake_bin/node"
+  run env PATH="$fake_bin:$PATH" AUDIT_CASE_REAL_NODE="$real_node" AUDIT_CASE_NODE="$wanted_node" AUDIT_CASE_BROTLI="$wanted_brotli" AUDIT_CASE_ARES="$wanted_ares" /bin/bash scripts/security/audit-node-host.sh
+}
+
+@test "node host audit accepts the exact patched Node24 dependency floors" {
+  audit_node_version_case "24.22.2" "1.2.1" "1.34.9"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"status": "PASS"'* ]]
+}
+
+@test "node host audit rejects Node24 below the security version floor" {
+  audit_node_version_case "24.22.1" "1.2.1" "1.34.9"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'"status": "FAIL"'* ]]
+}
+
+@test "node host audit rejects an older Brotli even with patched Node24" {
+  audit_node_version_case "24.22.2" "1.2.0" "1.34.9"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'"status": "FAIL"'* ]]
+}
+
+@test "node host audit rejects an older c-ares even with patched Node24" {
+  audit_node_version_case "24.22.2" "1.2.1" "1.34.8"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'"status": "FAIL"'* ]]
+}
+
+@test "node host audit requires review for a different Node major" {
+  audit_node_version_case "22.16.0" "1.2.1" "1.34.9"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *'"status": "REVIEW"'* ]]
 }
