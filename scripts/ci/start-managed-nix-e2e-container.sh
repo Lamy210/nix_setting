@@ -43,6 +43,13 @@ fi
 # as in the previous gate). Never treat PID 1 merely existing as readiness.
 for _ in $(seq 1 60); do
   if docker exec "$name" bash -c 'systemctl is-system-running 2>/dev/null | grep -qE "^(running|degraded)$"'; then
+    # The signed cloud rootfs is imported directly, not built via a Dockerfile.
+    # /opt/repo was previously created by Dockerfile RUN, so prepare it here.
+    if ! docker exec "$name" mkdir -p /opt/repo; then
+      echo "::error::Could not prepare /opt/repo inside Managed Nix E2E container" >&2
+      diagnose
+      exit 1
+    fi
     exit 0
   fi
   if [ "$(docker inspect --format '{{.State.Running}}' "$name" 2>/dev/null)" != true ]; then
