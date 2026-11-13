@@ -125,3 +125,122 @@ OSS採用の受入表は `aarch64-darwin`、`x86_64-linux`、`aarch64-linux` の
 - **THEN** ツール単位の実装PRで本番採用する
 - **AND** 最新HEADのrequired checksとrelease gateを満たした後にmergeする
 - **AND** 実装merge後に別のOpenSpec archive/spec-sync PRを作成する
+
+
+### Requirement: 候補採用前にHard Gateと根拠付き評価を実施する
+
+候補を本番用ツールチェーンまたはrequired CIに昇格させる前に、採用責任者はライセンス/配布条件、固定取得元、依存の保守状況、利用可能なセキュリティ情報、対象OS、導入費、rollbackを確認しなければならない (MUST)。重要項目の判定が `unknown` の場合は本番採用を保留しなければならない (MUST)。評価点が高くてもセキュリティ・既存CI非回帰を免除してはならない (MUST NOT)。
+
+#### Scenario: セキュリティHard Gateを満たさない
+- **WHEN** 外部OSSがuntrusted PRの書込み資格情報を必要とする、または実行ソースを固定できない
+- **THEN** 本番採用の結論は `No-Go` または `Defer` となる
+- **AND** スコアが高くても例外的に自動導入しない
+
+#### Scenario: OSSが高評価でも互換性が未知
+- **WHEN** macOS ARM64・Linux x86_64など採用対象で実行確認が不足する
+- **THEN** 当該platformの検証状態を `unknown` と記録する
+- **AND** 全OS対応済みとして公開しない
+
+#### Scenario: 正式な採用可否を判断する
+- **WHEN** PoCが完了し採用会議・PR reviewでGo/No-Goを決める
+- **THEN** Gate 0結果、評価軸の採点と根拠、代替案、決定者、再評価条件を記録する
+- **AND** 成功したツールだけを選別して実行・失敗結果を隠さない
+
+### Requirement: Flake入力監査は独立lockと例外pinを識別する
+
+Flake入力の健全性検査はルートだけでなく、独立して依存を解決するNode・devenv等のテンプレートも棚卸ししなければならない (MUST)。lockfileが未作成・欠落している場合は明示的に `unlocked` または `unknown` と記録しなければならない (MUST)。更新の遅延だけで即時の自動更新やブロッキングを行ってはならない (MUST NOT)。
+
+#### Scenario: rootのみのflake-checker実行が成功する
+- **WHEN** ルートの `flake.lock` を検査するOSSが成功を報告する
+- **THEN** 結果をルートの検査成功として記録する
+- **AND** `templates/node/` と `templates/devenv/` の依存監査が完了したとは表示しない
+
+#### Scenario: セキュリティ修正のため古い入力が固定されている
+- **WHEN** Nixpkgs inputが経過日数閾値を超える一方、別途固定したruntime/依存closureがある
+- **THEN** 例外の理由、実体runtime検査、更新可能な候補を個別に審査する
+- **AND** 経過日数のみを根拠に修正済みランタイムを自動的に置換しない
+
+### Requirement: ビルド高速化の結果は属性と実行ステージで検証する
+
+CI高速化PoCは対象attributeのexpected/evaluated/built/skipped/unsupported/failedを記録しなければならない (MUST)。`nix-fast-build` がchecks属性に成功した場合でも、`nix flake check` のoutputs評価、Home Manager・nix-darwin、実配布CLI/DMG、およびインストール受入の完了を意味してはならない (MUST NOT)。
+
+#### Scenario: キャッシュヒットによってビルドが省略される
+- **WHEN** `--skip-cached` を利用したPoCがキャッシュからビルド結果を再利用する
+- **THEN** 当該属性の状態を `cached/substituted` として証拠に残す
+- **AND** そのrunでソースビルドを再実行したという記録にしない
+
+#### Scenario: unsupported属性をskipする
+- **WHEN** `nix-fast-build` が対象systemで未サポートの属性をskipする
+- **THEN** `unsupported` として結果を保持する
+- **AND** 全属性のruntime/realizationが成功したものとしてrequired gateを置換しない
+
+#### Scenario: read-only PoCでremote buildを提案する
+- **WHEN** `--remote`、`--store` または成果物uploadを追加したい
+- **THEN** SSHの権限、Nix trusted-user、キャッシュ書込み/鍵の脅威モデルを別レビューへ送る
+- **AND** 初期の非特権PoCで勝手に有効化しない
+
+### Requirement: CIとSelf-hosted Runnerの実行信頼境界を守る
+
+第三者OSS・任意PRからのコード実行を伴うCIは、信頼されたコードとuntrustedコードの権限を分離しなければならない (MUST)。`pull_request_target`、`workflow_run`、コメント起点の高権限workflowでuntrusted checkoutやartifactを実行してはならない (MUST NOT)。再利用型self-hosted Runnerに外部PRの任意コードを実行させる場合は、同等の隔離と復旧が実測で証明されるまで許可してはならない (MUST NOT)。
+
+#### Scenario: forkのPRからPoCを実行する
+- **WHEN** forkのPRで外部OSSの検証コードが実行される
+- **THEN** 書込み権限・シークレット・内部ネットワークへのアクセスを持たない隔離Runnerを使用する
+- **AND** 既存の永続self-hosted Runnerには信頼できないPRコードを直接投入しない
+
+#### Scenario: workflow_runがPR artifactを受け取る
+- **WHEN** 権限を持つ後続workflowがuntrusted PRからのartifactを取得する
+- **THEN** artifactをデータとして検証し、実行可能なコードとして実行しない
+- **AND** 署名/昇格確認が終わる前にキャッシュやreleaseへpublishしない
+
+### Requirement: キャッシュの失効・障害・費用超過を運用仕様で制御する
+
+共有バイナリキャッシュを検証する場合、候補の読み取り・書き込み経路、`trusted-public-keys`、substituter、署名失敗時の挙動、credential rotation、GC、容量上限、バックアップ/DR、転送量・API課金を定義しなければならない (MUST)。キャッシュ障害を理由に署名検証を無効化してはならない (MUST NOT)。
+
+#### Scenario: cache signing keyが漏洩する
+- **WHEN** cache signing keyの漏洩が判明または疑われる
+- **THEN** 書込み停止・信頼鍵の失効/交換・影響したstore pathの隔離/再取得を実施する復旧手順を発動する
+- **AND** 署名検証を無効化せずに既存の信頼済みビルド経路へ戻す
+
+#### Scenario: キャッシュの容量・転送費用が想定を超える
+- **WHEN** 監視値が承認した容量・API・転送量・費用の上限を超える
+- **THEN** PoCのuploadを停止し、現行のローカルstore利用へ戻す
+- **AND** 未確認の無料枠や超過単価を0円と仮定しない
+
+#### Scenario: GCで必要な成果物が消失する
+- **WHEN** GC後に検証対象のstore pathが取得不能となる
+- **THEN** 信頼済み上流またはピン留めしたソースから再ビルドできることを確認する
+- **AND** requiredのチェックを省略せず障害を記録する
+
+### Requirement: PoC判定は追跡可能な証拠とNegative testを伴う
+
+各ツールのPoCはツール固定version、repo/lock SHA、Runner/OS、対象属性、実行ステージ、cold/warm、成功/失敗/skip、CPU/RAM/ストレージ/転送量と測定方法、費用または `unknown`、decision logへのリンクを保存しなければならない (MUST)。実際に失敗を検出できるnegative testを少なくとも1つ含まなければならない (MUST)。
+
+#### Scenario: 評価が成功しテストビルドが失敗する
+- **WHEN** Nixのevaluationが成功したがderivationのbuildが失敗する
+- **THEN** `evaluation=verified`、`realization=failed` を別々に記録する
+- **AND** 一括の `success` と表示しない
+
+#### Scenario: ベンチマークに必要な実行結果が不足する
+- **WHEN** 比較条件ごとの成功runが5件未満、または別のRunner/lockで取得される
+- **THEN** 結果を探索・参考値として扱う
+- **AND** 根拠なしに性能目標達成や本番採用を宣言しない
+
+#### Scenario: 失敗・skipが発生したPoCを報告する
+- **WHEN** PoCでfail、skip、unknownが含まれる
+- **THEN** 成功runだけでなく全結果数と原因を残す
+- **AND** 失敗した属性の除外だけで検証範囲を狭めない
+
+### Requirement: 導入評価ポリシーと個別OSS導入変更のライフサイクルを分離する
+
+`add-nix-tooling-evaluation-policy` は選定プロセスと受入条件を定義する変更であり、各OSSの導入・有効化・CI最適化はそのツールの独立したOpenSpec changeで追跡しなければならない (MUST)。ポリシーのarchiveをすべての将来PoCの完了まで無制限に延期する必要はなく、ポリシー確定/実装後に既存のarchive規約に従わなければならない (MUST)。
+
+#### Scenario: 選定ポリシーが承認される
+- **WHEN** 本PRのstrict validation、レビュー、required gateがすべて完了する
+- **THEN** ポリシーの仕様・今後の実装gateを確定する
+- **AND** 任意OSSの実装が完了したとは扱わず、個別PoC changeを新規に開始できる
+
+#### Scenario: 将来のPoCが未完了のままポリシーが確定する
+- **WHEN** ポリシー自体の実装・文書化が完了し後続PoCが残る
+- **THEN** このchangeを既存のOpenSpec archive規約に沿って別PRで同期できる
+- **AND** 未完了のOSS導入タスクを完了済みとして閉じない
