@@ -1385,3 +1385,14 @@ NODE
   [ "$status" -eq 2 ]
   [[ "$output" == *'"status": "REVIEW"'* ]]
 }
+
+# The dpkg-query format is a literal template, not a Bash variable. Both
+# GHCR and freshly imported Canonical rootfs paths must retain the escape.
+@test "Canonical systemd image verifies package Status without Bash expansion" {
+  local prepare_script=scripts/ci/prepare-managed-nix-e2e-image.sh
+  # Intentional: dpkg expands the literal ${Status} template, not the shell.
+  # shellcheck disable=SC2016
+  [ "$(grep -Fc 'dpkg-query -W -f="\${Status}\n"' "$prepare_script")" -eq 2 ]
+  run bash -euc 'dpkg-query() { test "$2" = "-f=\${Status}\n"; }; dpkg-query -W -f="\${Status}\n" systemd systemd-sysv'
+  [ "$status" -eq 0 ]
+}
