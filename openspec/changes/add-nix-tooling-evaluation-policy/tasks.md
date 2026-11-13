@@ -1,49 +1,50 @@
 # Tasks: add-nix-tooling-evaluation-policy
 
-## 0. 仕様調査・承認（本PRの対象）
+> **スコープ:** 本changeはOSSの導入判断・PoC受入ポリシーを定義する**仕様**。新OSSの実行・CI変更・製品実装は承認後、独立したOpenSpec changeと実装PRで実施する。後続バックログは**本changeの完了条件には含まない**。
 
-- [x] 0.1 `develop` の `flake.nix`、devShell、`justfile`、`tests/nix-unit.nix`、主要CI、OpenSpec規約を読み、既存OSSを棚卸しする。
-- [x] 0.2 優先候補（nix-fast-build / nix-diff / flake-checker / sbomnix / niks3 等）の用途と既存OSSとの差分を文書化する。
-- [x] 0.3 採用段階、代替案、実行境界、セキュリティ要件、性能指標、rollbackをdesignとdelta specへ記述する。
-- [ ] 0.4 `openspec validate add-nix-tooling-evaluation-policy --strict` と `openspec validate --all --strict` の**最新HEADでの成功**を確認する。
-- [ ] 0.5 `development-workflow`、`release-supply-chain`、`tool-resolution` のspecと重複・矛盾がないかPR reviewする。
-- [ ] 0.6 提案をレビュー・承認する。承認まで実装、導入、CI設定変更を開始しない。
+## 0. 仕様書PRの完成・承認（本PR）
 
-## 1. P0: 計測準備・既存ツール活用（承認後の別PR）
+- [x] 0.1 developのflake、devShell、Justfile、nix-unit tests、CI、OpenSpecと既存OSSを棚卸しする。
+- [x] 0.2 未導入候補を優先PoC・条件付き評価・見送りへ分類し、既存実装との重複を排除する。
+- [x] 0.3 セキュリティ・保守・コスト・OS互換性・CI被覆をHard Gateと定量評価に整理する。
+- [x] 0.4 OSSごとに「誰が何をできるか / 期待メリット / 代替手段 / 反証」を設計に整理する。
+- [x] 0.5 CLI/CI/インフラ/将来のGUI製品機能を分離し、不要な製品依存を禁止する。
+- [x] 0.6 失敗/未実行/未サポートの区別、PoCエビデンス定義、negative tests、rollbackをspecへ追記する。
+- [ ] 0.7 \`openspec validate add-nix-tooling-evaluation-policy --strict\` が最新HEADで成功する。
+- [ ] 0.8 \`openspec validate --all --strict\` が最新HEADで成功する。
+- [ ] 0.9 既存\`development-workflow\`、\`release-supply-chain\`、\`tool-resolution\`、\`platform-execution\`との矛盾をレビューする。
+- [ ] 0.10 GitHub server-side required contextsとPR #324/#327/#299等との競合を再確認する。
+- [ ] 0.11 有用性/目標値/保守・費用負担/リスクの承認を得る。未実測を成果とみなさない。
+- [ ] 0.12 最新HEADで既存required CI成功、レビュー未解決0を確認し、Draft解除/マージを判断する。
 
-- [ ] 1.1 `justfile test` / `tests/nix-unit.nix` がrequired CIに含まれているか調査する。未実行の場合は既存ツールを使用した追加案をレビューする。
-- [ ] 1.2 既存 `ci-required` およびserver-side required contextsと、実行/静的評価の対象platformを照合する。
-- [ ] 1.3 同一commit/flake.lock/Runner classでcold/warm基準値を取得する（目安: 条件別5回以上の成功run）。
-- [ ] 1.4 `docs/testing/ci-workflow-timing.md` の集計を用い、critical path、runner時間合計、CPU、peak RSS、ストレージ/転送量を保存する。
-- [ ] 1.5 ベースラインにmissing/unknownがある場合は追加計測し、推測値で成功判定しない。
+## 1. このchangeのarchive（仕様承認・統合後のみ）
 
-## 2. P1: 低リスクOSSのPoC（各々独立PR）
+- [ ] 1.1 ポリシーの検証・レビューと統合後に別\`chore/archive-add-nix-tooling-evaluation-policy\` PRを作る。
+- [ ] 1.2 新規canonical specへポリシー要件を同期し、候補OSSのPoCや導入を「実装済み」と誤記しない。
 
-- [ ] 2.1 `nix-diff`: 固定リビジョンとライセンス・OSを検証し、2つのderivationの差分をread-onlyで再現する。
-- [ ] 2.2 `flake-checker`: 古いNixpkgs入力/固定理由の監査をnon-requiredに追加し、誤検知の判定基準を整える。
-- [ ] 2.3 `nix-fast-build`: checks属性の網羅とビルド・評価の違いを確認し、非blocking PoCで測定する。
-- [ ] 2.4 P1で追加するすべてのツールはcommit/hash pin、権限、ログのシークレット混入、CPU/RAM/時間を審査する。
-- [ ] 2.5 同一HEADのrequired `flake-check`、`macos-check`、`rust-check`、`release-artifact-check`、OpenSpec gateを維持して比較する。
-- [ ] 2.6 目標未達・誤検知・環境非互換ならPoCを停止し、そのツールの設定/lock変更のみをrollbackする。
+## 2. 後続バックログ（本changeの受入対象外／各々独立OpenSpec）
 
-## 3. P2: SBOM・キャッシュ比較（別OpenSpec/実装PR）
+| 順位 | change候補 / ユーザー価値 | PoCの最低受入 | 対応するステータス |
+| --- | --- | --- | --- |
+| P0 | 既存nix-unit被覆確認：設定回帰を実機適用前に検出 | 既存test数・実CI呼出し・失敗fixtureを確認 | 既存維持/CI補強 |
+| P0 | 計測baseline：今より速く/安くなったかを判断 | 同じSHA/lock/runnerでcold/warm、required critical path、Runner時間、CPU/RAM/bytesを記録 | 計測準備 |
+| P1 | nix-diff：依存差分とキャッシュミスを説明 | 同一drvと意図した入力変更の両方を検証し、原因特定を確認 | 優先PoC |
+| P1 | flake-checker：root/Node/devenvのpinを監査 | 各独立lockを列挙、未固定/古い/意図的pinの判定、false positiveを記録 | 優先PoC |
+| P1 | nix-fast-build：多数のchecksを並列実行してCI待ち時間を削減 | 属性網羅表、negative test、既存required維持、critical path -25%かつRunner時間+20%以内を目標 | 優先PoC |
+| P2 | sbomnix：Nix closureで依存リスクを説明 | syft/SPDXとの範囲・誤検知比較、既存release証明を維持 | 条件付き |
+| P2 | ncps/niks3/Attic系：複数Runnerの再ダウンロード/再ビルドを減らす | ローカルstoreとの比較、署名、GC、障害・復旧、S3/DB総費用、trusted/untrusted境界 | 条件付き |
+| P3 | nix2container：必要なLinux CLI OCIを効率的に生成 | 既存Dockerfileとruntime/サイズ/レイヤー/SBOM/転送比較、release DMGは不変 | 限定PoC |
+| 保留 | Gradient/Hydra、Dynamic Derivations、Managed Nix provider変更、製品GUI統合 | 具体的需要・権限/互換・費用対効果が明確になった場合のみ別提案 | 見送り |
 
-- [ ] 3.1 `sbomnix` の対象Nix closure、生成SBOM形式、既存syft/SPDX/cosignとの重複・差異を計測する。
-- [ ] 3.2 sbomnixの脆弱性推定をclosure/依存形式でtriageし、false positiveを説明可能にするまではnon-requiredを維持する。
-- [ ] 3.3 local store vs `ncps` vs `niks3` vs Attic系を、hit率/転送量/重複排除/保守状況で比較する。
-- [ ] 3.4 S3互換cacheの署名鍵、OIDC、read/write分離、GC、DR、容量制限、料金見積を別のインフラ設計としてレビューする。
-- [ ] 3.5 課金または運用負担が便益を上回る場合は既存Runner local storeのまま継続する。
+## 3. 後続PoCごとに必要な成果物（テンプレート）
 
-## 4. P3: OCI・研究候補（任意・個別承認）
+- [ ] 独立changeにsource/license/release/immutable pin/互換system/現在の代替ツールを記録。
+- [ ] 利用者シナリオ・現状課題・得られるメリット・採用しない条件を事前登録。
+- [ ] 比較対象の同一SHA/lock/Runnerと、評価・実ビルド・キャッシュhit・runtimeを分けた検証表を登録。
+- [ ] 成功/失敗/skip/unsupported/unknown、negative case、CPU/RAM/disk/bytes/time/API・費用を実測（不明はunknown）。
+- [ ] Self-hosted Runner・PR write token・cache signing key・trusted-userの権限境界をレビュー。
+- [ ] フェイルバック/GC/復旧の実験を実施し、rollbackを実行可能にする。
+- [ ] Go/Conditional/No-Go/Deferの判断と承認者、実装PR、再評価トリガーをdecision logに保存。
+- [ ] 採用済みと誤記せず各個別changeを実装・テスト・merge後にarchive。
 
-- [ ] 4.1 `nix2container` をCLIの隔離テストに限定し、既存Dockerfileやリリース/DMGを変更せずレイヤー・サイズ・脆弱性検査を比較する。
-- [ ] 4.2 `Gradient`/`Hydra`、Dynamic Derivations、Nix実装変更、system-manager、LLM agent package導入は独立の採用審査まで見送る。
-
-## 5. 検証・リリース・アーカイブ
-
-- [ ] 5.1 必須CIとplatform matrixに対しevaluation / build / runtime / installを別々に検証する。
-- [ ] 5.2 最新HEADのrequired checks success、review未解決0、rollback手順を確認して各実装PRを個別にsquash mergeする。
-- [ ] 5.3 障害/誤検知/費用/計測値をdecision logに記録し、採用・保留・不採用を更新する。
-- [ ] 5.4 実装PR完了後にのみ、別 `chore/archive-add-nix-tooling-evaluation-policy` PRでOpenSpecをarchive/syncする。
-
-> この仕様PRには実装変更を含めない。未実行の検証はチェック済みにしない。
+> 未実施項目にチェックを付けない。既存required CIをskip/変更してgreenに見せない。
