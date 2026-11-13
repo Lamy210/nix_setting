@@ -196,6 +196,39 @@ aarch64-darwin = false
     }
 
     #[test]
+    fn legacy_crlf_manifest_and_quoted_system_keys_roundtrip() {
+        // TOML 0.8で作成された設定を1.xのparserでも同じ意味で読めること。
+        let legacy = concat!(
+            "schema = 1\r\n",
+            "[distribution]\r\n",
+            "name = \"SchneeForge Developer Environment\"\r\n",
+            "[profiles]\r\n",
+            "default = \"developer\"\r\n",
+            "available = [\"minimal\", \"developer\"]\r\n",
+            "[systems]\r\n",
+            "\"aarch64-darwin\" = true\r\n",
+            "\"x86_64-linux\" = false\r\n",
+        );
+        let parsed = Manifest::parse(legacy).expect("legacy manifest must parse");
+        assert!(parsed.validate("aarch64-darwin").valid);
+        assert!(!parsed.validate("x86_64-linux").valid);
+
+        let encoded = toml::to_string(&parsed).expect("serialize manifest");
+        let restored = Manifest::parse(&encoded).expect("parse serialized manifest");
+        assert_eq!(restored.schema, parsed.schema);
+        assert_eq!(restored.distribution.name, parsed.distribution.name);
+        assert_eq!(restored.profiles.default, parsed.profiles.default);
+        assert_eq!(restored.profiles.available, parsed.profiles.available);
+        assert_eq!(restored.systems, parsed.systems);
+    }
+
+    #[test]
+    fn duplicate_manifest_keys_are_rejected() {
+        let duplicate = "schema = 1\nschema = 1\n";
+        assert!(Manifest::parse(duplicate).is_err());
+    }
+
+    #[test]
     fn manifest_has_no_user_field() {
         // v1 config.toml の [user] は unknown field として error になる
         // (deny_unknown_fields ではなく default 動作: 余剰 field は無視)。
