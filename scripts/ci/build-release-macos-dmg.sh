@@ -61,6 +61,30 @@ chmod +x "$TAURI_BIN"
 cd "$REPO_ROOT"
 cargo build --release -p schneeforge
 
+# Stage the validated host CLI explicitly before invoking the isolated Tauri
+# workspace. Relying on desktop build.rs to discover the root workspace's
+# target directory can leave externalBin absent even after the CLI was built.
+# Fail closed rather than allowing a GUI bundle without its privileged CLI.
+CLI_SOURCE="$REPO_ROOT/target/release/schneeforge"
+CLI_TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
+if [ "$CLI_TRIPLE" != "aarch64-apple-darwin" ]; then
+  echo "ERROR: macOS DMG build expects native aarch64-apple-darwin, got: $CLI_TRIPLE" >&2
+  exit 1
+fi
+if [ ! -x "$CLI_SOURCE" ]; then
+  echo "ERROR: host-built CLI sidecar missing or not executable: $CLI_SOURCE" >&2
+  exit 1
+fi
+"$SCRIPT_DIR/check-macos-portability.sh" "$CLI_SOURCE"
+SIDECAR_STAGE="$REPO_ROOT/apps/desktop/src-tauri/binaries/schneeforge-cli-$CLI_TRIPLE"
+mkdir -p "$(dirname "$SIDECAR_STAGE")"
+install -m 755 "$CLI_SOURCE" "$SIDECAR_STAGE"
+if ! cmp -s "$CLI_SOURCE" "$SIDECAR_STAGE"; then
+  echo "ERROR: staged CLI sidecar differs from the verified source" >&2
+  exit 1
+fi
+echo "OK: verified CLI sidecar staged for $CLI_TRIPLE"
+
 cd "$REPO_ROOT/apps/desktop/src-tauri"
 if [ "$SCHNEEFORGE_UPDATER_ACTIVATED" = "true" ]; then
   : "${SCHNEEFORGE_UPDATER_PUBKEY:?SCHNEEFORGE_UPDATER_PUBKEY is required when updater is activated}"
