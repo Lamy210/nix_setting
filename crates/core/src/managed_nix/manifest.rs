@@ -237,7 +237,10 @@ aarch64-darwin = "33333333333333333333333333333333333333333333333333333333333333
             "2222222222222222222222222222222222222222222222222222222222222222"
         );
         let bad = SAMPLE.replace(old, &duplicate);
-        assert_ne!(bad, SAMPLE, "fixture must actually contain duplicate checksum keys");
+        assert_ne!(
+            bad, SAMPLE,
+            "fixture must actually contain duplicate checksum keys"
+        );
         assert!(matches!(
             BootstrapManifest::parse(&bad),
             Err(ManagedNixError::ManifestParse { .. })
