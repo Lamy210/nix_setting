@@ -24,6 +24,16 @@ All supported SchneeForge Nix development entry points that provide Node.js 24 *
 - **WHEN** a package version string meets the approved floor but a runtime dependency is unpatched or unverified
 - **THEN** CI SHALL fail the security acceptance gate and the release SHALL remain blocked, including when a statically bundled library is not attributable to a reviewed patched source/patchset
 
+#### Scenario: Node-based package manager embeds a separate runtime
+
+- **WHEN** a provided package manager such as pnpm launches Node independently of the shell-selected `node` binary
+- **THEN** CI SHALL inspect the package manager's **own executed Node runtime** and SHALL reject an unpatched, missing or unverified Node/Brotli/c-ares dependency, even if `node --version` reports a patched version
+
+#### Scenario: Native package manager does not embed a Node interpreter
+
+- **WHEN** the pinned package-manager package is a native compiled binary that does not launch Node for its own implementation
+- **THEN** CI SHALL verify its pinned source/package identity and executable format and SHALL execute a local project script with the patched Node, without falsely requiring a Node preload in the native package manager
+
 ### Requirement: Node security remediation remains scoped and reversible
 
 The project **MUST** keep security remediation changes isolated from broad unverified Nixpkgs upgrades and **SHALL NOT** assert that an existing host is patched before the installed/active runtime and migration outcome are verified.
