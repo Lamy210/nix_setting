@@ -4,7 +4,12 @@
 # v0.2.0-rc.1 で「nix build 産 binary が Nix-less machine で動かない」問題の対策。
 set -euo pipefail
 
-cargo build --release -p schneeforge --target x86_64-unknown-linux-musl
+if ! command -v musl-gcc >/dev/null; then
+  echo "ERROR: musl-gcc is required for the static release build" >&2
+  exit 1
+fi
+
+cargo build --locked --release -p schneeforge --target x86_64-unknown-linux-musl
 
 BIN="target/x86_64-unknown-linux-musl/release/schneeforge"
 "$BIN" --version

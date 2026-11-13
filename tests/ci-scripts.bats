@@ -39,6 +39,18 @@
   [[ "$output" == *"PASS:"* ]]
 }
 
+@test "Linux release and E2E use identical flake-locked musl toolchain" {
+  grep -Fq 'nix shell --inputs-from . nixpkgs#musl.dev --command ./scripts/ci/build-release-linux-cli.sh' .github/workflows/check.yml
+  grep -Fq 'nix shell --inputs-from . nixpkgs#musl.dev --command ./scripts/ci/build-release-linux-cli.sh' .github/workflows/release.yml
+  grep -Fq 'nix shell --inputs-from . nixpkgs#bats --command bats tests/managed-nix-e2e.bats' .github/workflows/check.yml
+  grep -Fq 'musl-gcc is required for the static release build' scripts/ci/build-release-linux-cli.sh
+  grep -Fq 'cargo build --locked --release -p schneeforge' scripts/ci/build-release-linux-cli.sh
+  [ -x scripts/ci/build-release-linux-cli.sh ]
+  grep -Fq "readelf -l \"\$BIN\"" scripts/ci/build-release-linux-cli.sh
+  run grep -F 'apt-get' .github/workflows/check.yml
+  [ "$status" -ne 0 ]
+}
+
 # scripts/ci/build-release-*.sh の gate logic を検証する。
 # 実 binary build は CI job が担うため、ここでは grep pattern の
 # 検出力 (false-negative / false-positive) を fixture で保証する。
@@ -181,7 +193,7 @@ PY
 @test "critical Cargo build/test/check/clippy gates must reject lockfile mutation" {
   workflow=.github/workflows/check.yml
   # Only executable Cargo invocations are scanned: comments and step labels are excluded.
-  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
+  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop( \.[^[:space:]]+)? --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
   matching_count="$(grep -Ec "$pattern" "$workflow")"
   [ "$matching_count" -ge 11 ]
   run bash -c 'grep -E "$1" "$2" | grep -v -- "--locked"' _ "$pattern" "$workflow"
@@ -195,10 +207,20 @@ PY
   grep -qF 'cargo check --locked --release --manifest-path apps/desktop/src-tauri/Cargo.toml' .github/workflows/check.yml
 }
 
+@test "unlocked Cargo command inside named Nix devShell is rejected" {
+  tmp="$(mktemp)"
+  printf 'run: nix develop .#schneeforge-desktop --command cargo check --release\n' > "$tmp"
+  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop( \.[^[:space:]]+)? --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
+  run bash -c 'grep -E "$1" "$2" | grep -v -- "--locked"' _ "$pattern" "$tmp"
+  rm -f -- "$tmp"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"cargo check --release"* ]]
+}
+
 @test "unlocked Cargo invocation is detected by the CI contract rule" {
   tmp="$(mktemp)"
   printf 'run: cargo test --locked\nrun: cargo build --release -p schneeforge\n' > "$tmp"
-  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
+  pattern='^[[:space:]]*(run:[[:space:]]*)?(nix develop( \.[^[:space:]]+)? --command[[:space:]]+)?cargo (test|check|build|clippy)([[:space:]]|$)'
   run bash -c 'grep -E "$1" "$2" | grep -v -- "--locked"' _ "$pattern" "$tmp"
   rm -f "$tmp"
   [ "$status" -eq 0 ]
@@ -224,17 +246,16 @@ PY
   echo "$rust_check_block" | grep -q 'needs.rust-build-smoke.result'
 }
 
-@test "build smoke owns Tauri deps and uses desktop compile gate" {
-  workflow=.github/workflows/check.yml
-  [ "$(grep -c 'libwebkit2gtk-4.1-dev' "$workflow")" -eq 1 ]
+@test "build smoke uses locked Nix desktop dependencies and checks compilation" {
   build_block="$(workflow_job_block rust-build-smoke)"
   quality_block="$(workflow_job_block rust-quality)"
-  echo "$build_block" | grep -q 'libwebkit2gtk-4.1-dev'
-  echo "$build_block" | grep -q 'cargo build --locked --release -p schneeforge'
-  echo "$build_block" | grep -q 'cargo check --locked --release --manifest-path apps/desktop/src-tauri/Cargo.toml'
+  echo "$build_block" | grep -Fq 'nix develop .#schneeforge-desktop --command cargo check --locked --release'
+  echo "$build_block" | grep -Fq 'cargo build --locked --release -p schneeforge'
+  grep -Fq 'webkitgtk_4_1' modules/flake-parts/packages.nix
+  grep -Fq 'libayatana-appindicator' modules/flake-parts/packages.nix
   run grep -q 'cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml' <<<"$build_block"
   [ "$status" -ne 0 ]
-  run grep -q 'libwebkit2gtk-4.1-dev' <<<"$quality_block"
+  run grep -q 'cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml' <<<"$quality_block"
   [ "$status" -ne 0 ]
 }
 
@@ -1152,7 +1173,7 @@ ROWS
 # The managed Nix full lifecycle gate must distinguish container provisioning
 # errors from real Nix lifecycle failures and must not idle for 300 seconds
 # after the disposable container exits.
-@test "managed Nix E2E startup fails fast with container diagnostics" {
+@test "managed Nix E2E requires verified image and reports boot failures" {
   fixture="$(mktemp -d)"
   mkdir -p "$fixture/bin"
   helper="$PWD/scripts/ci/start-managed-nix-e2e-container.sh"
@@ -1164,12 +1185,11 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$MOCK_CALLS"
 case "$1" in
   rm) exit 0 ;;
-  build)
-    if [ "$MOCK_MODE" = buildfail ]; then
-      echo "mock image build failed" >&2
-      exit 62
+  image)
+    if [ "$MOCK_MODE" = missing ]; then
+      exit 1
     fi
-    exit 0
+    echo "sha256:mock-verified-image"
     ;;
   run)
     if [ "$MOCK_MODE" = runfail ]; then
@@ -1189,31 +1209,31 @@ esac
 SH
   chmod +x "$fixture/bin/docker"
 
+  run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=missing \
+    bash "$helper" schneeforge-e2e-bats ubuntu:24.04
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Verified Canonical systemd image not prepared"* ]]
+  run grep -Fq 'run -d' "$calls"
+  [ "$status" -ne 0 ]
+
+  : > "$calls"
   run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=exited \
     bash "$helper" schneeforge-e2e-bats ubuntu:24.04
   [ "$status" -ne 0 ]
   [[ "$output" == *"exited before systemd became ready"* ]]
   [[ "$output" == *"mock systemd boot diagnostic"* ]]
-  grep -Fq "build --build-arg BASE_IMAGE=ubuntu:24.04" "$calls"
-  grep -Fq "inspect --format" "$calls"
-  grep -Fq "logs --tail 160" "$calls"
+  grep -Fq 'image inspect --format' "$calls"
+  grep -Fq 'run -d --privileged' "$calls"
+  grep -Fq 'inspect --format' "$calls"
+  grep -Fq 'logs --tail 160' "$calls"
 
   : > "$calls"
   run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=ready \
     bash "$helper" schneeforge-e2e-bats ubuntu:24.04
   [ "$status" -eq 0 ]
-  grep -Fq "build --build-arg BASE_IMAGE=ubuntu:24.04" "$calls"
-  grep -Fq "exec schneeforge-e2e-bats" "$calls"
-  run grep -Fq "logs --tail" "$calls"
-  [ "$status" -ne 0 ]
-
-  : > "$calls"
-  run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=buildfail \
-    bash "$helper" schneeforge-e2e-bats ubuntu:24.04
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"mock image build failed"* ]]
-  [[ "$output" == *"Could not build the disposable managed Nix systemd image"* ]]
-  run grep -Fq "run -d" "$calls"
+  grep -Fq 'image inspect --format' "$calls"
+  grep -Fq 'exec schneeforge-e2e-bats' "$calls"
+  run grep -Fq 'logs --tail' "$calls"
   [ "$status" -ne 0 ]
 
   : > "$calls"
@@ -1224,11 +1244,54 @@ SH
   [[ "$output" == *"Could not start managed Nix E2E container"* ]]
 
   : > "$calls"
+  run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=ready \
+    bash "$helper" schneeforge-e2e-bats ubuntu:22.04
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"requires Ubuntu 24.04"* ]]
+  run grep -Fq 'run -d' "$calls"
+  [ "$status" -ne 0 ]
+
+  : > "$calls"
   run env PATH="$fixture/bin:$PATH" MOCK_CALLS="$calls" MOCK_MODE=ready bash "$helper"
   [ "$status" -eq 2 ]
   [ ! -s "$calls" ]
   rm -rf "$fixture"
 }
+
+@test "Canonical cloud image preparation is signed, pinned and fails closed" {
+  script=scripts/ci/prepare-managed-nix-e2e-image.sh
+  workflow=.github/workflows/check.yml
+  grep -Fq 'release-20261027' "$script"
+  grep -Fq 'D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81' "$script"
+  grep -Fq 'SHA256SUMS.gpg' "$script"
+  grep -Fq 'gpgv --status-fd' "$script"
+  grep -Fq 'sha256sum --check --status' "$script"
+  grep -Fq 'docker import' "$script"
+  grep -Fq 'test ! -e /nix' "$script"
+  grep -Fq 'SCHNEEFORGE_CI_RUNNER_ENVIRONMENT' "$script"
+  grep -Fq 'runner.environment' "$workflow"
+  grep -Fq 'prepare-managed-nix-e2e-image.sh' "$workflow"
+  grep -Fq 'SCHNEEFORGE_E2E_SYSTEMD_IMAGE' "$workflow"
+  grep -Fq 'gh attestation verify' "$script"
+  grep -Fq 'signer-workflow Lamy210/nix_setting/.github/workflows/managed-nix-e2e-image.yml' "$script"
+  grep -Fq 'actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6' .github/workflows/managed-nix-e2e-image.yml
+  grep -Fq "if: github.ref == 'refs/heads/develop'" .github/workflows/managed-nix-e2e-image.yml
+  grep -Fq 'id-token: write' .github/workflows/managed-nix-e2e-image.yml
+  run grep -F 'apt-get' scripts/ci/start-managed-nix-e2e-container.sh
+  [ "$status" -ne 0 ]
+}
+
+@test "systemd E2E image preparation rejects self-hosted runners and mutable tags" {
+  script=scripts/ci/prepare-managed-nix-e2e-image.sh
+  run env GITHUB_ACTIONS=true SCHNEEFORGE_CI_RUNNER_ENVIRONMENT=self-hosted bash "$script"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"restricted to disposable GitHub-hosted runners"* ]]
+
+  run env GITHUB_ACTIONS=false SCHNEEFORGE_E2E_SYSTEMD_IMAGE=ghcr.io/lamy210/nix-setting-managed-nix-e2e:latest bash "$script"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"pinned by SHA256 digest"* ]]
+}
+
 
 # --- Node host read-only audit: fail-closed error handling (#275 / #304) ---
 

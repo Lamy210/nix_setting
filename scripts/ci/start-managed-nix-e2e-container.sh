@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Boot the disposable systemd container used by managed-nix-e2e.bats.
-# Build the systemd image before starting PID 1: package installation at
-# container startup can leave boot waiting indefinitely in CI.
+# The image must have been prepared by prepare-managed-nix-e2e-image.sh
+# from a signed Ubuntu cloud rootfs, without any runtime APT installation.
 if [ "$#" -ne 2 ] || [ -z "$1" ] || [ -z "$2" ]; then
   echo "usage: start-managed-nix-e2e-container.sh CONTAINER_NAME UBUNTU_IMAGE" >&2
   exit 2
@@ -22,25 +22,19 @@ diagnose() {
 
 docker rm -f "$name" >/dev/null 2>&1 || true
 
-# A build failure is surfaced immediately. Keep this image solely in the
-# disposable runner; no prepared container or privileged host is reused.
-if ! docker build --build-arg "BASE_IMAGE=$image" --tag "$image_tag" - <<'DOCKERFILE'
-ARG BASE_IMAGE
-FROM ${BASE_IMAGE}
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update -qq \
-    && apt-get install -y -qq systemd systemd-sysv \
-    && mkdir -p /opt/repo \
-    && rm -rf /var/lib/apt/lists/*
-STOPSIGNAL SIGRTMIN+3
-CMD ["/sbin/init"]
-DOCKERFILE
-then
-  echo "::error::Could not build the disposable managed Nix systemd image" >&2
+# The image is built only from a Canonical-signed, SHA256-verified rootfs.
+# Reject an unexpected image selection rather than silently weakening the OS
+# contract. Preparation happens in the same disposable GitHub-hosted runner.
+if [ "$image" != ubuntu:24.04 ]; then
+  echo "::error::Managed Nix E2E requires Ubuntu 24.04 (requested $image)" >&2
+  exit 1
+fi
+if ! docker image inspect --format '{{.Id}}' "$image_tag" >/dev/null; then
+  echo "::error::Verified Canonical systemd image not prepared: $image_tag" >&2
   exit 1
 fi
 
-if ! docker run -d --privileged --name "$name" "$image_tag" >/dev/null; then
+if ! docker run -d --privileged --name "$name" "$image_tag" /sbin/init >/dev/null; then
   echo "::error::Could not start managed Nix E2E container $name" >&2
   exit 1
 fi
@@ -49,6 +43,13 @@ fi
 # as in the previous gate). Never treat PID 1 merely existing as readiness.
 for _ in $(seq 1 60); do
   if docker exec "$name" bash -c 'systemctl is-system-running 2>/dev/null | grep -qE "^(running|degraded)$"'; then
+    # The signed cloud rootfs is imported directly, not built via a Dockerfile.
+    # /opt/repo was previously created by Dockerfile RUN, so prepare it here.
+    if ! docker exec "$name" mkdir -p /opt/repo; then
+      echo "::error::Could not prepare /opt/repo inside Managed Nix E2E container" >&2
+      diagnose
+      exit 1
+    fi
     exit 0
   fi
   if [ "$(docker inspect --format '{{.State.Running}}' "$name" 2>/dev/null)" != true ]; then

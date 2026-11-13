@@ -280,13 +280,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      # Linux desktop compile gate requires WebKit/GTK headers. Keep these out of
-      # rust-quality; the macOS release-artifact-check remains the full bundle gate.
-      - name: install Tauri system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev
-
+      # The locked desktop derivation supplies WebKit/GTK headers and pkg-config,
+      # eliminating the host's mutable APT mirror from the compile smoke.
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
         with:
           nix_path: nixpkgs=channel:nixos-unstable
@@ -301,7 +296,7 @@ jobs:
         # Full link/bundle coverage is already required in release-artifact-check via
         # the release workflow's macOS DMG build script. Linux keeps a compile gate
         # without paying a second cold full desktop link/build on another runner.
-        run: nix develop --command cargo check --locked --release --manifest-path apps/desktop/src-tauri/Cargo.toml
+        run: nix develop .#schneeforge-desktop --command cargo check --locked --release --manifest-path apps/desktop/src-tauri/Cargo.toml
 
   # Branch protection はこの既存 context 名を required として参照している。
   # Worker の failure/cancel/skip を全て fail-closed で集約する。
@@ -389,9 +384,6 @@ jobs:
       - name: bats test (ci-scripts gate patterns)
         run: nix run nixpkgs#bats -- tests/ci-scripts.bats
 
-      - name: bats test (Canonical systemd image provenance)
-        run: nix run nixpkgs#bats -- tests/ci-image-bootstrap.bats
-
       # pin 済み nix-installer 実 binary との invocation contract 検証
       # (install <plan> positional / SHA256 pin / --plan long flag 不在)
       - name: bats test (managed-nix contract)
@@ -411,11 +403,18 @@ jobs:
   managed-nix-e2e:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: install musl toolchain
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Check musl-gcc from flake-locked nixpkgs
+        run: nix shell --inputs-from . nixpkgs#musl.dev --command musl-gcc --version
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
@@ -428,17 +427,24 @@ jobs:
       # release.yml と同一 script で build + smoke + static INTERP gate
       # (PR CI と release workflow の build 経路 drift が RC.1/RC.2 両方の事故原因)
       - name: build schneeforge (release, musl static, same script as release workflow)
-        run: ./scripts/ci/build-release-linux-cli.sh
+        run: nix shell --inputs-from . nixpkgs#musl.dev --command ./scripts/ci/build-release-linux-cli.sh
 
       - name: stage binary at target/release
         run: |
           mkdir -p target/release
           cp target/x86_64-unknown-linux-musl/release/schneeforge target/release/schneeforge
 
+      # Keep privileged lifecycle operations entirely inside a disposable
+      # GitHub-hosted runner and its verified Ubuntu 24.04 Docker container.
+      - name: prepare verified Ubuntu systemd image (APT-free)
+        env:
+          SCHNEEFORGE_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          SCHNEEFORGE_E2E_SYSTEMD_IMAGE: ${{ vars.SCHNEEFORGE_E2E_SYSTEMD_IMAGE }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/prepare-managed-nix-e2e-image.sh
+
       - name: bats test (managed-nix E2E, Docker)
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq bats
-          bats tests/managed-nix-e2e.bats
+        run: nix shell --inputs-from . nixpkgs#bats --command bats tests/managed-nix-e2e.bats
 
   secret-scan:
     runs-on: ubuntu-24.04
