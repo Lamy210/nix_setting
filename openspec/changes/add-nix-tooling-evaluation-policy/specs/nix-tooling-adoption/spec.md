@@ -244,3 +244,43 @@ CI高速化PoCは対象attributeのexpected/evaluated/built/skipped/unsupported/
 - **WHEN** ポリシー自体の実装・文書化が完了し後続PoCが残る
 - **THEN** このchangeを既存のOpenSpec archive規約に沿って別PRで同期できる
 - **AND** 未完了のOSS導入タスクを完了済みとして閉じない
+
+
+### Requirement: OSSごとの利用シナリオと期待メリットを検証する
+
+OSSの新規導入提案は、対象利用者、現状の不便、実際に可能になる操作、期待メリット、代替手段、導入する面（開発者CLI/CI/インフラ/製品機能）、検証方法、および明確な不採用条件を記載しなければならない (MUST)。PoC前のメリットは仮説として表示し、実測前に達成済みの効果と主張してはならない (MUST NOT)。
+
+#### Scenario: 新規OSSのメリットを提案する
+- **WHEN** 新規OSSを開発環境へ導入する提案を作成する
+- **THEN** 誰がどの作業に使うか、導入前後に何が変わるかをuser storyで記録する
+- **AND** 現行ツールでの代替方法と新しい依存・運用負担を比較する
+- **AND** そのメリットが何の実測で証明されるかを記録する
+
+#### Scenario: 既存ツールですでに実現できる
+- **WHEN** 提案された機能が既存の`nix-unit`、`nix-tree`、`nix-melt`、`treefmt-nix`等で満たされる
+- **THEN** 追加OSSによる差分メリットがない場合は既存ツールの活用を選ぶ
+- **AND** 重複導入の保守コストをゼロと仮定しない
+
+#### Scenario: 定量評価で期待メリットが得られない
+- **WHEN** PoCの実測で新しいOSSが速度・検出・依存診断・運用費の目標を満たさない
+- **THEN** `No-Go`または追加検証として明示する
+- **AND** 宣伝値や上流の別環境ベンチマークを自環境の実績として扱わない
+
+### Requirement: 開発者向け機能と製品公開機能を分離する
+
+OSSを開発者CLI、CI、運用キャッシュに使うことと、SchneeForge CLI/GUIの公開機能として組み込むことを分けなければならない (MUST)。製品に診断結果を公開する場合はRust Coreの責務、Toolchainによる実行権限、利用者への説明、エラー表示、対応OSおよびrollbackを別OpenSpec changeで規定しなければならない (MUST)。
+
+#### Scenario: nix-diffを開発者向けに試す
+- **WHEN** 開発者が`nix-diff`でビルド変化を調査する
+- **THEN** read-onlyで開発者用のオプションCLI/PoCとして評価できる
+- **AND** SchneeForge GUIや一般ユーザーの既定インストール機能に自動追加しない
+
+#### Scenario: キャッシュ高速化を製品機能と混同する
+- **WHEN** CI/Runnerが`niks3`または`ncps`の恩恵を受ける
+- **THEN** CI運用メリットとして記録する
+- **AND** 一般ユーザーの`apply`や`rollback`が自動的に高速化したとは主張しない
+
+#### Scenario: 製品へ入力診断画面を追加する
+- **WHEN** Flake入力の状態やderivation差分をSchneeForge GUI/CLIで表示したい
+- **THEN** Core/CLI/Desktopの責務と権限・サポートOSを別changeで設計する
+- **AND** 外部OSSの成功出力だけで安全な適用や更新を保証しない
