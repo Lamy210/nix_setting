@@ -247,3 +247,64 @@ Unresolved questions:
 3. `devenv` や `nix-unit` はすでにdevShellで配布されているが、利用可否とrequired CI実行は異なる。導入済み数とテスト被覆率を混同しない。
 4. Windows/WSL2はLinuxバックエンドで実行することと、Windows native CLIの配布検証を別扱いにする。
 5. 実装PRを1 tool = 1 concernで分け、この**導入評価ポリシーchange自体**は方針が承認され、その仕様整合を確認できた段階で閉じられる。全PoC・新OSSの本番導入完了まで本changeのarchiveを不必要に遅らせない。各PoCの動作変更には別OpenSpec change/PRを作り、その実装・archiveはそのchange内で管理する。
+
+## D14. 機能・導入メリット・利用者・導入面のトレーサビリティ
+
+ツールの存在を理由に導入しない。**誰のどの行動がどう改善するか（Job-to-be-done）**を候補ごとに先に宣言する。下表のメリットは製品実装済みの事実ではなく、**PoCで検証する期待効果**である。数値・互換性・現状にないGUI表示は実装前には保証しない。
+
+| ツール / ステータス | 誰が何をできるか（利用シナリオ） | 得られる可能性のあるメリット | 対象面 / 非対象面 | 比較基準・反証 |
+| --- | --- | --- | --- | --- |
+| 既存 **nix-unit** | 設定を編集した開発者が、Nix関数の境界値・誤入力・評価失敗を個別テストする | 実機適用前の回帰検出、修正局所化 | 開発時/CI。**現行GUI機能ではない** | `tests/nix-unit.nix` の既存テストとrequired CI実行の差分。未実行なら既存ツールの活用を優先 |
+| 既存 **flake-parts/treefmt-nix/nixd** | 開発者がFlake構成を分割し補完・フォーマット・静的検査を使う | 設定変更レビューと保守性の向上 | devShell/開発者。追加の常時サーバー不要 | 既存機能を重複導入すると変更面積・維持費が増えるため不採用 |
+| **nix-fast-build**（優先PoC） | CI担当が多数の独立derivationを評価し、準備できたものから並行ビルド・結果を取得する | 大きいチェック集合で待ち時間短縮、失敗属性の把握、機械可読結果 | 開発者/CI。製品のapply/rollbackやrelease gateを置換しない | 実行属性の網羅、同条件critical path・runner-time・メモリ。属性が少ない、キャッシュが温かい場合は不利な可能性 |
+| **nix-diff**（優先PoC） | 設定変更でキャッシュミスが起きたとき、前後のderivation入力差分を説明する | 無駄な再ビルド・レビュー負担の原因特定 | ローカル/CI診断。公開ユーザーへの自動実行は別設計 | 同一drv→差分なし、入力を意図的に変える→検出。メンテナンス状況と出力の理解しやすさも評価 |
+| **flake-checker**（優先PoC） | 依存管理担当がroot/独立テンプレートのNixpkgs pinの古さ・サポート状況を確認する | セキュリティパッチの取りこぼし候補の早期発見、更新計画の可視化 | 開発者/非blocking policy check。自動lock更新は対象外 | 健全/古い/意図的固定のfixtureで誤検知率を測定。root-only検査を全テンプレート監査と誤記しない |
+| **sbomnix**（P2） | セキュリティ担当がNix closureのSBOM・依存グラフ・古いパッケージを調べる | 依存追跡と脆弱性調査の説明性、影響範囲の可視化 | 開発・監査の補助。既存release署名/SPDXの代替ではない | syft/SPDXとNix依存閉包のカバレッジ差・false positiveを比較 |
+| **ncps**（P2比較） | 同一ネットワークの複数開発機/Runnerが上流cacheから取るNARをローカルに再利用する | 重複ダウンロード量/待ち時間低下の可能性 | キャッシュproxy。単一Runnerのwarm storeには余剰になり得る | 上流download byte/host、ヒット率、障害時fallback、管理DB/ストレージ負担。初期開発によるデータ整合リスクに注意 |
+| **niks3**（P2比較） | 複数Runnerが構築済み成果物を署名付きS3系cacheへuploadし共有する | Runner間の再ビルド削減、read pathのスケールアウト | self-hosted cache、S3とPostgreSQL/GCの運用が必要 | 実ビルド削減時間 vs S3 API/保存/egress/DB/鍵管理。ビルダー1台で利得なしなら不採用 |
+| **nix2container**（P3） | CI担当がNix closureからOCIイメージを作り、不要なtarballをNix storeに保存せずにlayerを再利用する | OCI配布が必要な場合のビルド/転送効率と再現性 | **Linux CLIのテスト用OCI**。macOS DMG/Tauri製品配布は対象外 | 既存Dockerfileとimage digest、サイズ、cold/warm push、runtime smoke、SBOM/脆弱性評価 |
+| **Gradient/Hydra等**（保留） | 多数のホストにビルドを分散しジョブを集約管理 | 大規模CIでのスループット、可視化、運用統制 | 常時CIサーバー/DB/Worker。現行Runnerの単純化より優先しない | 同時ジョブ数/待ち時間が単純な自前Runner+GitHub Actionsで満たせない時だけ再評価 |
+
+### 具体的な利用シナリオ（検証しやすい順）
+
+1. **変更理由を説明**：Flake lock更新でHome Manager activationのdrvが変化したら、`nix-diff` が何の入力に起因するか表示。開発者は不要な依存更新と本質的な変更を切り分ける。
+2. **既存のテストを確実に実行**：`tests/nix-unit.nix` に「想定外のmachine input」などnegative fixtureを置き、CI実行経路に組み込まれているか確認。`justfile` に存在するだけでrequired実行済みとみなさない。
+3. **Flake入力のセキュリティ更新を計画**：root、`templates/node`、`templates/devenv` を別々に監査。意図的なセキュリティbackport pinは除外理由を明記し、実際のruntimeを検査。
+4. **CIの待ち時間を削減**：一つのchecks集合を`nix-fast-build` に試験実行。評価のみ、ビルド、substitute、skipを区別し、前後のwall-clockとRunner総時間を比較。
+5. **複数Runnerを将来増設**：cold buildの成果物を2台目が取得する条件で`niks3`などを検証。**1台のみのローカルstoreと比較して改善がなければキャッシュサーバーを新設しない**。
+6. **セキュリティ調査**：実リリースbinary/DMGの既存SBOMとNix closureの`sbomnix`出力を比較し、どちらに何が載るか区別して説明できるようにする。
+
+## D15. 機能の利用面と製品への導入禁止境界
+
+| 面 | 初期導入方針 | 例と制約 |
+| --- | --- | --- |
+| developer-only | `nix develop` / `justfile` / 選択的Nix package等、**opt-in** | nix-diff等は説明性に価値があるが、SchneeForgeの全ユーザーへ既定インストールしない |
+| CI-only | 手動dispatchまたはnon-required isolated workflow | nix-fast-build/flake-checker/sbomnix。required contextsを保存し、任意PoCのskipを受入証拠へ昇格させない |
+| infrastructure | バックアップ/復旧/権限分離を備えた別OpenSpec | niks3/ncps等。ネットワーク公開、書込鍵、S3/DB新規契約を本仕様だけで自動実施しない |
+| product surface | **今回対象外。将来の製品仕様変更を要する** | GUIに依存差分、健康診断、キャッシュ状況を出すならRust Coreの責務・権限・非Nixホスト挙動・受入条件を新規changeで定義 |
+
+期待メリットが「開発者だけの作業の短縮」であれば、まず開発用CLI・CIで実現すべきであり、製品GUI・常駐サービスを追加しない。将来製品化する場合は「診断表示」だけのread-onlyユースケースを先に切り出し、適用・更新などの破壊的操作と混ぜない。
+
+## D16. メリットの定量化と導入しない条件
+
+| 価値仮説 | 計測指標 | 採用に進む条件 | 導入しない具体例 |
+| --- | --- | --- | --- |
+| CIが速くなる | 同一条件のcritical path、runner time、peak RAM、失敗率 | 既存`development-workflow`の-25% / +20%以内の目標を満たし、検証被覆の低下0 | checksが少なくfast-buildの評価オーバーヘッドの方が大きい |
+| 変更原因を特定しやすい | 既知変更fixtureの原因特定率・調査時間 | 正/負fixtureで正しく差分が出て、開発者が結果を理解できる | 既存`nix-melt`/`nix-tree`と実質的に重複し、追加負担が上回る |
+| 入力更新漏れが減る | root/node/devenvの監査対象coverage、true positive/false positive | 意図的pinを尊重し、欠落lockを`unknown`と判定 | 期限超過を理由に有効な安全性backportを無条件に置換する |
+| SBOM監査が改善する | 対象closureのpackage coverageと既存release SBOM差 | 監査用途の新しい情報が得られ、誤検知をtriage可能 | 同じ出力を二重生成するだけで保守費が増す |
+| ビルド/通信が減る | cache hit、bytes、rebuild time、S3 API/容量/egress/電力/保守費 | 現行ローカルstoreに対し総費用と時間の便益が検証できる | 1台Runnerでwarm storeが使え、共有cacheがコストと障害点を増やす |
+| OCI作成が簡単になる | OCI image size/digest/re-push時間、実動作、SBOM | Linux CLIの検証・配布の具体的需要があり、安全性が同等 | 配布対象はDMG/native binaryのみでOCIを実際に使わない |
+
+各KPIの目標は**事前に**baseline/PoC開始前に記録し、後から都合の良い対象や条件だけ選ぶことを禁止する。既存CIの閾値を他領域（SBOM/差分検査）へ機械的に適用しない。非数値便益は意思決定ログで仮説として扱い、導入効果の「実績」とは表示しない。
+
+## D17. OSS一次資料と確認済みの制約（2026-11-13）
+
+- nix-fast-build: https://github.com/Mic92/nix-fast-build — 属性別ビルド、machine-readable result、cache upload/remote optionを提供。高速化は負荷や属性数依存。
+- nix-diff: https://github.com/Gabriella439/nix-diff — drv間の差分説明。上流READMEでは新機能開発予定なしと説明されており、保守継続性を別途審査する。
+- flake-checker: https://github.com/DeterminateSystems/flake-checker — `flake.lock`のroot-level Nixpkgs入力を検査。明示パスを指定可能、標準の経過日数閾値は30日。root-onlyで全依存監査とは言えない。
+- nix-unit: https://github.com/nix-community/nix-unit — 評価失敗をテスト項目ごとに扱える。Lixは別実装`lix-unit`。
+- sbomnix: https://github.com/tiiuae/sbomnix — Nix由来SBOM、dependency graph、outdated、provenance等。既存release assetの証明とは異なる。
+- ncps: https://github.com/kalbasit/ncps — 上流cache proxyとローカル署名・監視。上流はデータ整合・復旧の保証がない早期開発状態と明記している。
+- niks3: https://github.com/Mic92/niks3 — S3直接読込と署名、OIDC、GC。metadata/GCのためPostgreSQL等の構成が追加される。
+- nix2container: https://github.com/nlewo/nix2container — tarballをNix storeに保存せずOCIを構築できる。ただし実行環境と配布要件を別検証する。
