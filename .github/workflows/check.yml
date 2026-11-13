@@ -182,7 +182,7 @@ jobs:
         run: nix run nixpkgs#actionlint
 
       - name: shellcheck
-        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh scripts/ci/build-release-macos-cli.sh scripts/ci/build-release-linux-cli.sh scripts/ci/build-release-macos-dmg.sh scripts/ci/check-macos-portability.sh scripts/ci/attest-release-assets.sh scripts/ci/macos-managed-nix-lifecycle.sh scripts/ci/prepare-upstream-bump-branch.sh scripts/ci/ensure-installer-bump-pr.sh scripts/ci/start-managed-nix-e2e-container.sh scripts/ci/check-actions-runtime-policy.sh scripts/security/audit-node-host.sh tests/managed-nix-e2e.bats tests/install-sh.bats tests/ci-scripts.bats
+        run: nix run nixpkgs#shellcheck -- bootstrap.sh bench-shell.sh install.sh scripts/resolve-tools.sh scripts/ci/build-release-macos-cli.sh scripts/ci/build-release-linux-cli.sh scripts/ci/build-release-macos-dmg.sh scripts/ci/check-macos-portability.sh scripts/ci/attest-release-assets.sh scripts/ci/macos-managed-nix-lifecycle.sh scripts/ci/prepare-upstream-bump-branch.sh scripts/ci/ensure-installer-bump-pr.sh scripts/ci/start-managed-nix-e2e-container.sh scripts/ci/prepare-managed-nix-e2e-image.sh scripts/ci/check-actions-runtime-policy.sh scripts/security/audit-node-host.sh tests/managed-nix-e2e.bats tests/install-sh.bats tests/ci-scripts.bats
 
       - name: statix check
         run: nix run nixpkgs#statix -- check .
@@ -388,6 +388,9 @@ jobs:
 
       - name: bats test (ci-scripts gate patterns)
         run: nix run nixpkgs#bats -- tests/ci-scripts.bats
+
+      - name: bats test (Canonical systemd image provenance)
+        run: nix run nixpkgs#bats -- tests/ci-image-bootstrap.bats
 
       # pin 済み nix-installer 実 binary との invocation contract 検証
       # (install <plan> positional / SHA256 pin / --plan long flag 不在)
