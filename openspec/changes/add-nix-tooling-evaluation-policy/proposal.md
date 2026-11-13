@@ -47,3 +47,26 @@ SchneeForge (nix_setting) は Nix/Flakes、Home Manager、nix-darwin、Rust/Taur
 - https://github.com/nlewo/nix2container
 - https://github.com/nix-community/nix-unit
 - リポジトリの既存規約: `openspec/specs/development-workflow/spec.md`、`openspec/specs/release-supply-chain/spec.md`、`docs/testing/ci-workflow-timing.md`
+
+
+## Expected user/developer benefits (hypotheses, not implemented functionality)
+
+| Area | 何ができるようになるか | 誰に価値があるか | 期待メリットと反証 |
+| --- | --- | --- | --- |
+| Build analysis | `nix-diff`で変更前後のdrvの差分・キャッシュミス理由を診断 | Nix設定を変更する開発者 | 不要な再ビルドの原因を調査しやすくなる。既存`nix-melt`等と差がなければ見送り |
+| CI acceleration | `nix-fast-build`の並行評価・ビルドを任意CIで試す | CI担当・PRレビュアー | 多数のchecksでは待ち時間短縮が期待できる。既存requiredと同等の被覆を保証するものではなく、効果は要実測 |
+| Flake input health | `flake-checker`でroot・独立テンプレートのNixpkgs pinを個別検査 | 開発者・依存更新担当 | 更新漏れを発見する可能性。ただし日数だけの機械更新はしない |
+| Supply-chain audit | `sbomnix`でNix closureのSBOMや依存グラフを調べる | セキュリティ・リリース担当 | 既存release SBOMで分からない依存を調査できる可能性。情報が重複するだけなら不採用 |
+| Multi-runner cache | `ncps`/`niks3`で上流download/ビルド成果物を複数ホストに再利用 | CI/インフラ担当 | 転送/ビルド削減。単一Runnerでwarm storeが十分なら追加コストが勝る |
+| OCI build | `nix2container`でLinux CLIの検証用imageをNixから生成する | コンテナビルド担当 | tarballやlayer再送の削減可能性。OCIを配布/運用しないなら不要 |
+
+**製品利用者への効果は間接的**: このchangeはSchneeForge CLI/GUIへ新規ボタンや自動更新を提供しない。開発者用、CI用、インフラ用を区別し、エンドユーザー向けread-only診断などを作る場合は別OpenSpecとする。
+
+各OSSについて「利用者・操作・代替案・期待メリット・測定方法・運用コスト・不採用条件」を`design.md`に記録し、その記録を採用判断の必須証拠とする。
+
+## Adoption decisions & conditions
+
+- **即時の製品導入は0件**。既存のnix-unit/flake-parts/treefmt/devenv等は再利用する。
+- 優先PoCは `nix-fast-build` / `nix-diff` / `flake-checker` をそれぞれ独立changeで検証する。
+- `sbomnix` / `ncps` / `niks3` / `nix2container` は利用頻度・増分価値・費用が実測で示された場合のみ次段階へ進む。
+- OSSの特性を採用の可否と混同せず、Gate 0（security/maintenance/reproducibility）、Gate 1（比較）、Gate 2（Go/No-Go）を通過させる。
