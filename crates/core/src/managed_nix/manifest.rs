@@ -226,6 +226,25 @@ aarch64-darwin = "33333333333333333333333333333333333333333333333333333333333333
     }
 
     #[test]
+    fn duplicate_arch_checksum_is_rejected_before_privileged_download() {
+        let old = concat!(
+            "x86_64-linux = \"",
+            "1111111111111111111111111111111111111111111111111111111111111111",
+            "\""
+        );
+        let duplicate = format!(
+            "{old}\nx86_64-linux = \"{}\"",
+            "2222222222222222222222222222222222222222222222222222222222222222"
+        );
+        let bad = SAMPLE.replace(old, &duplicate);
+        assert_ne!(bad, SAMPLE, "fixture must actually contain duplicate checksum keys");
+        assert!(matches!(
+            BootstrapManifest::parse(&bad),
+            Err(ManagedNixError::ManifestParse { .. })
+        ));
+    }
+
+    #[test]
     fn validate_accepts_partial_arch_entries() {
         // 全 arch 分の entry が無くても、存在するものが正しければ OK
         // (unsupported arch は expected_sha256 が None → UnsupportedArch で弾かれる)
