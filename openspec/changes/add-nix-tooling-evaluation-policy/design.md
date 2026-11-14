@@ -6,7 +6,10 @@
 - `flake.nix`: `flake-parts`、`home-manager`、`nix-darwin`、`treefmt-nix` がinputs。対応systemsは `aarch64-darwin` / `x86_64-linux` / `aarch64-linux`。
 - `modules/flake-parts/default.nix`: nixfmt/shfmt/taploによるtreefmt契約。
 - `modules/flake-parts/devshells.nix`: `nixd`, `statix`, `deadnix`, `devenv`, `nix-tree`, `nix-melt`, `nix-unit` 等が導入済み。
-- `tests/nix-unit.nix`、`justfile`: unit testの既存入口がある。ただしrequired CIで全て実行されているかは独立して検証する。
+- `tests/nix-unit.nix`、`justfile`、`.github/workflows/check.yml` のbootstrap-test: unit testの既存入口と `nix run nixpkgs#nix-unit -- tests/nix-unit.nix` のCI実行を確認済み。現行テストの被覆、registry経由のpinとserver-side required指定は別途監査する。
+- `modules/programs.nix`: nix-direnv有効。`modules/packages/dev.nix` と `modules/shell.nix`: nh、nix-index、Zshのcommand-not-found候補表示が既存。追加OSSではなく設定・実行・更新経路の改善候補。
+- rootと独立テンプレートを監査対象にする。developではdevenvのlock欠落を確認。既存#299の修正範囲と重複させない。
+- PR #330の旧HEAD CI run 43432447154ではdevshell-smoke 27分19秒、Python template 24分31秒、flake-check 56秒。uvバックポートのビルド開始後に長いログ間隔がある。単一runの探索的証拠であり、uv単体の正確なビルド時間や恒常的な性能差ではない。
 - `.github/workflows/check.yml`: `openspec-check`、`flake-check`、`lint`、`rust-check`、`macos-check`、`release-artifact-check` 等を持つ。現行required contextsの最終的な正本はGitHubサーバー設定で再確認。
 - `openspec/specs/release-supply-chain/spec.md`: release artifactsにcosign署名、SLSA provenance、SPDX SBOMが既存要件として存在する。
 - `openspec/specs/development-workflow/spec.md`: critical path -25%以上 / runner-time +20%以内という既存のCI最適化目標、必要context保持が規定されている。
@@ -33,8 +36,8 @@
 
 | ステータス | OSS | 判断と条件 |
 | --- | --- | --- |
-| **既存維持（追加導入不要）** | flake-parts, treefmt-nix, nixfmt, nixd, statix, deadnix, devenv, nix-tree, nix-melt, nix-unit | 既存設定と利用経路を確認。nix-unitはテスト実行の不足だけを調べる |
-| **P1優先PoC（非blocking）** | nix-fast-build | checksの評価・ビルドを並列化。required flake-check / macOS / release gateを置換しない |
+| **既存維持（追加導入不要）** | flake-parts, treefmt-nix, nixfmt, nixd, statix, deadnix, devenv, nix-tree, nix-melt, nix-unit, nh, nix-direnv, nix-index, nix-output-monitor, omnix | 導入済み・有効化済み・実行確認・被覆を区別する。nix-unitは異常系とpinの監査を優先 |
+| **条件付きPoC（非blocking）** | nix-fast-build | checks属性数・実測ボトルネック・改善見込みを事前確認。required flake-check / macOS / release gateを置換しない |
 | **P1優先PoC（ローカル診断）** | nix-diff | derivation変化・キャッシュミスを診断。read-only、任意ツール |
 | **P1優先PoC（non-required）** | flake-checker | lockの陳腐化警告を記録。更新を自動適用せず、false positiveとpin理由を審査 |
 | **P2評価** | sbomnix | Nix closureのSBOM・依存関係を検査。既存release用syft/SPDX/cosignを置換しない |
@@ -72,9 +75,9 @@ develop / PR
 
 | 観測 | 方法・記録 |
 | --- | --- |
-| Baseline | 同一commit SHA / `flake.lock` / runner class / system / Xcode / input pin / 実行コマンド / 成功したrun ID |
-| 完了時間 | `docs/testing/ci-workflow-timing.md` のreportを再利用。queue(wait)とrunner実行時間を分離 |
-| 性能 | cold/warm cacheそれぞれ成功5回以上を暫定サンプルとし、中央値・分散、critical path、runner合計時間を別々に計測 |
+| Baseline | workloadのSHA・独立lock/対象attr / baselineと候補のharness SHA・ツールpin・許可差分 / runner class・system・Xcode・cache状態・run ID |
+| 完了時間 | `docs/testing/ci-workflow-timing.md` のreportを再利用。created→started（スケジューリング等を含む）とrunner実行時間を分離。課金時間とは区別 |
+| 性能 | 各比較条件の成功10回未満は探索扱い。5回は予備計測の目安。matched cold/warmを分け、p50/p95・ばらつき・critical path・runner合計時間を記録 |
 | マシン負荷 | CPU秒、peak RSS、ストレージ使用量、I/O、ビルド数、再ビルド差分、ネットワーク転送量 |
 | Nix成果物 | 評価できたattr件数、実際にbuildしたdrv件数、cache hit/miss、署名検証結果 |
 | 品質・再現性 | `nix flake check`、Nix unit、Linux/macOS requiredとrelease gateの結論、同一lockでの再実行 |
@@ -109,14 +112,14 @@ develop / PR
 ## D6. 推進順序とPR分割
 
 1. **P0 inventory + benchmark**: 既存ツールと必須gate・Nix test coverageを確定。計測baselineを採取。
-2. **P1 diagnostics**: nix-diff / flake-checkerを任意ツールとして追加比較。nix-fast-buildを非blocking/manual workflowで計測。各ツール独立のimplementation PR。
+2. **P1 diagnostics**: nix-diff / flake-checkerを任意ツールとして追加比較。nix-fast-buildは属性棚卸し・ボトルネックで必要性が示された場合のみ非blocking/manual workflowで計測。各ツール独立のimplementation PR。
 3. **P2 security/cache**: sbomnixでNix closureを調査。キャッシュは比較Spikeを先行し、必要が証明されてからniks3等の最小構成を別のOpenSpecで設計。
 4. **P3 OCI/研究**: nix2containerのみ隔離環境で評価。ほかは研究として監視。
-5. 実装/必要な運用runbookと受入完了後、archiveを専用PRで行う。
+5. 本ポリシーの提案承認後、開発ガイドへの導線・decision/evidenceテンプレート・記録例/異常系レビューを実装する。実装PRをdevelopへmerge後、別archive PRでcanonical specを同期する。後続PoCの完了は待たない。
 
 ## Open Questions (実装前に解消)
 
-- `nix-unit` はrequired CIで実際に実行されるか。未実行なら既存fast laneへ追加可能か。
+- `nix-unit` はbootstrap-testで実行済み。server-side required指定、negative fixtureと実行pinの被覆をどう改善するか。
 - `nix-fast-build` はどのattributesで完了時間短縮が見込めるか。単一の小さなchecksでは追加負荷の方が大きくないか。
 - flake-checkerのNixpkgs対応branch、例外扱い、false positive抑制ルール。
 - Nix SBOMが実際のRust/Tauri releaseの依存範囲をどこまで表現できるか（既存syftとの差異）。
@@ -127,7 +130,9 @@ develop / PR
 
 候補単位で **Gate 0（必須条件）→ Gate 1（比較）→ Gate 2（Go/No-Go）** の順に評価する。
 
-### Gate 0: 満たさなければ自動的にNo-Go
+### Gate 0: PoC開始前と正式採用前の二段階審査
+
+PoC開始前は取得元・ライセンス・immutable pin・隔離・最小権限・予算/停止条件・対象範囲・既存gate維持を確認する。実測前の効果・対象systemの実測はunknownでよいが、安全性の必須条件が不明なら実行しない。正式採用前には以下の全条件を再審査し、必要な実測がなければDeferとする。
 
 - OSSライセンス/配布条件、実行コードのimmutable pin（rev/hash/lock）、取得元、保守状態、重要な公開脆弱性の状況を記録できる。利用範囲が不明な項目は `unknown` とし**本番採用禁止**。
 - 現行required CIをskip/削除/緩和せず、既存の `managed-nix-e2e`、macOS 15/26、release CLI/DMG、Windows non-required契約の扱いを維持する。
@@ -147,7 +152,7 @@ develop / PR
 | Total cost | 15 | Runner/電力/ストレージ/API/転送/人手の合計 |
 | Platform / integration | 10 | Darwin/Linux/WSLの対象別導入コスト |
 
-各軸を0〜5段階で根拠つき評価し、`weighted points = sum(weight * rating / 5)` とする。未確認は `unknown` として加点せず、Gate 0に必要な未確認項目があればscoreに関係なくNo-Go。75/100以上は**本番採用審査へ進める暫定目安**に過ぎず、品質・安全性・既存CI目標の違反を免除しない。評価尺度・根拠の変更はdecision logに記録する。
+各軸を0〜5段階で根拠つき評価し、`weighted points = sum(weight * rating / 5)` とする。尺度は0=不適合、1=重大課題、2=一部充足、3=要求を満たす、4=追加便益、5=明確な優位性を根拠で確認。未確認は `unknown` として0点評価とは区別し、加点せず、Gate 0に必要な未確認項目があればscoreに関係なくNo-Go。75/100以上は**本番採用審査へ進める暫定目安**に過ぎず、品質・安全性・既存CI目標の違反を免除しない。評価尺度・根拠の変更はdecision logに記録する。
 
 ### Gate 2: 明示的な判定
 
@@ -162,7 +167,7 @@ develop / PR
 | --- | --- | --- |
 | nix-fast-build | 現行 `nix flake check`・必要なexplicit `nix build` の実行集合 | **属性単位の検証マトリクス**を作り、evalのみ/build済み/cache hit/skip/failedを区別。1件失敗・unsupported・skippedが検証済みに昇格しない。`--skip-cached`による省略は**対象のビルド実行を証明しない**。現行required全件を存続 |
 | nix-diff | commit/lockが異なる2つの明示的drv | 同一drvなら差分なし、既知の入力変更なら説明可能な差分を出す。依存closure変化を0として見逃したら不採用/調査 |
-| flake-checker | root `flake.lock` と独立 `templates/node/flake.lock`、devenvのpin有無 | 意図的な古い入力、サポート外branch、例外pinをfixture化。ルートのみ検査してテンプレートの安全性を宣言しない。デフォルトの30日警告を一律自動更新と混同しない |
+| flake-checker | root `flake.lock` と全独立Flake（rust/node/python/flutter/devenvを含む）のpin有無 | 意図的な古い入力、サポート外branch、例外pinをfixture化。ルートのみ検査してテンプレートの安全性を宣言しない。デフォルトの30日警告を一律自動更新と混同しない |
 | sbomnix | Nix closureのSBOM vs 既存release CLI/DMGのsyft/SPDX | 対象範囲、ライブラリ種別とpackage identityを差分比較。未一致を未知として残し、false positiveで公開を誤って止めない |
 | ncps/niks3 | Local Nix storeと同一入力・同一hostで3条件 | Cold/Warm時のbytes、API、store容量、キャッシュ署名検証、故障時の再ビルド、GC・再取得、バックアップを再現。料金を推定で断定しない |
 | nix2container | 既存Dockerfileで作る隔離テスト用CLIイメージ | digest、サイズ、layer reuse、実行/portability、SBOM scan、署名、baseがない場合の互換性を比較。配布経路は変更しない |
@@ -187,10 +192,13 @@ PoC runは既存のrequired contextとは**別**に状態を持つ。`success`�
 | `skipped` | feature gate等により実行しなかった | 検証成功ではない |
 | `unsupported` | 対象system/hostで非対応 | 対象外、互換性成功とはしない |
 | `unknown` | 時間/環境/結果が不明 | 本番採用の根拠にならない |
+| `cancelled` | 実行中止 | 完了と扱わない |
 
-各PoCのevidence recordは `tool_id`, `tool_pin`, `license`, `source_url`, `repo_sha`, `flake_lock_sha256`, `runner`, `os_arch`, `xcode_version(該当時)`, `execution_stage`, `attempt`, `job_url`, `cold_warm`, `attributes_expected`, `attributes_evaluated`, `attributes_built`, `attributes_skipped`, `outcome`, `duration`, `runner_seconds`, `cpu_seconds`, `peak_rss_bytes`, `disk_peak_bytes`, `bytes_rx`, `bytes_tx`, `cost_currency`, `cost_amount_or_unknown`, `rollback_reference`, `review_decision` を記録する。各数値の単位、測定方法、unknown理由を記す。個人識別子・秘密情報・絶対home pathは削除/マスクする。証拠ファイルはPRアーティファクトまたはCIへのリンクで参照し、保持期間が終わっても主要集計/判定根拠はPR本文/decision recordに残す。
+実行方法（`source-built` / `substituted` / `already-present` / `not-run` / `unknown`）は検証結果と別フィールドにする。キャッシュhitだけではソースビルド・本体テストの実行を証明しない。
 
-**同一条件比較の注意:** キャッシュcoldとは実際の関連パスがローカル/候補cacheに無いと確認できた状態、warmとは必要なパスがキャッシュに存在すると確認した状態を指す。クリア方法は隔離storeまたはdisposable runnerを用い、共有Nix storeの破壊的GCはしない。baselineと候補を交互に試し、worker負荷・ネットワーク状態・実行時刻の差を記録。成功runが各条件で5未満なら探索結果扱い。リリース判定には10以上を目標として、差が小さい場合はサンプル増加/要因分析を優先する。
+各PoCのevidence recordは `tool_id`, `tool_pin`, `license`, `source_url`, `workload_sha`, `workload_lock_sha256_by_path`, `harness_sha`, `candidate_delta`, `execution_method`, `runner`, `os_arch`, `xcode_version(該当時)`, `execution_stage`, `attempt`, `job_url`, `cold_warm`, `attributes_expected`, `attributes_evaluated`, `attributes_built`, `attributes_skipped`, `outcome`, `duration`, `runner_seconds`, `cpu_seconds`, `peak_rss_bytes`, `disk_peak_bytes`, `bytes_rx`, `bytes_tx`, `cost_currency`, `cost_amount_or_unknown`, `rollback_reference`, `review_decision` を記録する。各数値の単位、測定方法、unknown理由を記す。個人識別子・秘密情報・絶対home pathは削除/マスクする。証拠ファイルはPRアーティファクトまたはCIへのリンクで参照し、保持期間が終わっても主要集計/判定根拠はPR本文/decision recordに残す。
+
+**同一条件比較の注意:** キャッシュcoldとは実際の関連パスがローカル/候補cacheに無いと確認できた状態、warmとは必要なパスがキャッシュに存在すると確認した状態を指す。クリア方法は隔離storeまたはdisposable runnerを用い、共有Nix storeの破壊的GCはしない。baselineと候補を交互に試し、worker負荷・ネットワーク状態・実行時刻の差を記録。各条件の成功runが10未満なら探索結果扱い。10以上でも効果のばらつき・失敗率を確認し、差が小さい場合はサンプル増加/要因分析を優先する。workload変更を伴う比較は別実験として差分を明示し、同一workload比較と混同しない。
 
 ## D10. 詳細なサプライチェーン脅威モデル
 
@@ -225,7 +233,7 @@ Nix 2.35設定・substituterの信頼要件: https://releases.nixos.org/nix/nix-
 ```text
 Tool / Version / Source / License / Last reviewed:
 Existing alternative / Tested systems and stages:
-Baseline SHA + lock SHA / PoC SHA + lock SHA:
+Workload SHA + lock hashes by path / baseline and PoC harness SHA + candidate delta:
 Evidence links / Attributes and outcomes / Cost estimate:
 Security Gate 0 (pass/fail/unknown):
 Weighted scoring + rationale:
@@ -236,7 +244,7 @@ Unresolved questions:
 ```
 
 - optional PoCの無効化: **専用の実行スイッチ/手動workflowを停止** → ツールinput・lockの変更をrevert → baselineの `nix flake check`、unit、Rust、macOS、release gateを再確認。failed requiredのskip・context変更で見かけ上greenにしない。
-- cache rolloutの無効化: write権限停止 → 新substituter削除/信頼鍵revocation検討 → 上流の安全なcache/ソースビルドへ復帰 → キャッシュ破損時は影響artifactを隔離。署名鍵漏洩時は別セキュリティインシデントとして処理する。
+- cache rolloutの無効化: write権限停止 → 新substituter削除/信頼鍵revocation検討 → 上流の安全なcache/ソースビルドへ復帰 → キャッシュ破損時は影響artifactを隔離。署名鍵漏洩時は別セキュリティインシデントとして処理する。旧鍵を信頼する消費者の設定と取得済み成果物を追跡し、影響期間の成果物を隔離・再取得/再ビルド・検証する。鍵削除だけで既存storeが安全になったとは扱わない。
 - UI/CLIへの昇格は Core/CLI/Desktopの責務分離と独立Toolchain契約を再設計する**別**OpenSpec changeとする。単なるツール発見やOSへの自動インストールをこのchangeから推奨しない。
 - baselineと採用条件が満たされない候補は `No-Go` の理由を記録し、恒久的なcron/runner資格情報を残さない。
 
@@ -244,9 +252,9 @@ Unresolved questions:
 
 1. セキュリティ更新用に意図的に固定しているroot・Node・devenvのinputsを「30日を超えた」だけで弱く扱わない。pin理由と実体runtime/closureを検証する。
 2. GitHub branch protectionのrequired contextsをサーバ側で確定し、CI YAMLの名前から推測しない。
-3. `devenv` や `nix-unit` はすでにdevShellで配布されているが、利用可否とrequired CI実行は異なる。導入済み数とテスト被覆率を混同しない。
+3. `devenv` や `nix-unit` はすでにdevShellで配布され、nix-unitはbootstrap-testで実行済みだが、利用可否・実行成功・server-side required指定は異なる。導入済み数とテスト被覆率を混同しない。
 4. Windows/WSL2はLinuxバックエンドで実行することと、Windows native CLIの配布検証を別扱いにする。
-5. 実装PRを1 tool = 1 concernで分け、この**導入評価ポリシーchange自体**は方針が承認され、その仕様整合を確認できた段階で閉じられる。全PoC・新OSSの本番導入完了まで本changeのarchiveを不必要に遅らせない。各PoCの動作変更には別OpenSpec change/PRを作り、その実装・archiveはそのchange内で管理する。
+5. 実装PRを1 tool = 1 concernで分け、この**導入評価ポリシーchange自体**は方針承認後にD6のポリシー実装と受入を完了し、実装PRがdevelopへmergeされた段階で別archive PRへ進める。全PoC・新OSSの本番導入完了まで本changeのarchiveを不必要に遅らせない。各PoCの動作変更には別OpenSpec change/PRを作り、その実装・archiveはそのchange内で管理する。
 
 ## D14. 機能・導入メリット・利用者・導入面のトレーサビリティ
 
@@ -291,14 +299,16 @@ Unresolved questions:
 | --- | --- | --- | --- |
 | CIが速くなる | 同一条件のcritical path、runner time、peak RAM、失敗率 | 既存`development-workflow`の-25% / +20%以内の目標を満たし、検証被覆の低下0 | checksが少なくfast-buildの評価オーバーヘッドの方が大きい |
 | 変更原因を特定しやすい | 既知変更fixtureの原因特定率・調査時間 | 正/負fixtureで正しく差分が出て、開発者が結果を理解できる | 既存`nix-melt`/`nix-tree`と実質的に重複し、追加負担が上回る |
-| 入力更新漏れが減る | root/node/devenvの監査対象coverage、true positive/false positive | 意図的pinを尊重し、欠落lockを`unknown`と判定 | 期限超過を理由に有効な安全性backportを無条件に置換する |
+| 入力更新漏れが減る | rootと全独立Flakeの監査対象coverage、true positive/false positive | 意図的pinを尊重し、欠落lockを`unknown`と判定 | 期限超過を理由に有効な安全性backportを無条件に置換する |
 | SBOM監査が改善する | 対象closureのpackage coverageと既存release SBOM差 | 監査用途の新しい情報が得られ、誤検知をtriage可能 | 同じ出力を二重生成するだけで保守費が増す |
 | ビルド/通信が減る | cache hit、bytes、rebuild time、S3 API/容量/egress/電力/保守費 | 現行ローカルstoreに対し総費用と時間の便益が検証できる | 1台Runnerでwarm storeが使え、共有cacheがコストと障害点を増やす |
 | OCI作成が簡単になる | OCI image size/digest/re-push時間、実動作、SBOM | Linux CLIの検証・配布の具体的需要があり、安全性が同等 | 配布対象はDMG/native binaryのみでOCIを実際に使わない |
 
 各KPIの目標は**事前に**baseline/PoC開始前に記録し、後から都合の良い対象や条件だけ選ぶことを禁止する。既存CIの閾値を他領域（SBOM/差分検査）へ機械的に適用しない。非数値便益は意思決定ログで仮説として扱い、導入効果の「実績」とは表示しない。
 
-## D17. OSS一次資料と確認済みの制約（2026-11-13）
+## D17. OSS一次資料と採用前再確認事項（2026-11-13）
+
+以下は調査時の参照先・機能候補であり、採用時は固定するversion/revの一次資料と実環境で再確認する。保守状況・既定値・プラットフォーム互換性を現時点の確定値として扱わない。
 
 - nix-fast-build: https://github.com/Mic92/nix-fast-build — 属性別ビルド、machine-readable result、cache upload/remote optionを提供。高速化は負荷や属性数依存。
 - nix-diff: https://github.com/Gabriella439/nix-diff — drv間の差分説明。上流READMEでは新機能開発予定なしと説明されており、保守継続性を別途審査する。

@@ -4,7 +4,7 @@
 
 ### Requirement: Nix OSS導入の重複防止と選定記録
 
-SchneeForge の開発基盤にNix関連OSSを追加する場合、提案者は既存 `flake.nix`、`devShells`、`justfile`、tests、OpenSpec、CIにある同等機能を調査し、候補ごとの `既存維持` / `PoC` / `条件付き採用` / `見送り` を記録しなければならない (MUST)。ライセンス、保守状況、対象OS、追加コストが確認できないものは `unknown` とし、無根拠に本番採用と判定してはならない (MUST NOT)。
+SchneeForge の開発基盤にNix関連OSSを追加する場合、提案者は既存 `flake.nix`、`devShells`、Home Manager modules、`justfile`、tests、OpenSpec、CIにある同等機能を調査し、導入済み・有効化済み・実行確認済み・受入被覆を区別し、候補ごとの `既存維持` / `PoC` / `条件付き採用` / `見送り` を記録しなければならない (MUST)。ライセンス、保守状況、対象OS、追加コストが確認できないものは `unknown` とし、無根拠に本番採用と判定してはならない (MUST NOT)。
 
 #### Scenario: 既存nix-unitを再評価する
 - **WHEN** 開発用Nixテストツールの導入計画を立てる
@@ -18,11 +18,11 @@ SchneeForge の開発基盤にNix関連OSSを追加する場合、提案者は�
 
 ### Requirement: 優先OSS候補は承認付きPoCから導入する
 
-新規採用候補 `nix-fast-build`、`nix-diff`、`flake-checker` は、提案承認後に独立した実装PRと観測可能なPoCで検証しなければならない (MUST)。PoCの成功は、SchneeForge製品への自動配布またはrequired CIへの昇格を意味してはならない (MUST NOT)。
+新規採用候補 `nix-diff`、`flake-checker` と条件付き候補 `nix-fast-build` は、採用検討を進める場合、個別提案承認と事前安全審査後に独立した実装PRと観測可能なPoCで検証しなければならない (MUST)。PoCの成功は、SchneeForge製品への自動配布またはrequired CIへの昇格を意味してはならない (MUST NOT)。
 
 #### Scenario: nix-fast-buildを試験導入する
 - **WHEN** `nix-fast-build` によるビルド高速化を検討する
-- **THEN** pinされた入力でnon-requiredまたは手動ジョブを追加する
+- **THEN** checks属性とボトルネックを棚卸しし、改善仮説が成立する場合のみpinされた入力でnon-requiredまたは手動ジョブを追加する
 - **AND** 現行required `nix flake check` を残して比較する
 - **AND** 性能と実行属性の比較結果なしにrequiredを置換しない
 
@@ -47,7 +47,7 @@ Nix関連ツールの導入・高速化・キャッシュ適用は、既存 `dev
 
 ### Requirement: OSS導入は同一条件の再現可能な比較で判断する
 
-性能を改善するOSSは、導入前後について同一commit SHA、`flake.lock`、runner、system、toolchain、キャッシュ状態でbaselineと候補を比較しなければならない (MUST)。queue時間とrunner実行時間、critical pathとrunner時間合計、cold/warm cacheの結果を区別して報告しなければならない (MUST)。既存のCI最適化要件で定めた **critical-path 25%以上短縮、runner-time増加20%以内**の目標を満たさない場合、最適化完了と宣言してはならない (MUST NOT)。
+性能を改善するOSSは、導入前後について同一workload SHA、対象属性と独立lock、runner、system、toolchain、キャッシュ条件を原則固定し、baseline/候補のharness SHA・ツールpin・意図した差分を記録して比較しなければならない (MUST)。workload自体の変更は別比較として明示し、同一workload比較を装ってはならない (MUST NOT)。queue時間とrunner実行時間、critical pathとrunner時間合計、cold/warm cacheの結果を区別して報告しなければならない (MUST)。CI全体の最適化完了については既存のCI最適化要件で定めた **critical-path 25%以上短縮、runner-time増加20%以内**の目標を満たさない場合、最適化完了と宣言してはならない (MUST NOT)。
 
 #### Scenario: 同一条件でnix-fast-buildを評価する
 - **WHEN** 並列ビルドのPoC結果を報告する
@@ -129,12 +129,17 @@ OSS採用の受入表は `aarch64-darwin`、`x86_64-linux`、`aarch64-linux` の
 
 ### Requirement: 候補採用前にHard Gateと根拠付き評価を実施する
 
-候補を本番用ツールチェーンまたはrequired CIに昇格させる前に、採用責任者はライセンス/配布条件、固定取得元、依存の保守状況、利用可能なセキュリティ情報、対象OS、導入費、rollbackを確認しなければならない (MUST)。重要項目の判定が `unknown` の場合は本番採用を保留しなければならない (MUST)。評価点が高くてもセキュリティ・既存CI非回帰を免除してはならない (MUST NOT)。
+PoC開始前には固定取得元・ライセンス・隔離・最小権限・予算/停止条件・既存gate維持を確認しなければならない (MUST)。効果や対象platformの実測が未取得でも安全審査が通れば隔離PoCは可能だが、その成功を本番採用と読み替えてはならない (MUST NOT)。候補を本番用ツールチェーンまたはrequired CIに昇格させる前に、採用責任者はライセンス/配布条件、固定取得元、依存の保守状況、利用可能なセキュリティ情報、対象OS、導入費、rollbackを確認しなければならない (MUST)。重要項目の判定が `unknown` の場合は本番採用を保留しなければならない (MUST)。評価点が高くてもセキュリティ・既存CI非回帰を免除してはならない (MUST NOT)。
 
 #### Scenario: セキュリティHard Gateを満たさない
 - **WHEN** 外部OSSがuntrusted PRの書込み資格情報を必要とする、または実行ソースを固定できない
 - **THEN** 本番採用の結論は `No-Go` または `Defer` となる
 - **AND** スコアが高くても例外的に自動導入しない
+
+#### Scenario: 安全なPoCの効果が未計測
+- **WHEN** 事前安全審査の必須条件は充足するが効果・対応platformの実測がまだない
+- **THEN** 隔離された非required PoCだけを承認できる
+- **AND** 正式採用は実測と再審査まで保留する
 
 #### Scenario: OSSが高評価でも互換性が未知
 - **WHEN** macOS ARM64・Linux x86_64など採用対象で実行確認が不足する
@@ -148,12 +153,12 @@ OSS採用の受入表は `aarch64-darwin`、`x86_64-linux`、`aarch64-linux` の
 
 ### Requirement: Flake入力監査は独立lockと例外pinを識別する
 
-Flake入力の健全性検査はルートだけでなく、独立して依存を解決するNode・devenv等のテンプレートも棚卸ししなければならない (MUST)。lockfileが未作成・欠落している場合は明示的に `unlocked` または `unknown` と記録しなければならない (MUST)。更新の遅延だけで即時の自動更新やブロッキングを行ってはならない (MUST NOT)。
+Flake入力の健全性検査はルートだけでなく、独立して依存を解決する全Flake（rust/node/python/flutter/devenv等、追加されたものを含む）を列挙・棚卸ししなければならない (MUST)。lockfileが未作成・欠落している場合は明示的に `unlocked` または `unknown` と記録しなければならない (MUST)。更新の遅延だけで即時の自動更新やブロッキングを行ってはならない (MUST NOT)。
 
 #### Scenario: rootのみのflake-checker実行が成功する
 - **WHEN** ルートの `flake.lock` を検査するOSSが成功を報告する
 - **THEN** 結果をルートの検査成功として記録する
-- **AND** `templates/node/` と `templates/devenv/` の依存監査が完了したとは表示しない
+- **AND** 全独立Flakeの依存監査が完了したとは表示しない
 
 #### Scenario: セキュリティ修正のため古い入力が固定されている
 - **WHEN** Nixpkgs inputが経過日数閾値を超える一方、別途固定したruntime/依存closureがある
@@ -166,7 +171,7 @@ CI高速化PoCは対象attributeのexpected/evaluated/built/skipped/unsupported/
 
 #### Scenario: キャッシュヒットによってビルドが省略される
 - **WHEN** `--skip-cached` を利用したPoCがキャッシュからビルド結果を再利用する
-- **THEN** 当該属性の状態を `cached/substituted` として証拠に残す
+- **THEN** 実行方法を `substituted` / `already-present` 等と記録し、検証結果（verified/failed/skipped/unsupported/cancelled/unknown）と別に保持する
 - **AND** そのrunでソースビルドを再実行したという記録にしない
 
 #### Scenario: unsupported属性をskipする
@@ -199,7 +204,7 @@ CI高速化PoCは対象attributeのexpected/evaluated/built/skipped/unsupported/
 
 #### Scenario: cache signing keyが漏洩する
 - **WHEN** cache signing keyの漏洩が判明または疑われる
-- **THEN** 書込み停止・信頼鍵の失効/交換・影響したstore pathの隔離/再取得を実施する復旧手順を発動する
+- **THEN** 書込み停止・信頼鍵の失効/交換・旧鍵を信頼する消費者と配布・取得済みstore pathの影響範囲を調査し、隔離/再取得または再ビルド/再検証を実施する復旧手順を発動する
 - **AND** 署名検証を無効化せずに既存の信頼済みビルド経路へ戻す
 
 #### Scenario: キャッシュの容量・転送費用が想定を超える
@@ -214,7 +219,7 @@ CI高速化PoCは対象attributeのexpected/evaluated/built/skipped/unsupported/
 
 ### Requirement: PoC判定は追跡可能な証拠とNegative testを伴う
 
-各ツールのPoCはツール固定version、repo/lock SHA、Runner/OS、対象属性、実行ステージ、cold/warm、成功/失敗/skip、CPU/RAM/ストレージ/転送量と測定方法、費用または `unknown`、decision logへのリンクを保存しなければならない (MUST)。実際に失敗を検出できるnegative testを少なくとも1つ含まなければならない (MUST)。
+各ツールのPoCはツール固定version、workload SHA/独立lockハッシュ、harness SHA/候補差分、実行方法、Runner/OS、対象属性、実行ステージ、cold/warm、成功/失敗/skip、CPU/RAM/ストレージ/転送量と測定方法、費用または `unknown`、decision logへのリンクを保存しなければならない (MUST)。実際に失敗を検出できるnegative testを少なくとも1つ含まなければならない (MUST)。
 
 #### Scenario: 評価が成功しテストビルドが失敗する
 - **WHEN** Nixのevaluationが成功したがderivationのbuildが失敗する
@@ -222,7 +227,7 @@ CI高速化PoCは対象attributeのexpected/evaluated/built/skipped/unsupported/
 - **AND** 一括の `success` と表示しない
 
 #### Scenario: ベンチマークに必要な実行結果が不足する
-- **WHEN** 比較条件ごとの成功runが5件未満、または別のRunner/lockで取得される
+- **WHEN** 比較条件ごとの成功runが10件未満、または比較可能性が確認できないRunner/workload lockで取得される
 - **THEN** 結果を探索・参考値として扱う
 - **AND** 根拠なしに性能目標達成や本番採用を宣言しない
 
@@ -233,12 +238,17 @@ CI高速化PoCは対象attributeのexpected/evaluated/built/skipped/unsupported/
 
 ### Requirement: 導入評価ポリシーと個別OSS導入変更のライフサイクルを分離する
 
-`add-nix-tooling-evaluation-policy` は選定プロセスと受入条件を定義する変更であり、各OSSの導入・有効化・CI最適化はそのツールの独立したOpenSpec changeで追跡しなければならない (MUST)。ポリシーのarchiveをすべての将来PoCの完了まで無制限に延期する必要はなく、ポリシー確定/実装後に既存のarchive規約に従わなければならない (MUST)。
+`add-nix-tooling-evaluation-policy` は選定プロセスと受入条件を定義する変更であり、各OSSの導入・有効化・CI最適化はそのツールの独立したOpenSpec changeで追跡しなければならない (MUST)。ポリシーのarchiveをすべての将来PoCの完了まで無制限に延期する必要はなく、提案承認後にポリシー自体の実装（開発ガイドへの導線、decision/evidenceテンプレート、記録例と異常系レビュー）を完了し、その実装PRがdevelopへmergeされた後で別archive PRを作成しcanonical specを同期しなければならない (MUST)。
 
 #### Scenario: 選定ポリシーが承認される
 - **WHEN** 本PRのstrict validation、レビュー、required gateがすべて完了する
 - **THEN** ポリシーの仕様・今後の実装gateを確定する
 - **AND** 任意OSSの実装が完了したとは扱わず、個別PoC changeを新規に開始できる
+
+#### Scenario: ポリシー提案のみが承認された
+- **WHEN** 仕様レビューが完了したが開発ガイドの導線・テンプレート・記録例/異常系レビューの実装が未完了
+- **THEN** 承認を記録しポリシー実装へ進む
+- **AND** 実装PR merge前にarchiveしない
 
 #### Scenario: 将来のPoCが未完了のままポリシーが確定する
 - **WHEN** ポリシー自体の実装・文書化が完了し後続PoCが残る

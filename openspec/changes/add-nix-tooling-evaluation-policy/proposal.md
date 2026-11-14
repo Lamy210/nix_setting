@@ -9,11 +9,11 @@ SchneeForge (nix_setting) は Nix/Flakes、Home Manager、nix-darwin、Rust/Taur
 ## What Changes
 
 - **新規capability `nix-tooling-adoption`** を設け、OSSの現状棚卸し・導入判断・再現性・セキュリティ審査・プラットフォーム受入・PoC計測・撤退条件を定義する。
-- **維持・再利用**: 既存 `flake-parts`、`treefmt-nix` (nixfmt/shfmt/taplo)、`nixd`、`statix`、`deadnix`、`nix-unit`、`nix-tree`、`nix-melt`、`devenv` を二重導入しない。`nix-unit` は `tests/nix-unit.nix` と `justfile` に存在するため、新規採用ではなく**CI実行範囲の照合**を行う。
-- **優先PoC (採用未確定)**: `nix-fast-build` (並列評価・ビルド)、`nix-diff` (derivation差分)、`flake-checker` (古いFlake入力の診断) をpinされた検証用ツールとして別PRで試す。
+- **維持・再利用**: 既存 `flake-parts`、`treefmt-nix` (nixfmt/shfmt/taplo)、`nixd`、`statix`、`deadnix`、`nix-unit`、`nix-tree`、`nix-melt`、`devenv`、`nh`、`nix-direnv`、`nix-index`、`nix-output-monitor`、`omnix` を二重導入しない。`nix-unit` は `tests/nix-unit.nix`、`justfile`、CIのbootstrap-testに既存入口がある。required指定の確認と異常系の被覆改善を分ける。
+- **優先PoC (採用未確定)**: `nix-diff` (derivation差分)、`flake-checker` (古いFlake入力の診断) をpinされた検証用ツールとして別PRで試す。`nix-fast-build` は属性棚卸しとボトルネック観測で必要性を確認した後の条件付きPoCとする。
 - **追加検証候補**: `sbomnix` (Nixパッケージ依存/SBOM診断)、`niks3`・`ncps` (共有キャッシュ方式比較)、`nix2container` (OCIビルド) を段階的に評価する。既存の release artifact 用cosign/SLSA/SPDX生成は置き換えない。
 - **当面見送り**: `Gradient`/`Hydra`等の専用CIサービス全面移行、`Lix`/`Determinate Nix`へのManaged Nix provider切替、`cargo-dyndrv`/Dynamic Derivations、`system-manager`/OS再構築ツールの製品組み込み、AIエージェント一括導入。別の受入・運用条件とOpenSpec changeが必要。
-- PoCは事前採取した同一条件のbaselineと比較し、**required CIと配布物検証の維持**、ゼロ特権昇格、同一commit/flake.lockによる再現性、導入後の切り戻しを必須とする。
+- PoCは事前採取した同一条件のbaselineと比較し、**required CIと配布物検証の維持**、ゼロ特権昇格、同一workloadと明示した候補差分による再現性、導入後の切り戻しを必須とする。
 
 ## Scope / Out of Scope
 
@@ -26,7 +26,7 @@ SchneeForge (nix_setting) は Nix/Flakes、Home Manager、nix-darwin、Rust/Taur
 - **新規仕様**: `nix-tooling-adoption`。
 - **既存仕様**: `development-workflow` の required context と計測目標、`release-supply-chain` の署名/SBOM、`tool-resolution` の経路を維持。
 - **将来変更箇所の候補**: `modules/flake-parts/`、`tests/nix-unit.nix`、`scripts/ci/`、`.github/workflows/check.yml`、`docs/testing/` (**このPRでは変更なし**)。
-- **進行中PRへの配慮**: #324 のLinux Nix固定CI、#323/#327 のmacOS release artifact gate、#299 のNodeセキュリティ検証、既存の`update-node24-runtime-security`等を迂回しない。
+- **進行中PRへの配慮**: #324 のLinux Nix固定CI、#327（マージ済み）のmacOS release artifact修正、#323 のUIスクリーンショット検証、#299 のNodeセキュリティ検証、既存の`update-node24-runtime-security`等を迂回しない。
 - **対応対象**: aarch64-darwin、x86_64-linux、aarch64-linuxの各評価/実行能力を区別。Windowsはnative Nix導入ではなくWSL2 Linux helper経由の実験的対応のみ。x86_64-darwinの対応拡大は含まない。
 
 ## Acceptance / Approval Gate
@@ -34,7 +34,7 @@ SchneeForge (nix_setting) は Nix/Flakes、Home Manager、nix-darwin、Rust/Taur
 1. `openspec validate add-nix-tooling-evaluation-policy --strict` と `openspec validate --all --strict` を実行し、**最新HEADで成功結果を確認するまで仕様承認済みとしない**。
 2. `proposal.md`、`design.md`、`tasks.md`、delta specのレビューを受け、ツール採用可否・閾値・ロールバック責任を確定する。
 3. 実装PRはPoCごとに分割。既存required checksを並行稼働させ、結果が`failure`/`skipped`/`cancelled`でも緩和しない。
-4. 本PRではOSS導入・高速化・セキュリティ改善が「完了」とは表明しない。実装後、別`chore/archive-*`PRでアーカイブする。
+4. 本PRは提案のみ。承認後、本ポリシー自体の実装としてリポジトリの開発ガイドに採用ルールへの導線を設け、decision/evidenceテンプレートを配置し、既知の候補を用いた記録例と異常系レビューで運用可能性を確認する。実装PRをdevelopへmerge後、別`chore/archive-*`PRでcanonical specを同期する。将来の各OSS PoCは別changeであり、全PoC完了は本changeの条件ではない。
 
 ## 一次資料
 
@@ -67,6 +67,6 @@ SchneeForge (nix_setting) は Nix/Flakes、Home Manager、nix-darwin、Rust/Taur
 ## Adoption decisions & conditions
 
 - **即時の製品導入は0件**。既存のnix-unit/flake-parts/treefmt/devenv等は再利用する。
-- 優先PoCは `nix-fast-build` / `nix-diff` / `flake-checker` をそれぞれ独立changeで検証する。
+- 優先PoCは `nix-diff` / `flake-checker`。`nix-fast-build` は属性・計測の事前条件を満たした場合のみ独立changeで検証する。
 - `sbomnix` / `ncps` / `niks3` / `nix2container` は利用頻度・増分価値・費用が実測で示された場合のみ次段階へ進む。
-- OSSの特性を採用の可否と混同せず、Gate 0（security/maintenance/reproducibility）、Gate 1（比較）、Gate 2（Go/No-Go）を通過させる。
+- OSSの特性を採用の可否と混同せず、Gate 0（PoC前安全審査・採用時再審査）、Gate 1（比較）、Gate 2（Go/No-Go）を通過させる。
