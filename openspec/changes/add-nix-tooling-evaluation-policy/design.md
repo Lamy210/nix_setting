@@ -128,7 +128,7 @@ develop / PR
 
 ## D7. 導入判定モデル（セキュリティ・品質をスコアより優先）
 
-候補単位で **Gate 0（必須条件）→ Gate 1（比較）→ Gate 2（Go/No-Go）** の順に評価する。
+候補単位で **Gate 0（事前安全審査）→ Go (PoC) 承認 → 隔離PoC → Gate 1（比較）→ Gate 0（正式採用前再審査）→ Gate 2（Go/No-Go）** の順に評価する。正式採用後も限定導入・非回帰・復旧検証を経て運用する。
 
 ### Gate 0: PoC開始前と正式採用前の二段階審査
 
@@ -152,7 +152,7 @@ PoC開始前は取得元・ライセンス・immutable pin・隔離・最小権�
 | Total cost | 15 | Runner/電力/ストレージ/API/転送/人手の合計 |
 | Platform / integration | 10 | Darwin/Linux/WSLの対象別導入コスト |
 
-各軸を0〜5段階で根拠つき評価し、`weighted points = sum(weight * rating / 5)` とする。尺度は0=不適合、1=重大課題、2=一部充足、3=要求を満たす、4=追加便益、5=明確な優位性を根拠で確認。未確認は `unknown` として0点評価とは区別し、加点せず、Gate 0に必要な未確認項目があればscoreに関係なくNo-Go。75/100以上は**本番採用審査へ進める暫定目安**に過ぎず、品質・安全性・既存CI目標の違反を免除しない。評価尺度・根拠の変更はdecision logに記録する。
+各軸を0〜5段階で根拠つき評価し、`weighted points = sum(weight * rating / 5)` とする。尺度は0=不適合、1=重大課題、2=一部充足、3=要求を満たす、4=追加便益、5=明確な優位性を根拠で確認。未確認は `unknown` として0点評価とは区別し、加点せず、Gate 0に必要な未確認項目があればscoreに関係なく正式採用を保留。75/100以上は**本番採用審査へ進める暫定目安**に過ぎず、品質・安全性・既存CI目標の違反を免除しない。評価尺度・根拠の変更はdecision logに記録する。
 
 ### Gate 2: 明示的な判定
 
@@ -262,9 +262,9 @@ Unresolved questions:
 
 | ツール / ステータス | 誰が何をできるか（利用シナリオ） | 得られる可能性のあるメリット | 対象面 / 非対象面 | 比較基準・反証 |
 | --- | --- | --- | --- | --- |
-| 既存 **nix-unit** | 設定を編集した開発者が、Nix関数の境界値・誤入力・評価失敗を個別テストする | 実機適用前の回帰検出、修正局所化 | 開発時/CI。**現行GUI機能ではない** | `tests/nix-unit.nix` の既存テストとrequired CI実行の差分。未実行なら既存ツールの活用を優先 |
+| 既存 **nix-unit** | 設定を編集した開発者が、Nix関数の境界値・誤入力・評価失敗を個別テストする | 実機適用前の回帰検出、修正局所化 | 開発時/CI。**現行GUI機能ではない** | `tests/nix-unit.nix` の既存テスト、bootstrap-testの実行とrequired指定、negative fixtureの被覆を確認 |
 | 既存 **flake-parts/treefmt-nix/nixd** | 開発者がFlake構成を分割し補完・フォーマット・静的検査を使う | 設定変更レビューと保守性の向上 | devShell/開発者。追加の常時サーバー不要 | 既存機能を重複導入すると変更面積・維持費が増えるため不採用 |
-| **nix-fast-build**（優先PoC） | CI担当が多数の独立derivationを評価し、準備できたものから並行ビルド・結果を取得する | 大きいチェック集合で待ち時間短縮、失敗属性の把握、機械可読結果 | 開発者/CI。製品のapply/rollbackやrelease gateを置換しない | 実行属性の網羅、同条件critical path・runner-time・メモリ。属性が少ない、キャッシュが温かい場合は不利な可能性 |
+| **nix-fast-build**（条件付きPoC） | CI担当が多数の独立derivationを評価し、準備できたものから並行ビルド・結果を取得する | 大きいチェック集合で待ち時間短縮、失敗属性の把握、機械可読結果 | 開発者/CI。製品のapply/rollbackやrelease gateを置換しない | 実行属性の網羅、同条件critical path・runner-time・メモリ。属性が少ない、キャッシュが温かい場合は不利な可能性 |
 | **nix-diff**（優先PoC） | 設定変更でキャッシュミスが起きたとき、前後のderivation入力差分を説明する | 無駄な再ビルド・レビュー負担の原因特定 | ローカル/CI診断。公開ユーザーへの自動実行は別設計 | 同一drv→差分なし、入力を意図的に変える→検出。メンテナンス状況と出力の理解しやすさも評価 |
 | **flake-checker**（優先PoC） | 依存管理担当がroot/独立テンプレートのNixpkgs pinの古さ・サポート状況を確認する | セキュリティパッチの取りこぼし候補の早期発見、更新計画の可視化 | 開発者/非blocking policy check。自動lock更新は対象外 | 健全/古い/意図的固定のfixtureで誤検知率を測定。root-only検査を全テンプレート監査と誤記しない |
 | **sbomnix**（P2） | セキュリティ担当がNix closureのSBOM・依存グラフ・古いパッケージを調べる | 依存追跡と脆弱性調査の説明性、影響範囲の可視化 | 開発・監査の補助。既存release署名/SPDXの代替ではない | syft/SPDXとNix依存閉包のカバレッジ差・false positiveを比較 |
@@ -277,8 +277,8 @@ Unresolved questions:
 
 1. **変更理由を説明**：Flake lock更新でHome Manager activationのdrvが変化したら、`nix-diff` が何の入力に起因するか表示。開発者は不要な依存更新と本質的な変更を切り分ける。
 2. **既存のテストを確実に実行**：`tests/nix-unit.nix` に「想定外のmachine input」などnegative fixtureを置き、CI実行経路に組み込まれているか確認。`justfile` に存在するだけでrequired実行済みとみなさない。
-3. **Flake入力のセキュリティ更新を計画**：root、`templates/node`、`templates/devenv` を別々に監査。意図的なセキュリティbackport pinは除外理由を明記し、実際のruntimeを検査。
-4. **CIの待ち時間を削減**：一つのchecks集合を`nix-fast-build` に試験実行。評価のみ、ビルド、substitute、skipを区別し、前後のwall-clockとRunner総時間を比較。
+3. **Flake入力のセキュリティ更新を計画**：rootと全独立Flakeを列挙し別々に監査。意図的なセキュリティbackport pinは除外理由を明記し、実際のruntimeを検査。
+4. **CIの待ち時間を削減**：checks数と実測ボトルネックを確認し、改善仮説が成立する場合のみ`nix-fast-build`を試験実行。評価のみ、ビルド、substitute、skipを区別し、前後のwall-clockとRunner総時間を比較。
 5. **複数Runnerを将来増設**：cold buildの成果物を2台目が取得する条件で`niks3`などを検証。**1台のみのローカルstoreと比較して改善がなければキャッシュサーバーを新設しない**。
 6. **セキュリティ調査**：実リリースbinary/DMGの既存SBOMとNix closureの`sbomnix`出力を比較し、どちらに何が載るか区別して説明できるようにする。
 
@@ -297,7 +297,7 @@ Unresolved questions:
 
 | 価値仮説 | 計測指標 | 採用に進む条件 | 導入しない具体例 |
 | --- | --- | --- | --- |
-| CIが速くなる | 同一条件のcritical path、runner time、peak RAM、失敗率 | 既存`development-workflow`の-25% / +20%以内の目標を満たし、検証被覆の低下0 | checksが少なくfast-buildの評価オーバーヘッドの方が大きい |
+| CIが速くなる | 同一条件のcritical path、runner time、peak RAM、失敗率 | CI全体の最適化完了は既存`development-workflow`の-25% / +20%以内の目標を満たし、検証被覆の低下0。個別ジョブ改善は別の事前目標で評価し、全体完了と混同しない | checksが少なくfast-buildの評価オーバーヘッドの方が大きい |
 | 変更原因を特定しやすい | 既知変更fixtureの原因特定率・調査時間 | 正/負fixtureで正しく差分が出て、開発者が結果を理解できる | 既存`nix-melt`/`nix-tree`と実質的に重複し、追加負担が上回る |
 | 入力更新漏れが減る | rootと全独立Flakeの監査対象coverage、true positive/false positive | 意図的pinを尊重し、欠落lockを`unknown`と判定 | 期限超過を理由に有効な安全性backportを無条件に置換する |
 | SBOM監査が改善する | 対象closureのpackage coverageと既存release SBOM差 | 監査用途の新しい情報が得られ、誤検知をtriage可能 | 同じ出力を二重生成するだけで保守費が増す |
