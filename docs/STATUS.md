@@ -2,7 +2,13 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-11-08
+最終更新: 2026-11-15
+
+## 2026-11-15: 開発コマンドのFlake参照修正（提案中）
+
+- 現行FlakeのmacOS属性は `darwin-aarch64`。旧 `macbook-air` 参照をルートjustfile・README・ARCHITECTURE・switch-guideから除去し、nhの明示ターゲット指定を使用する修正を別PRでレビューする。実機の適用は未実施。通常適用はSchneeForge CLIを使用する。
+- 既存 `ci-scripts.bats` に静的回帰検査を追加。CI完了・実機実行を成功とはまだ記録しない。
+- #330はポリシー提案のDraft。HEAD `615cc5a4` のcheck 25/25・CodeQL 3/3が成功したが、個別strict validation・提案承認・管理側required設定の確認は別途必要。ポリシー実装やcanonical spec同期は未実施。
 
 ## 2026-11-08: PR #305 マージ、Node セキュリティと日本語 PR 運用
 
