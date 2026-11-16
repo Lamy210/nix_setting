@@ -499,7 +499,7 @@ jobs:
       - name: default devShell
         run: |
           expected="$(nix eval --raw .#managed-git.outPath)"
-          nix develop --command bash -c 'set -e; command -v git; test "$(command -v git)" -ef "$1/bin/git"; git --version' bash "$expected"
+          nix develop --command bash scripts/ci/check-managed-git-path.sh "$expected"
 
       - name: runtime smoke (named shells)
         run: |
