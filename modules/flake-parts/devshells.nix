@@ -93,6 +93,9 @@
       };
     in
     {
+      # Explicit output for CI to identify the selected binary without guessing its store path.
+      packages.managed-git = gitPatched;
+
       # Build and exercise the same Git derivation selected by Home Manager.
       checks.git-version =
         assert pkgs.lib.versionAtLeast gitPatched.version "2.56.1";
@@ -104,6 +107,10 @@
           ${gitPatched}/bin/git -C "$TMPDIR/repo" -c user.name=Smoke -c user.email=smoke@example.invalid commit --allow-empty -m smoke
           ${gitPatched}/bin/git clone --no-local "$TMPDIR/repo" "$TMPDIR/clone"
           test "$(${gitPatched}/bin/git -C "$TMPDIR/repo" rev-parse HEAD)" = "$(${gitPatched}/bin/git -C "$TMPDIR/clone" rev-parse HEAD)"
+          test -x "$(${gitPatched}/bin/git --exec-path)/git-remote-https"
+          ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+            test -x "$(${gitPatched}/bin/git --exec-path)/git-credential-osxkeychain"
+          ''}
           touch "$out"
         '';
 

@@ -7,7 +7,8 @@
 ## 2026-11-17: Git 2.56.1 セキュリティ更新候補
 
 - 固定済み nixpkgs の Git 2.55.0 を、公式配布元の SHA-256 で固定した 2.56.1 に更新する候補を作成。root flake.lock は変更せず、Home Manager の共通 CLI と root maintenance shell で同じ derivation を使用する。
-- `checks.git-version` で実バイナリの version / init / commit / clone を検証する。CI・実機への適用・aarch64-linux の実行検証は未確認。OS 同梱 Git、既存 checkout の外部 Git、独立テンプレート、他パッケージの内部依存 Git は本変更で一律更新されない。
+- 初回 CI [43968752712](https://github.com/Lamy210/nix_setting/actions/runs/43968752712) は Git installCheck の t1017 で13件失敗。nixpkgs [945c71b](https://github.com/NixOS/nixpkgs/commit/945c71b6e5d32f15db9c075c2798bc9d9247a31f) の POSIX sh 修正、および [885841e](https://github.com/NixOS/nixpkgs/commit/885841efdf491abdad7893f474676a85dc6a7a35) の旧 cross Rust 置換削除を移植。installCheck は無効化しない。
+- `checks.git-version` で version / init / commit / clone / HTTPS helper / macOS credential helper を検証し、Linux ARM64 native runner、Home Manager 生成物、maintenance shell と Linux real apply の実際の実行ファイル同一性を確認する CI を追加。修正後 CI・実機適用・cross/static build・認証付き通信は未確認。OS 同梱 Git、外部 Git、独立テンプレート、他パッケージ内部の Git（初回 CI で git-minimal 2.55.0 を観測）は一律更新されない。
 - nixpkgs が 2.56.1 以上に追いついた場合は標準パッケージを採用する。マージ条件は現 HEAD の必須 CI 成功と互換性レビュー。RC.8、既存のリリース保護・他のセキュリティ課題には変更なし。
 
 ## 2026-11-08: PR #305 マージ、Node セキュリティと日本語 PR 運用
