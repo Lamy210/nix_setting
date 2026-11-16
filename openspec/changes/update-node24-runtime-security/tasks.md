@@ -17,6 +17,7 @@
 - [ ] 3.2 Add transitive Brotli/c-ares patched-closure evidence and negative regression checks; fail closed on unknown.
 - [ ] 3.2a Test **both dynamically linked and statically/bundled** libraries, with upstream source/patch provenance when not visible to `ldd` / `otool -L`.
 - [ ] 3.3 Validate Linux/macOS compatibility, pnpm/Bun operation, Nix eval/build, required Rust/OpenSpec and release artifact CI.
+- [ ] 3.3a Verify script-based package managers' own Node runtimes and native package managers' executable provenance independently of PATH-selected Node. Preserve fail-closed cross-platform regression tests.
 - [ ] 3.4 Inventory host Node/mise/running daemons and document opt-in activation / rollback separately.
 
 ## 4. Release
