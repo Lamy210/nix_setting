@@ -18,7 +18,7 @@
 - [x] 1.1 開発ガイドに採用ポリシーと後続change作成の導線、担当者・承認者の役割を記述する。
 - [x] 1.2 decision/evidenceテンプレートを配置し、既知の候補で採用・保留の記録例を作成する。実測前の値はunknownとする。
 - [x] 1.3 安全審査不合格、重複OSS、未計測の採用主張、独立lock欠落の異常系をレビューし、承認/保留の判断を確認する。
-- [ ] 1.4 既存規範との整合と実装受入を確認する（実装PRのレビュー・CIで確認後に完了とする）。
+- [x] 1.4 既存規範との整合と実装受入を確認する。
 
 実装PR merge後に別`chore/archive-add-nix-tooling-evaluation-policy` PRでcanonical specを同期する。このchangeは新規capabilityを定義するため`--skip-specs`を用いない。全後続PoCの完了を待たない。
 
