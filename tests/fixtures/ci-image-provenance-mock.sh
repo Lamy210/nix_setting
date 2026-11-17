@@ -51,22 +51,7 @@ env -u GH_TOKEN -u GITHUB_TOKEN -u GITHUB_ACTOR -u GH_ENTERPRISE_TOKEN -u GITHUB
 case "$mode" in
 success)
   expected_status=0
-  expected_calls=
-if [[ $status != "$expected_status" || "$(cat "$MOCK_LOG")" != "$expected_calls" ]]; then
-  printf 'unexpected status/order: %s\n' "$status" >&2
-  cat "$MOCK_LOG" "$work/output" >&2
-  exit 1
-fi
-if [[ $mode == success ]]; then
-  grep -Fq 'PASS: attested and digest-pinned GHCR systemd E2E image ready' "$work/output"
-else
-  if grep -Fq 'PASS:' "$work/output"; then
-    echo 'Unexpected success marker after verification failure' >&2
-    exit 1
-  fi
-fi
-printf 'PASS: mock GHCR %s\n' "$mode"
-verify\npull\ntag\nrun'
+  expected_calls=$'verify\npull\ntag\nrun'
   ;;
 attestation)
   expected_status=41
@@ -74,50 +59,20 @@ attestation)
   ;;
 pull)
   expected_status=42
-  expected_calls=
-if [[ "$status" != "$expected_status" || "$(cat "$MOCK_LOG")" != "$expected_calls" ]]; then
-  printf 'unexpected status/order: %s\n' "$status" >&2
-  cat "$MOCK_LOG" "$work/output" >&2
-  exit 1
-fi
-if [[ "$mode" == success ]]; then
-  grep -Fq 'PASS: attested and digest-pinned GHCR systemd E2E image ready' "$work/output"
-else
-  if grep -Fq 'PASS:' "$work/output"; then
-    echo 'Unexpected success marker after verification failure' >&2
-    exit 1
-  fi
-fi
-printf 'PASS: mock GHCR %s\n' "$mode"
-verify\npull'
+  expected_calls=$'verify\npull'
   ;;
 runtime)
   expected_status=43
-  expected_calls=
-if [[ "$status" != "$expected_status" || "$(cat "$MOCK_LOG")" != "$expected_calls" ]]; then
-  printf 'unexpected status/order: %s\n' "$status" >&2
-  cat "$MOCK_LOG" "$work/output" >&2
-  exit 1
-fi
-if [[ "$mode" == success ]]; then
-  grep -Fq 'PASS: attested and digest-pinned GHCR systemd E2E image ready' "$work/output"
-else
-  if grep -Fq 'PASS:' "$work/output"; then
-    echo 'Unexpected success marker after verification failure' >&2
-    exit 1
-  fi
-fi
-printf 'PASS: mock GHCR %s\n' "$mode"
-verify\npull\ntag\nrun'
+  expected_calls=$'verify\npull\ntag\nrun'
   ;;
 *) exit 2 ;;
 esac
-if [[ "$status" != "$expected_status" || "$(cat "$MOCK_LOG")" != "$expected_calls" ]]; then
+if [[ $status != "$expected_status" || "$(cat "$MOCK_LOG")" != "$expected_calls" ]]; then
   printf 'unexpected status/order: %s\n' "$status" >&2
   cat "$MOCK_LOG" "$work/output" >&2
   exit 1
 fi
-if [[ "$mode" == success ]]; then
+if [[ $mode == success ]]; then
   grep -Fq 'PASS: attested and digest-pinned GHCR systemd E2E image ready' "$work/output"
 else
   if grep -Fq 'PASS:' "$work/output"; then
