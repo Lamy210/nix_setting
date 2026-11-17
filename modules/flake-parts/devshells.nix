@@ -2,6 +2,7 @@
   perSystem =
     { pkgs, ... }:
     let
+      gitPatched = import ../git-patched.nix { inherit pkgs; };
       # Security backport: nixpkgs locked on 2026-10-27 still ships Bun 1.4.2.
       # Bun 1.4.4 fixes CVE-2026-111497 (bundled Brotli OOB write).
       # Source hashes match the vendor's GitHub release asset SHA256 digests.
@@ -92,10 +93,31 @@
       };
     in
     {
+      # Explicit output for CI to identify the selected binary without guessing its store path.
+      packages.managed-git = gitPatched;
+
+      # Build and exercise the same Git derivation selected by Home Manager.
+      checks.git-version =
+        assert pkgs.lib.versionAtLeast gitPatched.version "2.56.1";
+        pkgs.runCommand "git-version-check" { } ''
+          export HOME="$TMPDIR/home"
+          mkdir -p "$HOME"
+          ${gitPatched}/bin/git --version | grep -Fx 'git version ${gitPatched.version}'
+          ${gitPatched}/bin/git -c init.defaultBranch=main init "$TMPDIR/repo"
+          ${gitPatched}/bin/git -C "$TMPDIR/repo" -c user.name=Smoke -c user.email=smoke@example.invalid commit --allow-empty -m smoke
+          ${gitPatched}/bin/git clone --no-local "$TMPDIR/repo" "$TMPDIR/clone"
+          test "$(${gitPatched}/bin/git -C "$TMPDIR/repo" rev-parse HEAD)" = "$(${gitPatched}/bin/git -C "$TMPDIR/clone" rev-parse HEAD)"
+          test -x "$(${gitPatched}/bin/git --exec-path)/git-remote-https"
+          ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+            test -x "$(${gitPatched}/bin/git --exec-path)/git-credential-osxkeychain"
+          ''}
+          touch "$out"
+        '';
+
       devShells = {
         default = pkgs.mkShell {
           packages = with pkgs; [
-            git
+            gitPatched
             lazygit
             delta
             difftastic
