@@ -27,7 +27,8 @@ UBUNTU_IMAGE="${E2E_UBUNTU_IMAGE:-ubuntu:24.04}"
 
 setup_file() {
   if ! command -v docker >/dev/null 2>&1; then
-    skip "docker not available"
+    echo "ERROR: Docker is mandatory for managed Nix E2E" >&2
+    return 1
   fi
   if [ ! -x "$SCHNEEFORGE_BIN" ]; then
     echo "schneeforge binary not found at $SCHNEEFORGE_BIN" >&2
@@ -37,7 +38,7 @@ setup_file() {
     echo "managed Nix version not found in bootstrap-manifest.toml" >&2
     return 1
   fi
-  # Fail fast and print container logs when apt/systemd bootstrap fails.
+  # Fail fast if signed-rootfs image preparation or systemd boot failed.
   # A failed startup is not a test skip or a generic five-minute timeout.
   bash "$REPO_DIR/scripts/ci/start-managed-nix-e2e-container.sh" "$CT_NAME" "$UBUNTU_IMAGE"
   docker cp "$REPO_DIR/bootstrap-manifest.toml" "$CT_NAME:/opt/repo/bootstrap-manifest.toml"
