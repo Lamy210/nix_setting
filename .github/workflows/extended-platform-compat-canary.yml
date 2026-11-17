@@ -35,7 +35,7 @@ jobs:
           cargo test --locked --workspace
           cargo build --locked -p schneeforge
           ./target/debug/schneeforge --version
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086
       - name: Nix ARM64 evaluation without applying configuration
         run: |
           nix --version
