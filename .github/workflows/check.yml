@@ -26,9 +26,27 @@ jobs:
       - name: openspec validate (strict)
         run: nix run nixpkgs#openspec -- validate --all --strict --no-interactive
 
+  git-arm64-check:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
+      - name: build and test managed Git on native Linux ARM64
+        run: |
+          test "$(uname -m)" = aarch64
+          nix build --no-link .#checks.aarch64-linux.git-version
+
   flake-check:
+    needs: [git-arm64-check]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
+      - name: require native ARM64 Git check
+        env:
+          ARM64_RESULT: ${{ needs.git-arm64-check.result }}
+        run: test "$ARM64_RESULT" = success
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
@@ -47,7 +65,11 @@ jobs:
         run: nix eval .#homeConfigurations.linux.activationPackage.drvPath
 
       - name: build minimal linux home-manager
-        run: nix build .#homeConfigurations.linux.activationPackage --override-input profile "path:$PWD/tests/fixtures/profile-minimal.nix"
+        run: |
+          nix build .#homeConfigurations.linux.activationPackage --override-input profile "path:$PWD/tests/fixtures/profile-minimal.nix"
+          expected="$(nix eval --raw .#managed-git.outPath)"
+          test result/home-path/bin/git -ef "$expected/bin/git"
+          result/home-path/bin/git --version
 
       - name: eval linux-arm home-manager
         run: nix eval .#homeConfigurations.linux-arm.activationPackage.drvPath
@@ -82,7 +104,11 @@ jobs:
         run: nix flake check --allow-import-from-derivation
 
       - name: build macos home-manager
-        run: nix build .#homeConfigurations.darwin-aarch64.activationPackage
+        run: |
+          nix build .#homeConfigurations.darwin-aarch64.activationPackage
+          expected="$(nix eval --raw .#managed-git.outPath)"
+          test result/home-path/bin/git -ef "$expected/bin/git"
+          result/home-path/bin/git --version
 
       - name: build nix-darwin system
         run: nix build .#darwinConfigurations.darwin-aarch64.system
@@ -471,7 +497,9 @@ jobs:
           nix_path: nixpkgs=channel:nixos-unstable
 
       - name: default devShell
-        run: nix develop --command echo "maintenance shell ready"
+        run: |
+          expected="$(nix eval --raw .#managed-git.outPath)"
+          nix develop --command bash scripts/ci/check-managed-git-path.sh "$expected"
 
       - name: runtime smoke (named shells)
         run: |
