@@ -14,11 +14,11 @@ Issue #335 の同一run 43598799237ではroot uv drv `02ifk7b9cjns5r8b3i2rb8cx09
 
 ### D1: workloadと診断harnessを分離
 
-baseline workload SHA、全独立Flakeのlock SHA-256、harness SHA、候補差分を記録。既存のセキュリティpinを維持し、#299/#324/#334との重複・退行をreviewする。候補は使い捨ての書込み可能checkoutに限定し、元のcheckoutでlock更新やGCを行わない。実装前にGate 0の固定取得元・ライセンス・隔離・費用上限・停止条件を記録。承認されていない有料Runnerやサービスを追加しない。
+baseline workload SHA、全独立Flakeのlock SHA-256、harness SHA、候補差分を記録。既存のセキュリティpinを維持し、#299/#324/#334との重複・退行をreviewする。候補は使い捨ての書込み可能checkoutに限定し、元のcheckoutでlock更新やGCを行わない。実装前にGate 0の固定取得元・ライセンス・隔離・費用上限・停止条件を記録。承認されていない有料Runnerやサービスを追加しない。費用・Runner時間・実行回数の上限と停止条件が未承認なら追加の計測runを開始しない。
 
 ### D2: 実体を特定してから比較
 
-rootは `devShells.x86_64-linux.python`、templateは配布時と同じファイル一式を独立ディレクトリにコピーした `devShells.x86_64-linux.default`。親repoを前提にしない。Nixの固定済み環境でshellの入力derivationを調べ、uv候補とvendor入力を列挙し、`nix derivation show` 等の標準Nixコマンドで差分を取得する。利用可能なCLI構文は実装時に対象Nix versionで検証する。実行されたuvの絶対パス・version・選択されたclosureの関係を別途確認し、候補名の部分一致やversion文字列だけで特定しない。0件/複数候補/欠損はunknownまたはfailedとし、false PASSを禁止。診断のread-onlyとはworkloadソースや設定・lockを変更しないことを指し、Nixによる評価結果のstoreへの書込みまで否定するものではない。realizationは承認された隔離環境でのみ別ステージとして行う。
+rootは `devShells.x86_64-linux.python`、templateは配布時と同じファイル一式を独立ディレクトリにコピーした `devShells.x86_64-linux.default`。親repoを前提にしない。Nixの固定済み環境でshellの入力derivationを調べ、uv候補とvendor入力を列挙し、`nix derivation show` 等の標準Nixコマンドで差分を取得する。利用可能なCLI構文は実装時に対象Nix versionで検証する。実行されたuvの絶対パス・version・選択されたclosureの関係を別途確認し、候補名の部分一致やversion文字列だけで特定しない。候補0件/複数または必要証拠欠損は unknown、malformed JSON・期待version不一致・入力契約違反は failed とする。実行未許可のruntimeは not-run / unknown と記録し、evaluation成功のみで全体をverifiedにしない。必須証拠がunknown/failedのとき診断全体は非成功とし、終了コード0を返さない。診断のread-onlyとはworkloadソースや設定・lockを変更しないことを指し、Nixによる評価結果のstoreへの書込みまで否定するものではない。realizationは承認された隔離環境でのみ別ステージとして行う。
 
 差分は直近の入力（nixpkgs revision、src、cargoDeps、stdenv、Rust toolchain、その他入力drv）から比較する。直接入力の差を原因候補とし、単一因子の因果関係は他条件を固定して検証する。drvが同一でも別Runner間でstoreが共有されなければ再利用を保証しない。JSONの環境値・URL・絶対home pathはallowlistとマスク処理で保護し、秘密情報を報告へ出さない。
 
@@ -34,9 +34,9 @@ Bで根本の依存関係やpackage recipeが変わる可能性を記録し、lo
 
 ### D4: 計測と判定
 
-#330のD9 evidence recordに準拠し、対象属性、run/attempt/job URL、Runner/system、lock/workload/harness SHA、cold/warm、execution method、stage/outcome、duration/runner秒/CPU/RSS/disk/転送/費用またはunknown、rollback/decisionを記録。各条件のcold/warmそれぞれの成功run10件以上を正式比較の目安とし、まず少数の予備計測で測定手順を確認。別Runner/負荷/lock scopeが比較不能なら探索扱い。失敗・キャンセル・skip・unknownを保存する。費用未承認または上限到達は停止してDeferとする。
+#330のD9 evidence recordに準拠し、対象属性、run/attempt/job URL、Runner/system、lock/workload/harness SHA、cold/warm、execution method、stage/outcome、duration/runner秒/CPU/RSS/disk/転送/費用またはunknown、rollback/decisionを記録。各条件（baseline/candidate × cold/warm）の比較可能な成功ペア各10件以上を正式比較の必須条件とし、まず少数の予備計測で測定手順を確認。cold/warmは開始時の対象store/closureと利用するsubstituterの状態・取得方法で定義し、共有storeの破壊的GCは行わない。状態が証明できない試行はunknownとして正式比較から除外するが、記録は保持する。別Runner/負荷/lock scopeが比較不能なら探索扱い。失敗・キャンセル・skip・unknownを保存する。費用未承認または上限到達は停止してDeferとする。
 
-個別の目標は、比較可能なペアのdevshell-smokeとPython templateのrunner elapsed合計の中央値をbaseline比20%以上削減すること。各runの対応する2 jobを足してから中央値を算出し、p95と失敗率も提示。独立template・security・必須CIの非回帰は必須。CI全体の完了判定は別の既存目標（critical path -25%以上・runner time +20%以内）に従う。CIの実費、キャッシュhit率、uv単体build時間は測定した場合のみ報告。作成→開始の時間はrunner allocation以外を含む。
+個別の目標は、比較可能なペアのdevshell-smokeとPython templateのrunner elapsed合計の中央値をbaseline比20%以上削減すること。各run attemptの対応する2 jobがいずれも成功し、同じworkload・harness・Runner類型・job定義・cache条件で比較できるときだけペアとして足し、条件別に中央値を算出する。p95はnearest-rank（既存計測手順）、失敗率の分母は全試行を用い、失敗・キャンセル・skip・unknownの件数を別掲する。baseline中央値が0または不明なら改善率をunknownとする。ローカルの予備計測値をGitHub Actionsのjob elapsedの代用にしない。正式なjob比較には元のjobと同じ検証範囲・runner類型を保持する承認済み隔離harnessが必要で、片側の検証削除や必要stepの省略は比較不成立。独立template・security・必須CIの非回帰は必須。x86_64-linux PoCのGoは後続changeを提案する資格に限る。他systemの未検証状態のまま恒久採用を承認しない。CI全体の完了判定は別の既存目標（critical path -25%以上・runner time +20%以内）に従う。CIの実費、キャッシュhit率、uv単体build時間は測定した場合のみ報告。作成→開始の時間はrunner allocation以外を含む。
 
 ### D5: 検証と安全性
 
@@ -56,7 +56,7 @@ Bで根本の依存関係やpackage recipeが変わる可能性を記録し、lo
 1. 提案のstrict validation・承認、#332運用との整合を確認する。
 2. 独立PRで診断・fixture・手順を実装。通常CIを通し、read-only契約を検証。
 3. 許可済み隔離環境でbaseline/候補を計測。結果をIssue #335に記録。恒久変更なし。
-4. 次の変更は別OpenSpecで採否を決定。診断実装のmerge後、別archive PRでcanonical specを同期。将来の最適化の完了までarchiveを延期する必要はない。
+4. 次の変更は別OpenSpecで採否を決定。診断実装のmergeと本changeの計測/判定記録完了後、別archive PRでcanonical specを同期。予算上限によるDeferは未実施の計測を成功に置換せず、実際の試行数・停止理由・未完了範囲を記録しreviewする。将来の最適化の完了までarchiveを延期する必要はない。
 5. rollback: 診断PRのrevert。候補checkoutと作成済み一時出力のみ破棄。元のlock、trusted keys、shared store、既存CIは変更しない。
 
 ## Open Questions
