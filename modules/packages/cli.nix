@@ -2,7 +2,7 @@
 {
   home.packages = with pkgs; [
     zsh
-    git
+    (import ../git-patched.nix { inherit pkgs; })
     curl
     wget
     unzip
