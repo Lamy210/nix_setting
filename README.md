@@ -18,7 +18,7 @@ Nix + Home Manager + nix-darwin によるクロスプラットフォーム開発
 
 ```
 nix_setting/
-├── hosts/         # ホスト固有設定 (macbook-air / linux-generic)
+├── hosts/         # ホスト固有設定 (darwin-aarch64 / linux-generic)
 ├── modules/       # Home Manager モジュール (packages / shell / programs / dotfiles)
 ├── nix-darwin/    # macOS システム + Homebrew 設定
 ├── templates/     # プロジェクトテンプレート (devenv / rust / node / python / flutter)
@@ -171,10 +171,12 @@ nix flake init -t github:Lamy210/nix_setting#devenv
 
 ## 日常利用
 
+通常の実機適用は `schneeforge plan` → `schneeforge apply` を利用してください。CLI は実機の machine/profile input を生成して渡します。以下の `nh` 直接操作（`just apply` / `just apply-linux` を含む）は、対象 machine/profile input を実機用に設定済みの開発者向けです。初期の placeholder のまま実行しないでください。`nh` が使用する構成名は macOS が `darwin-aarch64`、Linux x86_64 が `linux` です。
+
 ```bash
-# 設定変更を適用
-nh darwin switch .#darwinConfigurations.macbook-air   # macOS (nix-darwin + home-manager)
-nh home switch .#homeConfigurations.linux             # Linux (home-manager)
+# 設定変更を適用（上級者向け）
+nh darwin switch . -H darwin-aarch64   # macOS (nix-darwin + home-manager)
+nh home switch . -c linux             # Linux (home-manager)
 
 # フォーマット
 nix fmt
@@ -215,7 +217,7 @@ cp -r ~/nix_setting/templates/rust ./my-rust-project
 Brewfile は廃止。nix-darwin で宣言管理。
 
 ```bash
-nh darwin switch .#darwinConfigurations.macbook-air   # Homebrew cask も自動適用
+nh darwin switch . -H darwin-aarch64   # Homebrew cask も自動適用
 ```
 
 ## CI
@@ -268,5 +270,5 @@ home.packages = with pkgs; [
 ```
 
 ```bash
-nh darwin switch .#darwinConfigurations.macbook-air  # 再適用
+nh darwin switch . -H darwin-aarch64  # 再適用
 ```
