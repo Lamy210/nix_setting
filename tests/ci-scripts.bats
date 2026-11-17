@@ -1396,3 +1396,22 @@ NODE
   run bash -euc 'dpkg-query() { test "$2" = "-f=\${Status}\n"; }; dpkg-query -W -f="\${Status}\n" systemd systemd-sysv'
   [ "$status" -eq 0 ]
 }
+
+# Keep active developer recipes and guides aligned with flake-parts outputs.
+# Static contract only; this test must never activate the host.
+@test "developer commands reference current macOS and Linux flake targets" {
+  local root="$BATS_TEST_DIRNAME/.."
+  grep -Fq 'darwin-aarch64 = inputs.nix-darwin.lib.darwinSystem' "$root/modules/flake-parts/darwin.nix"
+  grep -Fq 'darwin-aarch64 = inputs.home-manager.lib.homeManagerConfiguration' "$root/modules/flake-parts/home.nix"
+  grep -Fq 'linux = inputs.home-manager.lib.homeManagerConfiguration' "$root/modules/flake-parts/home.nix"
+
+  local file
+  for file in justfile README.md ARCHITECTURE.md docs/switch-guide.md; do
+    grep -Fq 'nh darwin switch . -H darwin-aarch64' "$root/$file"
+    grep -Fq 'nh home switch . -c linux' "$root/$file"
+    run grep -nE '(darwinConfigurations|homeConfigurations)\.macbook-air|[.]#macbook-air|nh switch [.]' "$root/$file"
+    [ "$status" -eq 1 ]
+  done
+  grep -Fq 'nix build .#homeConfigurations.darwin-aarch64.activationPackage' "$root/justfile"
+  grep -Fq 'nix build .#darwinConfigurations.darwin-aarch64.system' "$root/justfile"
+}
