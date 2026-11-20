@@ -6,6 +6,7 @@
 
 ## What Changes
 
+- ブランチ保護上の必須7コンテキストの完了を `server-required gate elapsed` として測定し、non-required `ci-required` 候補の完了を別指標にする。`ci-required` は追加の受入ジョブにも依存するため両者を同一視しない。
 - Rust 固有の guard と全 Workflow の runner-time を別指標として定義する。
 - CI 全体の最適化完了を主張する場合は、既存 -25% required critical path 目標と関連する guard をすべて維持する。全体 +20% も維持する案をレビューし、既存規範を緩和しない。
 - 個別 PoC の目標は独立して事前承認し、全体最適化完了と混同しない。

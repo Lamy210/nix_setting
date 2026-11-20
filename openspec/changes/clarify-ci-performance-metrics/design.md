@@ -4,11 +4,14 @@
 
 | 指標 | 定義 | 判定 |
 | --- | --- | --- |
-| required gate elapsed | 同一runの最初の対象ジョブ作成から required 集約ゲート完了までの経過時間。依存関係・待機を含む | 比較可能な baseline と比較 |
+| server-required gate elapsed | 同一 `check` workflow run の `created_at` から、当該時点のブランチ保護でrequiredの7コンテキストがすべてsuccessとなった最後のジョブ `completed_at` まで。待機・依存関係を含む | 比較可能な baseline と比較 |
+| ci-required candidate elapsed | 同一runの `created_at` から、non-required `ci-required` 集約候補ジョブの `completed_at` まで | 診断専用。server-required gate elapsedの代替不可 |
 | Rust elapsed runner sum | rust-quality / rust-build-smoke / rust-check の started_at→completed_at 合計。旧baselineの同等責務を明示 | Rust fan-out は +20%以内 |
 | workflow elapsed runner sum | 対象check Workflowの全実行ジョブの started_at→completed_at 合計。matrix/reusable の実行子を重複計上しない | 全体最適化完了は +20%以内を維持する提案 |
 | execution-only DAG path | 依存グラフに沿う実行時間の最長和 | 診断のみ。gate elapsedの代替不可 |
 | paid cost | 実際の請求根拠・runner料金・外部cache費 | 時間から自動換算しない |
+
+現行のブランチ保護でrequiredなのは `openspec-check` / `flake-check` / `rust-check` / `lint` / `bootstrap-test` / `managed-nix-e2e` / `release-artifact-check` の7コンテキストであり、`ci-required` 自体はrequiredではない。後者は `macos-check` や受入ジョブを追加で `needs` に含むため、終了時刻をserver-required完了と誤認しない。必須コンテキストとApp IDは比較時点の保護設定スナップショットに固定し、取得不能・check/jobの対応不明・失敗/skip・run attempt混在・欠損があれば成功判定を保留する。`ci-required`の結果は診断値として別記録する。
 
 既存 required critical path の意味・起点が旧測定と異なる場合は別指標として扱い、実装前に baseline の互換性をレビューする。Rust 対象名は現行構成の例であり、変更時は責務対応表を承認する。
 
@@ -18,7 +21,7 @@
 - 各比較条件で成功runを10件以上取得するまでは探索扱い。成功runの中央値とp95、失敗・cancelled・skipped・pending件数、計測欠損を別報告する。
 - 短縮率 = (baseline - candidate) / baseline、増加率 = (candidate - baseline) / baseline。各指標のbaseline中央値が0・不明なら判定不能。
 - runごとのジョブ合計を算出してから中央値を求める。ジョブごとの中央値の足し算や異なるrunの合成は禁止。
-- required gate elapsed 25%以上短縮、適用されるguardすべて +20%以内、非回帰、レビューを満たすまで全体最適化完了とはしない。全体の追加guardの適用は承認時に確定する。
+- server-required gate elapsed 25%以上短縮、適用されるguardすべて +20%以内、非回帰、レビューを満たすまで全体最適化完了とはしない。`ci-required`候補の短縮は単独では達成根拠にならない。全体の追加guardの適用は承認時に確定する。
 - #340 の uv 個別目標や将来の cache PoC の目標は別 scope。コスト・転送量・安全性・rollback条件を別途定義。
 
 ## 反証例
