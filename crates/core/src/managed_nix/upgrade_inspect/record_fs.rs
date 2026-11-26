@@ -137,8 +137,8 @@ mod tests {
     use super::*;
     use crate::managed_nix::upgrade_inspect::RecordState;
     use std::fs;
+    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::{symlink, PermissionsExt};
-    use std::os::unix::net::UnixListener;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -181,6 +181,9 @@ mod tests {
         .unwrap();
         fs::write(&receipt, body).unwrap();
         fs::write(&owner, &owner_body).unwrap();
+        for path in [&receipt, &owner] {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
         let dir = fixture.open().unwrap();
         assert_eq!(dir.receipt().state, RecordState::RecordValid);
         assert_eq!(dir.ownership().state, RecordState::RecordValid);
@@ -202,10 +205,13 @@ mod tests {
     }
 
     #[test]
-    fn directory_and_socket_are_rejected_before_read() {
+    fn directory_and_fifo_are_rejected_before_read() {
         let fixture = Fixture::new();
         fs::create_dir(fixture.0.join("receipt.json")).unwrap();
-        let _socket = UnixListener::bind(fixture.0.join("schneeforge-managed.json")).unwrap();
+        let fifo = fixture.0.join("schneeforge-managed.json");
+        let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        // SAFETY: name is a live NUL-terminated path inside the test directory.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
         let dir = fixture.open().unwrap();
         assert_eq!(dir.receipt().state, RecordState::IoError);
         assert_eq!(dir.ownership().state, RecordState::IoError);
@@ -217,11 +223,34 @@ mod tests {
         let receipt = fixture.0.join("receipt.json");
         fs::write(&receipt, br#"{"version":"2.35.4"}"#).unwrap();
         fs::set_permissions(&receipt, fs::Permissions::from_mode(0o666)).unwrap();
-        assert_eq!(fixture.open().unwrap().receipt().state, RecordState::PermissionDenied);
+        assert_eq!(
+            fixture.open().unwrap().receipt().state,
+            RecordState::PermissionDenied
+        );
         let uid = fs::metadata(&fixture.0).unwrap().uid();
         assert!(RecordDirectory::open_for_uid(&fixture.0, uid ^ 1).is_err());
         fs::set_permissions(&fixture.0, fs::Permissions::from_mode(0o777)).unwrap();
         assert!(fixture.open().is_err());
+    }
+
+    #[test]
+    fn directory_descriptor_keeps_lookup_bound_to_opened_directory() {
+        let fixture = Fixture::new();
+        let original = fixture.0.join("original");
+        let moved = fixture.0.join("moved");
+        fs::create_dir(&original).unwrap();
+        fs::set_permissions(&original, fs::Permissions::from_mode(0o700)).unwrap();
+        let uid = fs::metadata(&original).unwrap().uid();
+        let dir = RecordDirectory::open_for_uid(&original, uid).unwrap();
+        fs::rename(&original, &moved).unwrap();
+        fs::create_dir(&original).unwrap();
+        let record = original.join("receipt.json");
+        fs::write(&record, br#"{"version":"2.35.4"}"#).unwrap();
+        assert_eq!(dir.receipt().state, RecordState::Missing);
+        let record = moved.join("receipt.json");
+        fs::write(&record, br#"{"version":"2.35.4"}"#).unwrap();
+        fs::set_permissions(&record, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(dir.receipt().state, RecordState::RecordValid);
     }
 
     #[test]
