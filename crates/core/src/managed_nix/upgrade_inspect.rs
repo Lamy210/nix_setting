@@ -6,9 +6,9 @@
 //! is serialized by this report.
 
 #[cfg(unix)]
-pub mod record_fs;
-#[cfg(unix)]
 pub mod probe_process;
+#[cfg(unix)]
+pub mod record_fs;
 
 use std::io::{self, Read};
 
