@@ -90,6 +90,20 @@ impl ToolInventory {
         }
     }
 
+    /// Resolve paths only; no external executable is invoked. In particular,
+    /// diagnostic callers must not use discover() and its unbounded version
+    /// subprocesses. A resolved path is not executable provenance, and None
+    /// does not distinguish absence from a failed filesystem observation.
+    pub fn discover_paths() -> Self {
+        let resolver = ToolResolver::new();
+        Self {
+            nix: resolver.resolve_tool("nix"),
+            git: resolver.resolve_tool("git"),
+            homebrew: resolver.resolve_tool("brew"),
+            nh: resolver.resolve_tool("nh"),
+        }
+    }
+
     /// Nix を要求する。未発見の場合は `Err(NixNotFound)`。
     pub fn require_nix(&self) -> Result<&ResolvedTool, ToolRequirementError> {
         self.nix.as_ref().ok_or(ToolRequirementError::NixNotFound)
@@ -499,6 +513,74 @@ mod tests {
         let status = resolver.resolve("__no_such_tool__");
         assert!(!status.available);
         assert!(status.path.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discover_paths_never_runs_resolved_tools() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        const CHILD: &str = "SF_TEST_INVENTORY_CHILD";
+        const TEST: &str = "tool::tests::discover_paths_never_runs_resolved_tools";
+        let names = ["nix", "git", "brew", "nh"];
+        if env::var_os(CHILD).is_some() {
+            let directory = PathBuf::from(env::var_os("PATH").unwrap());
+            let inventory = ToolInventory::discover_paths();
+            for (tool, name) in [
+                inventory.nix,
+                inventory.git,
+                inventory.homebrew,
+                inventory.nh,
+            ]
+            .into_iter()
+            .zip(names)
+            {
+                let tool = tool.expect("fixture tool must be resolved");
+                assert_eq!(tool.path, directory.join(name).canonicalize().unwrap());
+                assert_eq!(tool.source, ToolSource::Path);
+                assert_eq!(tool.version, None);
+                assert!(!directory.join(format!("{name}.ran")).exists());
+            }
+            return;
+        }
+
+        // Isolate PATH and overrides in a subprocess instead of modifying
+        // the environment shared by other parallel Rust tests.
+        let directory = env::temp_dir().join(format!("sf-path-only-{}", std::process::id()));
+        fs::create_dir(&directory).unwrap();
+        let result = (|| {
+            for name in names {
+                let path = directory.join(name);
+                fs::write(
+                    &path,
+                    b"#!/bin/sh\nprintf invoked > \"$0.ran\"\nprintf 'version 1.0.0\\n'\n",
+                )?;
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+            }
+            let output = Command::new(env::current_exe()?)
+                .args(["--exact", TEST, "--nocapture"])
+                .env_clear()
+                .env("PATH", &directory)
+                .env(CHILD, "1")
+                .output()?;
+            Ok::<_, std::io::Error>(output)
+        })();
+        let invoked = names
+            .iter()
+            .any(|name| directory.join(format!("{name}.ran")).exists());
+        fs::remove_dir_all(&directory).unwrap();
+        let output = result.unwrap();
+        assert!(
+            output.status.success(),
+            "child test failed: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+            "child test did not execute"
+        );
+        assert!(!invoked, "path-only discovery invoked a fixture executable");
     }
 
     // --- ResolvedTool / ToolInventory のテスト ---
