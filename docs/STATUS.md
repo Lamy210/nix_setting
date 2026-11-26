@@ -4,6 +4,13 @@
 
 最終更新: 2026-11-26
 
+## 2026-11-26: Managed Nix Phase A の記録観測とCI再確認
+
+- 承認済みPhase A設計 #259 / Issue #256 に従い、Draft [#347](https://github.com/Lamy210/nix_setting/pull/347) を作成・更新。旧HEAD `b2cca7e` は30/30 success。現HEAD `37d359968d105d772249b4df90e77350b0986c92` では注入Readerからのreceipt（1 MiB）/ownership（64 KiB）制限付き読取・型付きinstaller版、metadata結果集約、旧形式・破損・I/O・版不一致・上限・情報非出力など合計14 unit testを追加。open/read NotFoundを不在扱いせず、明示MissingとUnavailableに分離。既存install/repairや実ホストには未接続。最新 [CI 45842703859](https://github.com/Lamy210/nix_setting/actions/runs/45842703859) 未完了。ローカルRust/Nix/openspecは利用不可。次は安全なファイル取得、bounded subprocess、local daemon制約、CLI/WSL2。Phase Bは別承認。
+- [#278](https://github.com/Lamy210/nix_setting/pull/278) は33 commit遅れをnon-force解消し、現HEAD `44262a27b560dc244a7cf5a19bbb6ff88403993f` で全32/32 success。 [Apple Silicon専用CI 45818456730](https://github.com/Lamy210/nix_setting/actions/runs/45818456730) 実ログでinstaller/receipt 2.35.4、観測client 2.35.4、ローカルflake、uninstall/reinstall/final cleanupを確認。実Mac A–J・既存ホストdaemon・採用判断は未完了。
+- #299 同期HEAD `2fdde6d` は30/30 success、#345 `f008873` は32/32 success、#324 `fd2a613` は30/30 success。各PRの残存受入は維持。#346の旧HEAD `bff215d` は30/30 success、今回の記録変更後のCIは別途確認。
+- develop `3f13aa4` への新規マージなし。ブランチ保護の必須レビュー詳細はAPI 403、迂回しない。RC.8公開、updater、実ホスト変更なし。
+
 ## 2026-11-26: artifact実取得検証とNodeセキュリティ候補の同期
 
 - [#345](https://github.com/Lamy210/nix_setting/pull/345) を更新し、非releaseのartifact互換性canaryを追加。HEAD `f008873026870ecd0cc0fb448c724af2e573a349` の [canary run 45807074800](https://github.com/Lamy210/nix_setting/actions/runs/45807074800) は2/2成功。既存upload SHAで2個のダミーartifactを生成し、v8 downloadで両SHA256・ディレクトリ構造・内容一致、存在しないartifact名のエラーを実ログで確認。ローカルfixture9ケース・YAML構造・bash構文も成功。破損サービスdigestの注入・実配布物は未検証。通常CI/CodeQL全体の成功は別途必要。
