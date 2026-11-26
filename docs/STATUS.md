@@ -2,7 +2,14 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-11-26
+最終更新: 2026-11-27
+
+## 2026-11-27: GHCR回帰テスト統合と後続PRの同期
+
+- #341 を通常squash merge（`636cce24a78d4dc6308e385bad65f7f43517e52c`）、developへの反映とGitHubのmerged=trueを確認。直前のHEAD `90be2a4` で30/30 success、指定Appの必須7/7 success、review COMMENTED 1件・未解決thread 0、clean、behind 0。保護設定・CIゲート変更なし。詳細レビュー保護設定は取得権限不足で未確認。マージ後developのCIは開始・未完了。
+- #332/#333/#323 は旧HEAD 30/30 successだがGitHubがbehindを報告。変更パス重複なしでnon-force同期、各候補ファイルのblob/modeを保持。新HEAD #332 `495b4c0` ([CI](https://github.com/Lamy210/nix_setting/actions/runs/45848577190))、#333 `8a47837` ([CI](https://github.com/Lamy210/nix_setting/actions/runs/45848662349))、#323 `bce8516` ([CI](https://github.com/Lamy210/nix_setting/actions/runs/45848706431))。全required/full CI未完了、マージ未実施。
+- #347 の書式修正HEAD `c56af0f` はrust-quality success（test/fmt/clippy）。全CI未完了。#324の同期HEAD `3561bbb` はrust-quality success、全CI未完了。どちらも#341統合後のdevelopからbehind。次回、差分再評価とCI確認を優先。
+- RC.8公開・GHCR公開・実機変更なし。引き続きPR経由のみ、force/保護変更なし。
 
 ## 2026-11-26: rustfmt修正とLinux CI候補の同期
 
