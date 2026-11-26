@@ -20,8 +20,13 @@ use std::path::Path;
 use super::ObservationReason;
 
 const DEFAULT_SOCKET: &str = "/nix/var/nix/daemon-socket/socket";
-const DEFAULT_DIRECTORIES: [&str; 5] =
-    ["/", "/nix", "/nix/var", "/nix/var/nix", "/nix/var/nix/daemon-socket"];
+const DEFAULT_DIRECTORIES: [&str; 5] = [
+    "/",
+    "/nix",
+    "/nix/var",
+    "/nix/var/nix",
+    "/nix/var/nix/daemon-socket",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DaemonPreflight {
@@ -37,17 +42,13 @@ pub enum DaemonPreflight {
 fn has_override<'a>(names: impl IntoIterator<Item = &'a OsStr>) -> bool {
     names.into_iter().any(|name| {
         let name = name.as_bytes();
-        name.starts_with(b"NIX_")
-            || name == b"XDG_CONFIG_HOME"
-            || name == b"XDG_CONFIG_DIRS"
+        name.starts_with(b"NIX_") || name == b"XDG_CONFIG_HOME" || name == b"XDG_CONFIG_DIRS"
     })
 }
 
 /// No subprocess or connection: inspect only fixed, default local paths.
 /// This intentionally cannot return a positive daemon reachability result.
-pub fn inspect_default_endpoint<'a>(
-    names: impl IntoIterator<Item = &'a OsStr>,
-) -> DaemonPreflight {
+pub fn inspect_default_endpoint<'a>(names: impl IntoIterator<Item = &'a OsStr>) -> DaemonPreflight {
     if has_override(names) {
         return DaemonPreflight::Blocked(ObservationReason::LocalEndpointUnverified);
     }
@@ -121,11 +122,7 @@ mod tests {
 
         fn inspect(&self) -> DaemonPreflight {
             let uid = fs::metadata(&self.0).unwrap().uid();
-            inspect_metadata(
-                [self.0.as_path()],
-                &self.0.join("socket"),
-                uid,
-            )
+            inspect_metadata([self.0.as_path()], &self.0.join("socket"), uid)
         }
     }
 
