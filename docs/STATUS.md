@@ -4,6 +4,12 @@
 
 最終更新: 2026-11-26
 
+## 2026-11-26: rustfmt修正とLinux CI候補の同期
+
+- #347 の旧HEAD `37d3599` の [rust-quality](https://github.com/Lamy210/nix_setting/actions/runs/45842703859/job/139988447711) は cargo test --locked 成功（Core 425/425、upgrade_inspect 14/14は内数）、cargo fmt -- --check の8差分でfailure、clippy未到達。CIの8 hunkを照合して整形のみ修正、現HEAD `c56af0f2604d1c6da8cf2a9f71a5ffef93a18753` の [再検証](https://github.com/Lamy210/nix_setting/actions/runs/45844331198) は未完了。実機collector・bounded subprocessは未実装のまま、CIを弱めない。
+- #324 の旧HEAD `fd2a613` は30/30 success、実ログでNix desktop vendor-staging/vendor buildとcargo check --locked成功、Canonical署名・SHA256・systemd・13/13 E2Eを確認。GHCR経路は未実証。developから1 commit遅れを解消し、回帰Bats末尾19行と旧候補6ファイルのblob/modeを保持、現HEAD `3561bbb2ed89c41735bf45d1fd6172366fa8f75c`、behind 0、差分7ファイル。 [最新CI](https://github.com/Lamy210/nix_setting/actions/runs/45844537085) 未完了。#328/#329の変更後vendor実現は別途必要。
+- 新規developマージなし、必須レビュー保護詳細API 403再確認。ローカルツールchain不在、GHCR公開・release・実機変更なし。
+
 ## 2026-11-26: Managed Nix Phase A の記録観測とCI再確認
 
 - 承認済みPhase A設計 #259 / Issue #256 に従い、Draft [#347](https://github.com/Lamy210/nix_setting/pull/347) を作成・更新。旧HEAD `b2cca7e` は30/30 success。現HEAD `37d359968d105d772249b4df90e77350b0986c92` では注入Readerからのreceipt（1 MiB）/ownership（64 KiB）制限付き読取・型付きinstaller版、metadata結果集約、旧形式・破損・I/O・版不一致・上限・情報非出力など合計14 unit testを追加。open/read NotFoundを不在扱いせず、明示MissingとUnavailableに分離。既存install/repairや実ホストには未接続。最新 [CI 45842703859](https://github.com/Lamy210/nix_setting/actions/runs/45842703859) 未完了。ローカルRust/Nix/openspecは利用不可。次は安全なファイル取得、bounded subprocess、local daemon制約、CLI/WSL2。Phase Bは別承認。
