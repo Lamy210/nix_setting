@@ -3,19 +3,19 @@
 default:
     @just --list
 
-# ---- apply ----
+# ---- apply (advanced: configure the machine input before applying; normal users use schneeforge plan/apply) ----
 apply:
-    nh darwin switch .#darwinConfigurations.macbook-air
+    nh darwin switch . -H darwin-aarch64
 
 apply-linux:
-    nh home switch .#homeConfigurations.linux
+    nh home switch . -c linux
 
 # ---- build / check ----
 build:
-    nix build .#homeConfigurations.macbook-air.activationPackage
+    nix build .#homeConfigurations.darwin-aarch64.activationPackage
 
 build-darwin:
-    nix build .#darwinConfigurations.macbook-air.system
+    nix build .#darwinConfigurations.darwin-aarch64.system
 
 check:
     nix flake check --allow-import-from-derivation
