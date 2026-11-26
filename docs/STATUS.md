@@ -4,6 +4,12 @@
 
 最終更新: 2026-11-26
 
+## 2026-11-26: artifact実取得検証とNodeセキュリティ候補の同期
+
+- [#345](https://github.com/Lamy210/nix_setting/pull/345) を更新し、非releaseのartifact互換性canaryを追加。HEAD `f008873026870ecd0cc0fb448c724af2e573a349` の [canary run 45807074800](https://github.com/Lamy210/nix_setting/actions/runs/45807074800) は2/2成功。既存upload SHAで2個のダミーartifactを生成し、v8 downloadで両SHA256・ディレクトリ構造・内容一致、存在しないartifact名のエラーを実ログで確認。ローカルfixture9ケース・YAML構造・bash構文も成功。破損サービスdigestの注入・実配布物は未検証。通常CI/CodeQL全体の成功は別途必要。
+- [#299](https://github.com/Lamy210/nix_setting/pull/299) のdevelopから16 commit遅れ・競合を解消。現HEAD `2fdde6d3629a6682c969fc7eca300321f33c7f0a` はdevelop `3f13aa4` を親に持つnon-force merge、behind 0。競合2ファイルではGit/ARM64の既存検査を保持してNode候補の検査を追加し、残り11ファイルのblob/modeを維持。 [新HEAD CI](https://github.com/Lamy210/nix_setting/actions/runs/45807360319) は未完了。実機Node/mise、C++ ABI、配布物・RC受入は別ゲート、Draft維持。
+- developへの新規マージなし。必須レビュー保護APIは再確認して403。#332/#333/#323/#341のGreenを再確認したが、保護設定を迂回しない。RC.8公開・実機変更・ブランチ保護変更なし。
+
 ## 2026-11-26: PR統合前確認とAction更新の修正
 
 以下の旧スナップショットより本節の記録を優先する。CIとHEADは観測時点の記録であり、後続更新後の成功を保証しない。
