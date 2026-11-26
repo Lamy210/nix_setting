@@ -30,6 +30,7 @@ pub enum ObservationReason {
     InsufficientEvidence,
     RecordMissing,
     RecordTooLarge,
+    InstallerVersionMismatch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -162,15 +163,18 @@ impl RecordEvidence {
 const RECEIPT_LIMIT: u64 = 1024 * 1024;
 const OWNERSHIP_LIMIT: u64 = 64 * 1024;
 
-fn record_io_error(error: io::Error, opening: bool) -> RecordEvidence {
+/// An absence observation must be established by the collector using metadata.
+/// A failed open/read (even NotFound) can instead mean a broken link or race.
+pub enum RecordSource<R> {
+    Missing,
+    Opened(R),
+    Unavailable(io::Error),
+}
+
+fn record_io_error(error: io::Error) -> RecordEvidence {
     use ObservationReason as Reason;
 
     match error.kind() {
-        // A reader that was opened successfully and then failed with NotFound
-        // is an I/O error, not evidence that the record never existed.
-        io::ErrorKind::NotFound if opening => {
-            RecordEvidence::without_version(RecordState::Missing, Reason::RecordMissing)
-        }
         io::ErrorKind::PermissionDenied => {
             RecordEvidence::without_version(RecordState::PermissionDenied, Reason::PermissionDenied)
         }
@@ -179,17 +183,23 @@ fn record_io_error(error: io::Error, opening: bool) -> RecordEvidence {
 }
 
 fn read_record<R: Read>(
-    source: io::Result<R>,
+    source: RecordSource<R>,
     limit: u64,
     parse: impl FnOnce(&[u8]) -> RecordEvidence,
 ) -> RecordEvidence {
     let reader = match source {
-        Ok(reader) => reader,
-        Err(error) => return record_io_error(error, true),
+        RecordSource::Opened(reader) => reader,
+        RecordSource::Missing => {
+            return RecordEvidence::without_version(
+                RecordState::Missing,
+                ObservationReason::RecordMissing,
+            );
+        }
+        RecordSource::Unavailable(error) => return record_io_error(error),
     };
     let mut bytes = Vec::new();
     if let Err(error) = reader.take(limit + 1).read_to_end(&mut bytes) {
-        return record_io_error(error, false);
+        return record_io_error(error);
     }
     if bytes.len() as u64 > limit {
         return RecordEvidence::without_version(
@@ -208,7 +218,7 @@ fn invalid_record() -> RecordEvidence {
 /// establish a safe, local, non-blocking/regular-file source before calling;
 /// the byte limit is not a wall-clock timeout or a symlink/TOCTOU defense.
 /// No host path is opened by this adapter.
-pub fn observe_receipt<R: Read>(source: io::Result<R>) -> RecordEvidence {
+pub fn observe_receipt<R: Read>(source: RecordSource<R>) -> RecordEvidence {
     read_record(source, RECEIPT_LIMIT, |bytes| {
         let Ok(receipt) = serde_json::from_slice::<Receipt>(bytes) else {
             return invalid_record();
@@ -228,7 +238,7 @@ pub fn observe_receipt<R: Read>(source: io::Result<R>) -> RecordEvidence {
 /// Reuse the existing ownership schema and validation without exposing record
 /// payload, paths or validation error text. Caller has the same source-safety
 /// responsibility as for observe_receipt.
-pub fn observe_ownership<R: Read>(source: io::Result<R>) -> RecordEvidence {
+pub fn observe_ownership<R: Read>(source: RecordSource<R>) -> RecordEvidence {
     read_record(source, OWNERSHIP_LIMIT, |bytes| {
         match serde_json::from_slice::<OwnershipRecord>(bytes) {
             Ok(record) if record.validate().is_ok() => {
@@ -334,11 +344,23 @@ impl UpgradeInspection {
         let both_records_missing = input.receipt.state == RecordState::Missing
             && input.installation_ownership.state == RecordState::Missing;
         let known_client = matches!(&input.client_version, Observation::Known { .. });
+        let (matching_installer_versions, mismatched_installer_versions) = match (
+            &input.receipt.installer_version,
+            &input.installation_ownership.installer_version,
+        ) {
+            (Observation::Known { value: receipt }, Observation::Known { value: owner }) => {
+                (receipt == owner, receipt != owner)
+            }
+            _ => (false, false),
+        };
 
         let mut reasons = vec![
             ObservationReason::HostManagerNotVerified,
             ObservationReason::StableProbeUnverified,
         ];
+        if mismatched_installer_versions {
+            reasons.push(ObservationReason::InstallerVersionMismatch);
+        }
         let route = if !super::is_supported(input.platform, input.architecture) {
             UpgradeRoute::Unsupported
         } else if missing_client && no_markers && both_records_missing && no_daemon_evidence {
@@ -351,6 +373,7 @@ impl UpgradeInspection {
             && matches!(&input.daemon_reachable, Observation::Known { value: true })
             && input.receipt.state == RecordState::RecordValid
             && input.installation_ownership.state == RecordState::RecordValid
+            && matching_installer_versions
         {
             // Even this consistent structural evidence does not establish the
             // effective owner, daemon version or upgrade authorization.
@@ -397,18 +420,16 @@ mod tests {
             daemon_reachable: Observation::Unknown {
                 reason: ObservationReason::ToolMissing,
             },
-            receipt: observe_receipt(Err::<&[u8], _>(io::ErrorKind::NotFound.into())),
-            installation_ownership: observe_ownership(Err::<&[u8], _>(
-                io::ErrorKind::NotFound.into(),
-            )),
+            receipt: observe_receipt(RecordSource::<&[u8]>::Missing),
+            installation_ownership: observe_ownership(RecordSource::<&[u8]>::Missing),
             repo_declares_nix_darwin: Observation::Known { value: false },
         }
     }
 
     fn valid_ownership() -> RecordEvidence {
-        let record = OwnershipRecord::new("2.35.3", "a".repeat(64));
+        let record = OwnershipRecord::new("2.35.4", "a".repeat(64));
         let bytes = serde_json::to_vec(&record).unwrap();
-        observe_ownership(Ok(bytes.as_slice()))
+        observe_ownership(RecordSource::Opened(bytes.as_slice()))
     }
 
     fn consistent() -> UpgradeObservations {
@@ -416,7 +437,7 @@ mod tests {
             installation_markers: Observation::Known { value: true },
             client_version: parse_client_version(b"nix (Nix) 2.35.2\n"),
             daemon_reachable: Observation::Known { value: true },
-            receipt: observe_receipt(Ok(&br#"{"version":"2.35.4","actions":[]}"#[..])),
+            receipt: observe_receipt(RecordSource::Opened(&br#"{"version":"2.35.4","actions":[]}"#[..])),
             installation_ownership: valid_ownership(),
             ..absent()
         }
@@ -462,7 +483,7 @@ mod tests {
         assert_eq!(json["schema_version"], 1);
         assert_eq!(json["client_version"]["value"], "2.35.2");
         assert_eq!(json["receipt_installer_version"]["value"], "2.35.4");
-        assert_eq!(json["ownership_installer_version"]["value"], "2.35.3");
+        assert_eq!(json["ownership_installer_version"]["value"], "2.35.4");
         assert_eq!(json["daemon_reachable"]["value"], true);
         assert_eq!(json["daemon_version"]["state"], "unknown");
         assert_eq!(json["installation_ownership"], "record-valid");
@@ -550,15 +571,15 @@ mod tests {
 
     #[test]
     fn legacy_receipt_keeps_version_unknown_and_empty_view_is_not_valid() {
-        let legacy = observe_receipt(Ok(&br#"{"actions":[{"action":"enable_flakes"}]}"#[..]));
+        let legacy = observe_receipt(RecordSource::Opened(&br#"{"actions":[{"action":"enable_flakes"}]}"#[..]));
         assert_eq!(legacy.state, RecordState::RecordValid);
         assert!(matches!(legacy.installer_version, Observation::Unknown { .. }));
         assert_eq!(
-            observe_receipt(Ok(&b"{}"[..])).state,
+            observe_receipt(RecordSource::Opened(&b"{}"[..])).state,
             RecordState::Unknown
         );
         assert_eq!(
-            observe_receipt(Ok(&b"{broken"[..])).state,
+            observe_receipt(RecordSource::Opened(&b"{broken"[..])).state,
             RecordState::Invalid
         );
     }
@@ -569,7 +590,7 @@ mod tests {
         record.installer_sha256 = "bad".to_owned();
         let bytes = serde_json::to_vec(&record).unwrap();
         assert_eq!(
-            observe_ownership(Ok(bytes.as_slice())).state,
+            observe_ownership(RecordSource::Opened(bytes.as_slice())).state,
             RecordState::Invalid
         );
         let mut legacy = serde_json::to_value(OwnershipRecord::new("2.35.4", "a".repeat(64)))
@@ -577,24 +598,32 @@ mod tests {
         legacy.as_object_mut().unwrap().remove("installer_sha256");
         let bytes = serde_json::to_vec(&legacy).unwrap();
         assert_eq!(
-            observe_ownership(Ok(bytes.as_slice())).state,
+            observe_ownership(RecordSource::Opened(bytes.as_slice())).state,
             RecordState::Invalid
         );
     }
 
     #[test]
-    fn record_io_errors_are_not_missing_except_open_not_found() {
+    fn record_io_errors_are_not_missing_without_explicit_absence() {
+        assert_eq!(
+            observe_receipt(RecordSource::<&[u8]>::Missing).state,
+            RecordState::Missing
+        );
+        assert_eq!(
+            observe_ownership(RecordSource::<&[u8]>::Missing).state,
+            RecordState::Missing
+        );
         for (kind, expected) in [
-            (io::ErrorKind::NotFound, RecordState::Missing),
+            (io::ErrorKind::NotFound, RecordState::IoError),
             (io::ErrorKind::PermissionDenied, RecordState::PermissionDenied),
             (io::ErrorKind::Other, RecordState::IoError),
         ] {
             assert_eq!(
-                observe_receipt(Err::<&[u8], _>(kind.into())).state,
+                observe_receipt(RecordSource::<&[u8]>::Unavailable(kind.into())).state,
                 expected
             );
             assert_eq!(
-                observe_ownership(Err::<&[u8], _>(kind.into())).state,
+                observe_ownership(RecordSource::<&[u8]>::Unavailable(kind.into())).state,
                 expected
             );
         }
@@ -605,15 +634,39 @@ mod tests {
             }
         }
         assert_eq!(
-            observe_receipt(Ok(FailingReader)).state,
+            observe_receipt(RecordSource::Opened(FailingReader)).state,
             RecordState::IoError
         );
     }
 
     #[test]
+    fn different_or_unverified_installer_versions_require_manual_review() {
+        let record = OwnershipRecord::new("2.35.3", "a".repeat(64));
+        let bytes = serde_json::to_vec(&record).unwrap();
+        let report = UpgradeInspection::from_observations(UpgradeObservations {
+            installation_ownership: observe_ownership(RecordSource::Opened(bytes.as_slice())),
+            ..consistent()
+        });
+        assert_eq!(report.upgrade_route, UpgradeRoute::Unknown);
+        assert!(report
+            .reasons
+            .contains(&ObservationReason::InstallerVersionMismatch));
+        assert!(!report.automation_eligible);
+
+        let report = UpgradeInspection::from_observations(UpgradeObservations {
+            receipt: observe_receipt(RecordSource::Opened(
+                &br#"{"actions":[{"action":"enable_flakes"}]}"#[..],
+            )),
+            ..consistent()
+        });
+        assert_eq!(report.upgrade_route, UpgradeRoute::Unknown);
+        assert!(!report.automation_eligible);
+    }
+
+    #[test]
     fn record_capture_is_bounded_and_limit_boundary_is_not_truncated() {
         let mut infinite = io::repeat(b' ');
-        let observed = observe_ownership(Ok(&mut infinite));
+        let observed = observe_ownership(RecordSource::Opened(&mut infinite));
         assert_eq!(observed.state, RecordState::Unknown);
         assert!(matches!(
             observed.installer_version,
@@ -624,19 +677,19 @@ mod tests {
         let mut bytes = br#"{"version":"2.35.4","actions":[]}"#.to_vec();
         bytes.resize(RECEIPT_LIMIT as usize, b' ');
         assert_eq!(
-            observe_receipt(Ok(bytes.as_slice())).state,
+            observe_receipt(RecordSource::Opened(bytes.as_slice())).state,
             RecordState::RecordValid
         );
         bytes.push(b' ');
         assert_eq!(
-            observe_receipt(Ok(bytes.as_slice())).state,
+            observe_receipt(RecordSource::Opened(bytes.as_slice())).state,
             RecordState::Unknown
         );
     }
 
     #[test]
     fn untrusted_record_version_and_payload_are_never_serialized() {
-        let receipt = observe_receipt(Ok(
+        let receipt = observe_receipt(RecordSource::Opened(
             &br#"{"version":"/home/private-token","actions":[{"secret":"private-token"}]}"#[..],
         ));
         let report = UpgradeInspection::from_observations(UpgradeObservations {
