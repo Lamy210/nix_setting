@@ -6,6 +6,8 @@
 //! is serialized by this report.
 
 #[cfg(unix)]
+pub mod daemon_preflight;
+#[cfg(unix)]
 pub mod probe_process;
 #[cfg(unix)]
 pub mod record_fs;
