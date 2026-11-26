@@ -1,0 +1,65 @@
+name: managed-nix-e2e-image
+
+# Explicitly reviewed, manual supply-chain operation; never run on PR code.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Build image from signed Canonical 24.04 cloud rootfs
+        env:
+          SCHNEEFORGE_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: bash scripts/ci/prepare-managed-nix-e2e-image.sh
+
+      - name: Publish verified image to GHCR
+        id: push
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ghcr.io/lamy210/nix-setting-managed-nix-e2e:ubuntu-24.04-20261027
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker tag schneeforge-managed-nix-e2e-systemd:ci "$IMAGE"
+          push_output="$(docker push "$IMAGE")"
+          printf '%s\n' "$push_output" | tail -n 4
+          digest="$(printf '%s\n' "$push_output" | grep -Eo 'digest: sha256:[a-f0-9]{64}' | tail -n 1 | awk '{print $2}')"
+          if [[ ! $digest =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "ERROR: GHCR digest unavailable; do not approve this image" >&2
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Published immutable image: ${IMAGE%:*}@$digest"
+
+      - name: Attest OCI image with GitHub OIDC provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-name: ghcr.io/lamy210/nix-setting-managed-nix-e2e
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Verify digest and signing workflow before use
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ghcr.io/lamy210/nix-setting-managed-nix-e2e
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          gh attestation verify "oci://$IMAGE@$DIGEST" \
+            --repo Lamy210/nix_setting \
+            --signer-workflow Lamy210/nix_setting/.github/workflows/managed-nix-e2e-image.yml \
+            --source-ref refs/heads/develop \
+            --deny-self-hosted-runners
+          docker logout ghcr.io
+          echo "Validated image: $IMAGE@$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          echo "Set repository variable SCHNEEFORGE_E2E_SYSTEMD_IMAGE to $IMAGE@$DIGEST only after review." >> "$GITHUB_STEP_SUMMARY"

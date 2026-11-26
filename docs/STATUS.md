@@ -2,7 +2,49 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-11-06
+最終更新: 2026-11-17
+
+## 2026-11-17: Gitセキュリティ更新統合・開発コマンド修正の再検証
+
+以下の過去スナップショットは当時の記録であり、現在のCI・マージ状態について本節を優先する。
+
+- #330は develop に統合済み（`10a22fdf`）。Nix OSS採用ポリシーの運用実装 #332 と archive は別段階。
+- #334 は Git 2.56.1 の管理経路に限定したセキュリティ更新を develop に squash merge（`565cc2d204378e16322827264a2a979e6324bd3c`）。マージ前 [通常CI 26/26](https://github.com/Lamy210/nix_setting/actions/runs/43973074497)・CodeQL 3/3成功。実機Keychain・認証付きHTTPS/SSH・署名検証・cross/static・全外部Gitの更新は未確認。マージ後のdevelop CIは別途確認する。
+- #331 の旧HEAD `c64da8b` は [通常CI 25/25](https://github.com/Lamy210/nix_setting/actions/runs/43972649473)・CodeQL 3/3成功。#334との重複は STATUS のみと確認し、両方の履歴を保持して同期する。同期後のCIは未確認。固定nhのバイナリ実行・実機適用は未実施。
+- #332・#333 の旧HEADの通常CI 25/25・CodeQL 3/3成功。最新develop との統合・再検証・マージは別途必要。RC.8のリリース受入条件は変更しない。
+
+## 2026-11-17: Git 2.56.1 セキュリティ更新候補（マージ前の記録）
+
+- 固定済み nixpkgs の Git 2.55.0 を、公式配布元の SHA-256 で固定した 2.56.1 に更新する候補を作成。root flake.lock は変更せず、Home Manager の共通 CLI と root maintenance shell で同じ derivation を使用する。
+- 初回 CI [43968752712](https://github.com/Lamy210/nix_setting/actions/runs/43968752712) は Git installCheck の t1017 で13件失敗。nixpkgs [945c71b](https://github.com/NixOS/nixpkgs/commit/945c71b6e5d32f15db9c075c2798bc9d9247a31f) の POSIX sh 修正、および [885841e](https://github.com/NixOS/nixpkgs/commit/885841efdf491abdad7893f474676a85dc6a7a35) の旧 cross Rust 置換削除を移植。installCheck は無効化しない。
+- `checks.git-version` で version / init / commit / clone / HTTPS helper / macOS credential helper を検証し、Linux ARM64 native runner、Home Manager 生成物、maintenance shell と Linux real apply の実際の実行ファイル同一性を確認する CI を追加。修正後 CI・実機適用・cross/static build・認証付き通信は未確認。OS 同梱 Git、外部 Git、独立テンプレート、他パッケージ内部の Git（初回 CI で git-minimal 2.55.0 を観測）は一律更新されない。
+- 修正後 CI 43972611542 の actionlint は devShell の意図的な内側 Bash 展開を SC2016 として報告。専用シェルスクリプトに分離し、検証内容・lint の厳格性を保持。新 HEAD の CI は未確認。
+- nixpkgs が 2.56.1 以上に追いついた場合は標準パッケージを採用する。マージ条件は現 HEAD の必須 CI 成功と互換性レビュー。RC.8、既存のリリース保護・他のセキュリティ課題には変更なし。
+
+## 2026-11-15: 開発コマンドのFlake参照修正（提案中）
+
+- 現行FlakeのmacOS属性は `darwin-aarch64`。旧 `macbook-air` 参照をルートjustfile・README・ARCHITECTURE・switch-guideから除去し、nhの明示ターゲット指定を使用する修正を別PRでレビューする。実機の適用は未実施。通常適用はSchneeForge CLIを使用する。
+- 既存 `ci-scripts.bats` に静的回帰検査を追加。CI完了・実機実行を成功とはまだ記録しない。
+- #330はポリシー提案のDraft。HEAD `615cc5a4` のcheck 25/25・CodeQL 3/3が成功したが、個別strict validation・提案承認・管理側required設定の確認は別途必要。ポリシー実装やcanonical spec同期は未実施。
+
+## 2026-11-08: PR #305 マージ、Node セキュリティと日本語 PR 運用
+
+- **#305 を develop へ squash merge:** `d81697a6750fc4b6ec4a853052d34fe551ed0a46`。変更対象はこの STATUS のみ。マージ前の current-head CI は 22/22 成功。旧スナップショットに含まれる「#305 未マージ」相当の記載より本項が優先する。
+- **#299 は引き続き Draft:** HEAD `b5272041481a9f228a59eb1e1a6a21ca5adab628` の [CI 42360455840](https://github.com/Lamy210/nix_setting/actions/runs/42360455840) は 22/22 成功。ただし実機 Node/mise/プロセス棚卸し、C++ addon の互換性、リリース配布物の検証は別ゲート。`v0.2.0-rc.8` は未公開のまま。
+- **依存更新 PR:** #295/#296 はCI成功でもリリース・自動更新ワークフローの実経路レビューが必要。#290〜#293 はRustのメジャーバージョン更新、複数workspaceのlockfile整合性・macOS/Windows動作のレビューが必要。
+- **PR 文書運用:** 人が作る PR のタイトル、本文、レビューコメントは日本語を基本とし、外部ボット PR はレビュー時に日本語の判断を記録する。既存のブランチ保護・OpenSpec・CI ゲートは変更しない。
+
+
+
+## 2026-11-07 evening JST: #304 merged; Node/pnpm transitive security regression under review
+
+**This checkpoint supersedes dated snapshots below; earlier CI states are historical, not current.**
+
+- **Protected develop:** [#304](https://github.com/Lamy210/nix_setting/pull/304) was **squash merged** as `9afe23baf2634756029a5e049d6d26825ed6a416` after **26/26 final-head CI checks succeeded** including all seven branch-protection contexts, macOS 15/26, release-artifact, Windows and Linux. It adds a strictly read-only host Node audit with fail-closed UNKNOWN/FAIL classification and 11 Bats regression cases. No user's machine has been inspected or updated by this merge. The post-merge develop workflow is separately running; do not treat pre-merge success as post-merge success.
+- **Confirmed Node/pnpm security gap:** Draft [#299](https://github.com/Lamy210/nix_setting/pull/299) CI [42359540999](https://github.com/Lamy210/nix_setting/actions/runs/42359540999) showed a patched `node` **24.22.2** in the independent Node template, while `pnpm 11.20.0` launched its own **Node 24.18.1**. This was an executable finding, not merely a packaging hypothesis. The separate pnpm process can be missed by a PATH-level version check.
+- **Candidate correction:** root Nixpkgs default pnpm 12 is a native Rust binary; standalone template pnpm 11 is a Node script. The template now overrides the actual `nodejs-slim` interpreter to the pinned Node 24.22.2 while root retains the reviewed native pnpm. The Linux standalone template's full offline Node+pnpm+Bun smoke **passed** after the correction ([CI job](https://github.com/Lamy210/nix_setting/actions/runs/42359963779/job/128366172410)). The same test validates pnpm's own interpreter, project scripts and Bun 1.4.4, without downloading dependencies. Do not assume root or macOS passes until independently observed.
+- **#299 remains Draft / unmerged:** non-force synchronized with develop, current head `b5272041481a9f228a59eb1e1a6a21ca5adab628`; latest-head CI, macOS, native C++ addon ABI and mixed-closure review, real host/mise/process inventory, and separate release acceptance remain. The active OpenSpec Node security change has an explicit package-manager interpreter requirement; no false claim that native Rust pnpm itself runs Node.
+- **Release gate unchanged:** `v0.2.0-rc.8` remains untagged and unpublished; Node P0 [#275](https://github.com/Lamy210/nix_setting/issues/275) and release [#271](https://github.com/Lamy210/nix_setting/issues/271) remain open. Actual host acceptance A–J, signed supply-chain attestations/asset checks and updater-disabled confirmation are independent from Nix shell CI. Apple Developer ID signing/notarization is intentionally not used; this is not a stable release.
 
 ## 2026-11-06 22:46+ JST: #294 merged, #299 platform security evidence, RC.8 still blocked
 

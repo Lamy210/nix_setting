@@ -124,7 +124,10 @@ git push origin --delete release/vX.Y.Z
 ## PR ルール
 
 - 1 PR = 1 関心事
-- PR タイトルは conventional commits 形式
+- PR タイトルは conventional commits 形式。`feat: 設定画面を追加` のように説明部分は原則日本語
+- 人が作成する PR のタイトル・本文・レビューコメントは日本語を基本とする（技術的な識別子、ログ、上流の引用は原文を残してよい）
+- PR 本文に「概要」「変更点」「検証結果」「未完了事項・マージ条件」を記載する。CI 未実行・実機未検証は明記する
+- Dependabot などの外部生成 PR が英語の場合も、マージ判断とレビュー結果を日本語で残す
 - OpenSpec 対象 change は proposal approval + strict validation を実装開始条件とする
 - PR テンプレートにチェックリストあり（`docs` 以外は全項目必須）
 - required checks と review を通過するまで merge しない

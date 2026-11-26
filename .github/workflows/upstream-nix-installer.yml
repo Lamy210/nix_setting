@@ -35,9 +35,9 @@ env:
 
 jobs:
   track-upstream:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Resolve target version
         id: ver
@@ -229,11 +229,11 @@ jobs:
             "$MANIFEST_PATH" "$branch" /tmp/commit-msg.txt
 
           {
-            printf '## Summary\n'
+            printf '## 変更概要\n'
             printf -- '- bootstrap-manifest.toml を nix-installer v%s へ bump\n' "$TARGET_VERSION"
             printf -- '- SLSA provenance 検証済み (gh attestation verify)\n'
             printf -- '- SHA256SUMS は upstream release から取得\n\n'
-            printf '## Merge criteria (design.md D3)\n'
+            printf '## マージ判定条件 (design.md D3)\n'
             printf -- '- [ ] breaking change 無し (CLI flag / receipt schema)\n'
             printf -- '- [ ] Linux x86_64 smoke test 通過\n'
             printf -- '- [ ] macOS aarch64 smoke test 通過 (ADR-0001 Final acceptance)\n'

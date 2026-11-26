@@ -12,7 +12,10 @@ fn nix_darwin_home_is_read_without_utf8_coercion() {
     );
 }
 
-#[cfg(unix)]
+// Most macOS filesystems reject raw invalid UTF-8 path components (EILSEQ).
+// The byte-preserving filesystem fixture is executable on Linux; macOS still
+// verifies the var_os("HOME") contract in the OS-independent test above.
+#[cfg(target_os = "linux")]
 #[test]
 fn non_utf8_home_path_can_address_nix_darwin_marker() {
     use std::ffi::OsString;

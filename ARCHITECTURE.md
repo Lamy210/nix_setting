@@ -21,7 +21,7 @@ nix_setting/
 ├── profiles/                  # 用途別プロファイル (パッケージ群)
 │   └── developer.nix          # cli/git/dev/containers/db を集約
 ├── hosts/                     # ホスト固有設定
-│   ├── macbook-air/           # macOS (homeDirectory は username から派生)
+│   ├── darwin-aarch64/           # macOS (homeDirectory は username から派生)
 │   └── linux-generic/         # Linux (同上)
 ├── modules/
 │   ├── flake-parts/           # devShells / homeConfigurations / darwinConfigurations / apps / templates
@@ -46,7 +46,7 @@ config.toml (manifest)
   └── user.username         # 唯一のユーザー情報源
 
 profiles/developer.nix       # 何を入れるか (パッケージ群)
-hosts/macbook-air/           # どこに入れるか (homeDirectory を username から派生)
+hosts/darwin-aarch64/           # どこに入れるか (homeDirectory を username から派生)
 modules/                     # どう設定するか (shell/programs/dotfiles)
 ```
 
@@ -62,12 +62,14 @@ Project runtime  → devShell / devenv
 
 ## 適用方法
 
+通常は `schneeforge plan` / `schneeforge apply` を使用する。以下の直接操作は実機用 machine/profile input 設定済みの場合のみ実行する。
+
 ```bash
 # macOS (nix-darwin + home-manager 一括)
-nh switch .#macbook-air
+nh darwin switch . -H darwin-aarch64
 
 # Linux (home-manager のみ)
-nh home switch .#linux
+nh home switch . -c linux
 ```
 
 ## 検証
@@ -75,7 +77,7 @@ nh home switch .#linux
 ```bash
 nix flake check            # 評価 + treefmt check
 nix build .#homeConfigurations.linux.activationPackage
-nix build .#darwinConfigurations.macbook-air.system
+nix build .#darwinConfigurations.darwin-aarch64.system
 ```
 
 ### 対象システム

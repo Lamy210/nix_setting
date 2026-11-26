@@ -3,6 +3,7 @@
   perSystem =
     { pkgs, system, ... }:
     let
+      gitPatched = import ../git-patched.nix { inherit pkgs; };
       # Node-only staging candidate; does not change the rest of the root pkgs.
       nodePatched =
         (import inputs.node-security-nixpkgs {
@@ -99,10 +100,31 @@
       };
     in
     {
+      # Explicit output for CI to identify the selected binary without guessing its store path.
+      packages.managed-git = gitPatched;
+
+      # Build and exercise the same Git derivation selected by Home Manager.
+      checks.git-version =
+        assert pkgs.lib.versionAtLeast gitPatched.version "2.56.1";
+        pkgs.runCommand "git-version-check" { } ''
+          export HOME="$TMPDIR/home"
+          mkdir -p "$HOME"
+          ${gitPatched}/bin/git --version | grep -Fx 'git version ${gitPatched.version}'
+          ${gitPatched}/bin/git -c init.defaultBranch=main init "$TMPDIR/repo"
+          ${gitPatched}/bin/git -C "$TMPDIR/repo" -c user.name=Smoke -c user.email=smoke@example.invalid commit --allow-empty -m smoke
+          ${gitPatched}/bin/git clone --no-local "$TMPDIR/repo" "$TMPDIR/clone"
+          test "$(${gitPatched}/bin/git -C "$TMPDIR/repo" rev-parse HEAD)" = "$(${gitPatched}/bin/git -C "$TMPDIR/clone" rev-parse HEAD)"
+          test -x "$(${gitPatched}/bin/git --exec-path)/git-remote-https"
+          ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+            test -x "$(${gitPatched}/bin/git --exec-path)/git-credential-osxkeychain"
+          ''}
+          touch "$out"
+        '';
+
       devShells = {
         default = pkgs.mkShell {
           packages = with pkgs; [
-            git
+            gitPatched
             lazygit
             delta
             difftastic

@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   cancel-stale-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: close-event concurrency barrier
         run: echo "closed PR check group superseded"

@@ -178,8 +178,13 @@ pub fn override_args_with<P: AsRef<Path> + ?Sized>(
     store: &StateStore,
 ) -> Result<Vec<String>> {
     let facts = crate::machine::MachineFacts::detect()?;
-    let machine_path = crate::machine::write_machine_input(&facts)?;
+    // Nix flake refs must be UTF-8. Validate both destinations before any
+    // write; on macOS an invalid path otherwise fails with EILSEQ before the
+    // intended precondition check, potentially leaving a partial update.
+    nix_path_input(&crate::machine::default_machine_nix_path(), "machine input")?;
+    nix_path_input(&default_profile_nix_path(), "profile input")?;
     let (profile, _) = resolve_with(repo, store)?;
+    let machine_path = crate::machine::write_machine_input(&facts)?;
     let profile_path = write_profile_input(&profile)?;
     let machine_input = nix_path_input(&machine_path, "machine input")?;
     let profile_input = nix_path_input(&profile_path, "profile input")?;
