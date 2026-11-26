@@ -131,9 +131,7 @@ impl RecordEvidence {
 
     fn without_version(state: RecordState, reason: ObservationReason) -> Self {
         let installer_version = match state {
-            RecordState::PermissionDenied | RecordState::IoError => {
-                Observation::Error { reason }
-            }
+            RecordState::PermissionDenied | RecordState::IoError => Observation::Error { reason },
             _ => Observation::Unknown { reason },
         };
         Self {
@@ -239,14 +237,16 @@ pub fn observe_receipt<R: Read>(source: RecordSource<R>) -> RecordEvidence {
 /// payload, paths or validation error text. Caller has the same source-safety
 /// responsibility as for observe_receipt.
 pub fn observe_ownership<R: Read>(source: RecordSource<R>) -> RecordEvidence {
-    read_record(source, OWNERSHIP_LIMIT, |bytes| {
-        match serde_json::from_slice::<OwnershipRecord>(bytes) {
+    read_record(
+        source,
+        OWNERSHIP_LIMIT,
+        |bytes| match serde_json::from_slice::<OwnershipRecord>(bytes) {
             Ok(record) if record.validate().is_ok() => {
                 RecordEvidence::valid(Some(&record.installer_version))
             }
             _ => invalid_record(),
-        }
-    })
+        },
+    )
 }
 
 /// Combine the three installation marker metadata results. The collector
@@ -437,7 +437,9 @@ mod tests {
             installation_markers: Observation::Known { value: true },
             client_version: parse_client_version(b"nix (Nix) 2.35.2\n"),
             daemon_reachable: Observation::Known { value: true },
-            receipt: observe_receipt(RecordSource::Opened(&br#"{"version":"2.35.4","actions":[]}"#[..])),
+            receipt: observe_receipt(RecordSource::Opened(
+                &br#"{"version":"2.35.4","actions":[]}"#[..],
+            )),
             installation_ownership: valid_ownership(),
             ..absent()
         }
@@ -571,9 +573,14 @@ mod tests {
 
     #[test]
     fn legacy_receipt_keeps_version_unknown_and_empty_view_is_not_valid() {
-        let legacy = observe_receipt(RecordSource::Opened(&br#"{"actions":[{"action":"enable_flakes"}]}"#[..]));
+        let legacy = observe_receipt(RecordSource::Opened(
+            &br#"{"actions":[{"action":"enable_flakes"}]}"#[..],
+        ));
         assert_eq!(legacy.state, RecordState::RecordValid);
-        assert!(matches!(legacy.installer_version, Observation::Unknown { .. }));
+        assert!(matches!(
+            legacy.installer_version,
+            Observation::Unknown { .. }
+        ));
         assert_eq!(
             observe_receipt(RecordSource::Opened(&b"{}"[..])).state,
             RecordState::Unknown
@@ -593,8 +600,8 @@ mod tests {
             observe_ownership(RecordSource::Opened(bytes.as_slice())).state,
             RecordState::Invalid
         );
-        let mut legacy = serde_json::to_value(OwnershipRecord::new("2.35.4", "a".repeat(64)))
-            .unwrap();
+        let mut legacy =
+            serde_json::to_value(OwnershipRecord::new("2.35.4", "a".repeat(64))).unwrap();
         legacy.as_object_mut().unwrap().remove("installer_sha256");
         let bytes = serde_json::to_vec(&legacy).unwrap();
         assert_eq!(
@@ -615,7 +622,10 @@ mod tests {
         );
         for (kind, expected) in [
             (io::ErrorKind::NotFound, RecordState::IoError),
-            (io::ErrorKind::PermissionDenied, RecordState::PermissionDenied),
+            (
+                io::ErrorKind::PermissionDenied,
+                RecordState::PermissionDenied,
+            ),
             (io::ErrorKind::Other, RecordState::IoError),
         ] {
             assert_eq!(
@@ -728,11 +738,7 @@ mod tests {
             }
         );
         assert_eq!(
-            observe_installation_markers([
-                missing(),
-                Err(io::ErrorKind::Other.into()),
-                missing(),
-            ]),
+            observe_installation_markers([missing(), Err(io::ErrorKind::Other.into()), missing(),]),
             Observation::Error {
                 reason: ObservationReason::IoError
             }
