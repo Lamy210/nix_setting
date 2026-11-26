@@ -41,3 +41,19 @@
   [ "$status" -ne 0 ]
   [[ "$output" == *"pinned by SHA256 digest"* ]]
 }
+
+@test "approved GHCR image is verified before pull tag and runtime checks" {
+  bash tests/fixtures/ci-image-provenance-mock.sh scripts/ci/prepare-managed-nix-e2e-image.sh success
+}
+
+@test "rejected GHCR attestation never pulls tags or runs the image" {
+  bash tests/fixtures/ci-image-provenance-mock.sh scripts/ci/prepare-managed-nix-e2e-image.sh attestation
+}
+
+@test "failed GHCR pull never tags or runs the image" {
+  bash tests/fixtures/ci-image-provenance-mock.sh scripts/ci/prepare-managed-nix-e2e-image.sh pull
+}
+
+@test "failed runtime prerequisites never report a ready GHCR image" {
+  bash tests/fixtures/ci-image-provenance-mock.sh scripts/ci/prepare-managed-nix-e2e-image.sh runtime
+}
