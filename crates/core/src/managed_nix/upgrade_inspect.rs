@@ -215,7 +215,12 @@ fn read_record<R: Read>(
     }
     // serde accepts positional sequences for some struct deserializers.
     // Diagnostic records must be JSON objects, not array-shaped lookalikes.
-    if bytes.iter().copied().find(|byte| !byte.is_ascii_whitespace()) != Some(b'{') {
+    if bytes
+        .iter()
+        .copied()
+        .find(|byte| !byte.is_ascii_whitespace())
+        != Some(b'{')
+    {
         return invalid_record();
     }
     parse(&bytes)
