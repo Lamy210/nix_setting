@@ -2,7 +2,17 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-11-17
+最終更新: 2026-11-26
+
+## 2026-11-26: PR統合前確認とAction更新の修正
+
+以下の旧スナップショットより本節の記録を優先する。CIとHEADは観測時点の記録であり、後続更新後の成功を保証しない。
+
+- #331 は develop に squash merge 済み（`3f13aa45d7c9d551e4020ab14178d6538bad24de`）。本セッションで新たな develop マージは行っていない。
+- #332・#333・#323・#341 はそれぞれ最新HEADのチェック30/30成功、developからbehind 0、未解決レビューthread 0。#341は回帰テスト差分を再レビューしDraft解除。必須ステータス7件の設定は取得できたが、必須レビュー数・CODEOWNERS等の完全な保護設定はAPI 403で未確認。マージ承認とみなさず保護を迂回しない。
+- #339 は固定SHA許可リスト不一致でlint/bootstrap-test failure。後継Draft [#345](https://github.com/Lamy210/nix_setting/pull/345) HEAD `67f5cee47c6364bd3ccc83cd73e71b14fa81cf1f` で download-artifact v8.0.2、許可リスト、回帰テストを同時更新。上流固定SHAのNode24・digest-mismatch入力を確認し、ローカルでscript blob一致・bash -n・新SHA許可/旧SHA拒否/可変タグ拒否を実行。Bats全体・Nix・実artifact互換性・最新CIは未確認。#339は後継採用まで未マージ。
+- #337 は複数Rust/Windows系ゲート失敗、#344 はCodeQL neutral（通常26成功）。独立lock/vendor整合性、コードレビュー、最新CIを別途確認。Draft設計PR #340/#342/#343 は提案承認前に実装しない。
+- RC.8の公開、実機セキュリティ受入、updater設定、ブランチ保護、CI設定は変更していない。次は管理者によるレビュー保護の確認、#345のCIと非公開artifact実動作検証、既存Green PRの逐次統合・マージ後CI。
 
 ## 2026-11-17: Gitセキュリティ更新統合・開発コマンド修正の再検証
 
