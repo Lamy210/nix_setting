@@ -165,6 +165,10 @@ git push origin --delete release/vX.Y.Z
 - `devshell-smoke` / `template-check`: named devShell と project template の回帰検証
 - `windows-check`: experimental Windows launcher / WSL2 delegation contract の non-required lane
 
+## Nix OSS の導入評価
+
+新しいNix関連OSSを採用する前に [Nix tooling導入ガイド](./docs/engineering/nix-tooling-adoption.md) を参照し、既存機能との重複、事前安全審査、証拠付きPoC、正式採用の判断を個別changeで管理する。ポリシー実装はOSS自体の導入承認ではない。
+
 ## OpenSpec の必須条件
 
 - 機能追加・breaking change・architecture change・behavior-changing optimization・security pattern change には OpenSpec change を伴う
