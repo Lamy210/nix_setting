@@ -13,6 +13,7 @@ pub mod ownership;
 pub mod provider;
 pub mod receipt;
 pub mod status;
+pub mod upgrade_inspect;
 pub mod verify;
 
 pub use download::{cache_path, download, download_text};
