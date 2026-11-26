@@ -213,6 +213,11 @@ fn read_record<R: Read>(
             ObservationReason::RecordTooLarge,
         );
     }
+    // serde accepts positional sequences for some struct deserializers.
+    // Diagnostic records must be JSON objects, not array-shaped lookalikes.
+    if bytes.iter().copied().find(|byte| !byte.is_ascii_whitespace()) != Some(b'{') {
+        return invalid_record();
+    }
     parse(&bytes)
 }
 
@@ -332,6 +337,27 @@ pub struct UpgradeInspection {
 }
 
 impl UpgradeInspection {
+    /// The CLI must emit the report and return a nonzero status on unexpected
+    /// observation failures. Unknown or unsupported evidence by itself is
+    /// not an execution error, nor does a successful inspection authorize
+    /// an upgrade.
+    pub fn has_observation_errors(&self) -> bool {
+        matches!(self.installation_markers, Observation::Error { .. })
+            || matches!(self.client_version, Observation::Error { .. })
+            || matches!(self.daemon_reachable, Observation::Error { .. })
+            || matches!(self.repo_declares_nix_darwin, Observation::Error { .. })
+            || matches!(
+                self.receipt,
+                RecordState::Invalid | RecordState::PermissionDenied | RecordState::IoError
+            )
+            || matches!(
+                self.installation_ownership,
+                RecordState::Invalid | RecordState::PermissionDenied | RecordState::IoError
+            )
+            || matches!(self.receipt_installer_version, Observation::Error { .. })
+            || matches!(self.ownership_installer_version, Observation::Error { .. })
+    }
+
     pub fn from_observations(input: UpgradeObservations) -> Self {
         let missing_client = matches!(
             &input.client_version,
@@ -391,7 +417,7 @@ impl UpgradeInspection {
             UpgradeRoute::Unknown
         };
 
-        Self {
+        let mut report = Self {
             schema_version: 1,
             platform: format!("{}-{}", input.platform, input.architecture),
             installation_markers: input.installation_markers,
@@ -409,7 +435,20 @@ impl UpgradeInspection {
             upgrade_route: route,
             automation_eligible: false,
             reasons,
+        };
+        // A failure anywhere in the supported inspection must not leave a
+        // seemingly complete Manual/NotInstalled result. Preserve explicit
+        // Unsupported for unsupported platforms, with error status separate.
+        if report.has_observation_errors()
+            && matches!(
+                report.upgrade_route,
+                UpgradeRoute::Manual | UpgradeRoute::NotInstalled
+            )
+        {
+            report.upgrade_route = UpgradeRoute::Unknown;
+            report.reasons.push(ObservationReason::InsufficientEvidence);
         }
+        report
     }
 }
 
@@ -597,6 +636,84 @@ mod tests {
             observe_receipt(RecordSource::Opened(&b"{broken"[..])).state,
             RecordState::Invalid
         );
+    }
+
+    #[test]
+    fn positional_json_arrays_are_not_record_objects() {
+        let receipt = br#"["2.35.4",[],null]"#;
+        assert_eq!(
+            observe_receipt(RecordSource::Opened(&receipt[..])).state,
+            RecordState::Invalid
+        );
+        let owner = OwnershipRecord::new("2.35.4", "a".repeat(64));
+        let array = serde_json::json!([
+            owner.schema,
+            owner.provider,
+            owner.installer_version,
+            owner.installer_sha256,
+            owner.upstream_receipt,
+            owner.installed_by,
+            owner.installed_at
+        ]);
+        let bytes = serde_json::to_vec(&array).unwrap();
+        assert_eq!(
+            observe_ownership(RecordSource::Opened(bytes.as_slice())).state,
+            RecordState::Invalid
+        );
+        assert_eq!(
+            observe_receipt(RecordSource::Opened(&b"  \n{\"version\":\"2.35.4\"}"[..])).state,
+            RecordState::RecordValid
+        );
+    }
+
+    #[test]
+    fn inspection_errors_are_distinct_from_successful_unknowns() {
+        assert!(!UpgradeInspection::from_observations(absent()).has_observation_errors());
+        assert!(!UpgradeInspection::from_observations(consistent()).has_observation_errors());
+        let unknown = UpgradeInspection::from_observations(UpgradeObservations {
+            daemon_reachable: Observation::Unknown {
+                reason: ObservationReason::LocalEndpointUnverified,
+            },
+            ..consistent()
+        });
+        assert!(!unknown.has_observation_errors());
+        assert_eq!(unknown.upgrade_route, UpgradeRoute::Unknown);
+
+        for input in [
+            UpgradeObservations {
+                repo_declares_nix_darwin: Observation::Error {
+                    reason: ObservationReason::IoError,
+                },
+                ..consistent()
+            },
+            UpgradeObservations {
+                repo_declares_nix_darwin: Observation::Error {
+                    reason: ObservationReason::PermissionDenied,
+                },
+                ..absent()
+            },
+            UpgradeObservations {
+                daemon_reachable: Observation::Error {
+                    reason: ObservationReason::TimedOut,
+                },
+                ..consistent()
+            },
+            UpgradeObservations {
+                receipt: observe_receipt(RecordSource::Opened(&b"invalid"[..])),
+                ..consistent()
+            },
+            UpgradeObservations {
+                installation_ownership: observe_ownership(RecordSource::<&[u8]>::Unavailable(
+                    io::ErrorKind::PermissionDenied.into(),
+                )),
+                ..consistent()
+            },
+        ] {
+            let report = UpgradeInspection::from_observations(input);
+            assert!(report.has_observation_errors());
+            assert_eq!(report.upgrade_route, UpgradeRoute::Unknown);
+            assert!(!report.automation_eligible);
+        }
     }
 
     #[test]
