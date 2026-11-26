@@ -13,7 +13,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: x86_64-unknown-linux-musl
             artifact: schneeforge-x86_64-linux
           - os: macos-26
@@ -22,7 +22,7 @@ jobs:
             xcode: /Applications/Xcode_26.6.app/Contents/Developer
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       # --- Linux (musl static) ---
       # `nix build` 産 binary は ELF interpreter が /nix/store/... 向きになり、
@@ -32,7 +32,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         if: runner.os == 'Linux'
         with:
           targets: x86_64-unknown-linux-musl
@@ -66,10 +66,10 @@ jobs:
           xcrun --sdk macosx --show-sdk-version
           xcrun --find clang
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         if: runner.os == 'macOS'
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         if: runner.os == 'macOS'
 
       # build / smoke / otool+LC_RPATH portability gate は scripts/ci/ に共通化
@@ -90,7 +90,7 @@ jobs:
           "dist/${{ matrix.artifact }}" --version
 
       - name: upload binary
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.artifact }}
@@ -105,11 +105,22 @@ jobs:
       SCHNEEFORGE_UPDATER_ACTIVATED: ${{ vars.SCHNEEFORGE_UPDATER_ACTIVATED || 'false' }}
       SCHNEEFORGE_UPDATER_PUBKEY: ${{ vars.SCHNEEFORGE_UPDATER_PUBKEY }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      # Keep provisional RC builds updater-disabled even if the repository
+      # variable is accidentally enabled; Tauri updater signing is distinct
+      # from Apple Developer ID signing and has a separate acceptance gate.
+      - name: require disabled GUI updater for provisional RC
+        if: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+        run: |
+          if [ "$SCHNEEFORGE_UPDATER_ACTIVATED" != "false" ]; then
+            echo "::error::Provisional RC must keep SCHNEEFORGE_UPDATER_ACTIVATED=false until full macOS Final Acceptance"
+            exit 1
+          fi
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
           key: macos-release-dmg
 
@@ -133,14 +144,14 @@ jobs:
         run: ./scripts/ci/build-release-macos-dmg.sh
 
       - name: upload DMG
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: schneeforge-dmg
           path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
 
       - name: upload signed updater artifacts
         if: ${{ env.SCHNEEFORGE_UPDATER_ACTIVATED == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: schneeforge-updater
           path: |
@@ -150,7 +161,7 @@ jobs:
 
   release:
     needs: [build-binaries, build-dmg]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       SCHNEEFORGE_UPDATER_ACTIVATED: ${{ vars.SCHNEEFORGE_UPDATER_ACTIVATED || 'false' }}
     # job level で上書き: attestation に必要な OIDC (id-token) と
@@ -163,14 +174,14 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
       - name: download binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           path: dist
 
@@ -250,7 +261,7 @@ jobs:
           ./scripts/ci/attest-release-assets.sh "${{ github.ref_name }}" "${{ github.sha }}" dist/*/*
 
       - name: create release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4 (node24)
         with:
           files: |
             dist/*/*
@@ -258,6 +269,10 @@ jobs:
             schneeforge-release.json
             CHECKSUMS.txt
             attestations/*
+          # softprops/action-gh-release v2 prepends an explicit body to
+          # GitHub-generated notes. A provisional RC must disclose limits
+          # immediately at publication, not rely on later manual edits.
+          body: ${{ (contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta')) && '⚠️ PROVISIONAL PREVIEW / TEST ONLY — macOS Final Acceptance A–J 未完了・正式版ではありません。Apple Developer ID 未署名・Apple 公証なし。Gatekeeper で起動できない場合があります。GUI 自動更新は無効、手動インストールのみ。重要な Mac への導入は推奨しません。' || '' }}
           generate_release_notes: true
           # -rc / -beta tag は prerelease 扱いにし releases/latest API が
           # rc を返さないようにする (install.sh が rc を拾わないようにするため)

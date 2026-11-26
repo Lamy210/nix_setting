@@ -74,6 +74,22 @@ sf() {
   docker exec "$CT_NAME" test -f /nix/schneeforge-managed.json
 }
 
+@test "download: installed binary is complete, executable, and matches pinned SHA256" {
+  local expected_sha cached_binary
+  expected_sha="$(awk -F'"' '/^x86_64-linux *=/ {print $2; exit}' "$REPO_DIR/bootstrap-manifest.toml")"
+  [ "${#expected_sha}" -eq 64 ]
+  cached_binary="/var/lib/schneeforge/managed-nix/cache/${EXPECTED_INSTALLER_VERSION}/nix-installer"
+  docker exec -e "EXPECTED_SHA=$expected_sha" -e "CACHED_BINARY=$cached_binary" \
+    "$CT_NAME" bash -euc '
+      test -s "$CACHED_BINARY"
+      test -x "$CACHED_BINARY"
+      actual="$(sha256sum "$CACHED_BINARY" | cut -d " " -f 1)"
+      test "$actual" = "$EXPECTED_SHA"
+      "$CACHED_BINARY" --help >/dev/null
+    '
+  docker exec "$CT_NAME" /nix/var/nix/profiles/default/bin/nix store ping
+}
+
 @test "install: second install is rejected (ExistingNixDetected)" {
   run sf nix install --yes
   [ "$status" -ne 0 ]

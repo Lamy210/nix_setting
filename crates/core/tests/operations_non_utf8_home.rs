@@ -1,4 +1,7 @@
-#![cfg(unix)]
+// This fixture creates an actual invalid-UTF-8 directory component (0xff).
+// Linux accepts it, but macOS APFS rejects the pathname with EILSEQ.
+// Keep byte-preserving verify coverage on Linux instead of skipping on failure.
+#![cfg(target_os = "linux")]
 
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;

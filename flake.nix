@@ -52,6 +52,7 @@
         _module.args.pkgs = import inputs.nixpkgs {
           inherit system;
           config.allowUnfree = true;
+          config.rewriteURL = import ./modules/fetchurl-rewrite.nix;
         };
       };
     };

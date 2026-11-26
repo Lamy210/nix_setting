@@ -90,7 +90,10 @@ gh pr create --base develop --title "chore: archive <name>"
 
 - **main / develop へ直接 push しない**。必ず PR を挟む
 - 1 PR = 1 関心事（feature / fix / refactor を混ぜない）
-- PR タイトルは conventional commits 形式
+- PR タイトルは conventional commits 形式（例: `fix: 設定読み込み時のエラーを修正`）
+- 人が作成する PR のタイトル・本文・レビューコメントは原則として日本語を使用する（識別子、バージョン、ログ、引用、外部ライブラリ名は原文を維持してよい）
+- PR 本文には概要、変更点、検証結果、残課題・マージ条件を日本語で記載し、未実施の検証を成功扱いしない
+- Dependabot など外部ボット生成の PR は本文が英語になる場合があるため、マージ前のレビュー・判断を日本語で記録する
 - topic branch → `develop` は **squash merge**
 - `release/vX.Y.Z` → `main` は **merge commit**（squash / rebase 禁止）
 - release 後の `main` → `develop` back-merge は **merge commit**（squash / rebase 禁止）

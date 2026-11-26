@@ -14,6 +14,7 @@ in
         pkgs = import inputs.nixpkgs {
           system = "aarch64-darwin";
           config.allowUnfree = true;
+          config.rewriteURL = import ../fetchurl-rewrite.nix;
         };
         extraSpecialArgs = {
           inherit machine profileModule;
@@ -25,6 +26,7 @@ in
         pkgs = import inputs.nixpkgs {
           system = "x86_64-linux";
           config.allowUnfree = true;
+          config.rewriteURL = import ../fetchurl-rewrite.nix;
         };
         extraSpecialArgs = {
           inherit machine profileModule;
@@ -36,6 +38,7 @@ in
         pkgs = import inputs.nixpkgs {
           system = "aarch64-linux";
           config.allowUnfree = true;
+          config.rewriteURL = import ../fetchurl-rewrite.nix;
         };
         extraSpecialArgs = {
           inherit machine profileModule;

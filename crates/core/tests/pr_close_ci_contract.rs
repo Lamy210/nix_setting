@@ -34,7 +34,7 @@ fn closed_pr_workflow_cancels_the_shared_group_without_expensive_work() {
         "branches: [main, develop]",
         r#"group: check-refs/pull/${{ github.event.pull_request.number }}/merge"#,
         "cancel-in-progress: true",
-        "runs-on: ubuntu-latest",
+        "runs-on: ubuntu-24.04",
     ] {
         assert!(
             workflow.contains(required),

@@ -9,6 +9,12 @@ PR #11 で未実施だった「Finder からの .app 起動 smoke」を 1 本の
 - 記録: 各 gate の `[ ]` に結果 (✅ / ❌ + 例外 log) を記入する。
   全 green なら ADR-0001 の Status を `Accepted` へ更新する PR を出す
 
+## RC 公開と正式受入の順序（2026-11-04）
+
+`RELEASE.md` の二段階ゲートに従う。**RC のタグ公開前に Node セキュリティ P0 / Managed Nix 安全性 / 必須 CI / 配布物ゲートを通過**する。そこまで合格した場合に限り、`release/*` から `main` へ取り込んだ commit に RC tag を発行する。これは prerelease の provisional / test-only 配布であり、A–J の合格や正式版を意味しない。
+
+この文書の A–J は、その **公開された同じ RC tag の完成 CLI / DMG / CHECKSUMS** を使用して行い、全 PASS で初めて ADR / stable 昇格を別途認める。A–J の前に正式な導入を推奨しない。FAIL の場合はその RC を失敗と記録し、修正後の新しい RC で再検証する。タグやアセットを黙って上書きしない。Apple Developer ID 署名・公証は要求せず、Gatekeeper の全体無効化・quarantine の強制解除はしない。
+
 ## Automated CLI lifecycle helper (部分自動化)
 
 release artifact の Managed Nix CLI lifecycle は、GitHub hosted の disposable
@@ -103,10 +109,12 @@ TAG="${TAG:-v0.2.0-rc.7}"
 
 ```text
 fix merge → release/vX.Y.Z-rc.N branch → version bump → release PR
-→ main → CI green → merge → vX.Y.Z-rc.N tag push → Prerelease + assets 生成
-→ 本手順 (Final Acceptance)
-   → PASS → ADR-0001 を Accepted へ昇格
-   → FAIL → ADR は provisional のまま維持 → fix → 次 RC で出し直し
+→ Node P0 / Managed Nix 安全性 / CI / artifact gate green → main に merge
+→ リリース担当者が provisional RC の公開を承認 → vX.Y.Z-rc.N tag push
+→ Prerelease (未受入・test-only) + assets 生成
+→ 本手順 (Final Acceptance A–J、同一タグの正規アセットで実施)
+   → PASS → ADR-0001 を Accepted へ昇格（stable 公開は別途判断）
+   → FAIL → RC を不合格として記録、ADR は provisional → fix → 新 RC
 ```
 
 ### 0-1. install.sh の取得

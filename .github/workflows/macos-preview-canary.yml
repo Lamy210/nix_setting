@@ -14,7 +14,7 @@ jobs:
   xcode-27-canary:
     runs-on: xcode-27
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: macOS / Xcode diagnostics
         run: |
@@ -25,10 +25,32 @@ jobs:
           xcrun --sdk macosx --show-sdk-version
           xcrun --find clang
 
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
 
       - name: nix flake check
         run: nix flake check --allow-import-from-derivation
+
+      # Preserve the failing flake-check gate. On preview runner errors such as
+      # /nix/var/nix/db/big-lock: Permission denied, capture only local store
+      # ownership/modes; never print environment, credentials or receipt data.
+      - name: Nix store permission diagnostics (failure only)
+        if: ${{ failure() }}
+        run: |
+          echo "::group::Nix store permission diagnostics"
+          id
+          if command -v nix >/dev/null 2>&1; then
+            nix --version || true
+          else
+            echo "nix executable missing"
+          fi
+          for path in /nix /nix/var/nix /nix/var/nix/db /nix/var/nix/db/big-lock /nix/var/nix/daemon-socket; do
+            if [ -e "$path" ]; then
+              stat -f 'mode=%Sp owner=%Su group=%Sg path=%N' "$path" || true
+            else
+              printf 'path missing or inaccessible: %s\n' "$path"
+            fi
+          done
+          echo "::endgroup::"
 
       - name: evaluate Darwin configuration
         run: |

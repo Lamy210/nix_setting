@@ -18,7 +18,7 @@ Nix + Home Manager + nix-darwin によるクロスプラットフォーム開発
 
 ```
 nix_setting/
-├── hosts/         # ホスト固有設定 (macbook-air / linux-generic)
+├── hosts/         # ホスト固有設定 (darwin-aarch64 / linux-generic)
 ├── modules/       # Home Manager モジュール (packages / shell / programs / dotfiles)
 ├── nix-darwin/    # macOS システム + Homebrew 設定
 ├── templates/     # プロジェクトテンプレート (devenv / rust / node / python / flutter)
@@ -116,6 +116,23 @@ chmod +x schneeforge-aarch64-darwin
 ./schneeforge-aarch64-darwin doctor
 ```
 
+**RC の公開と正式受入:** RC は必須セキュリティ・CI を通過した後に公開される *provisional / test-only* アセットです。公開済みでも macOS Final Acceptance A–J が完了するまでは正式な導入を推奨しません。公開後の A–J と正式昇格の条件は [RELEASE.md](./RELEASE.md#release-candidate-の二段階ゲート循環依存の解消) を参照してください。
+
+### Apple Developer ID 未署名の macOS アプリを開く
+
+未署名・未公証 DMG は macOS Gatekeeper に拒否される場合があります。**GitHub Releases の正しい tag/アセットと整合性を確認し、配布元を信頼できる場合に限り**、Apple が案内するアプリ個別の例外承認を利用できます。
+
+1. GitHub Releases から対象アーキテクチャの DMG を取得し、同じリリースの `CHECKSUMS.txt` / 利用可能な provenance を検証します。同一 HTTPS 経路の checksum だけでは初回取得の独立した配布者認証にならない点に注意してください（[#268](https://github.com/Lamy210/nix_setting/issues/268)）。
+2. DMG から `SchneeForge.app` を `/Applications` にコピーし、Finder から一度開きます。発行元を確認できない・公証されていない旨で拒否された場合は警告内容を確認します。
+3. 自己責任で信頼できると判断した場合にのみ、macOS の「システム設定」→「プライバシーとセキュリティ」→「このまま開く」を選び、再度表示される確認で「開く」を選びます。この操作はアプリ個別の例外です。管理対象の Mac などでは操作できない場合があります。
+4. マルウェア検出、破損などの**別の警告**が出た場合は実行せず、[Issues](https://github.com/Lamy210/nix_setting/issues) に報告してください。
+
+`spctl --master-disable` など Gatekeeper 全体を無効化する操作や、quarantine 属性の一括削除は推奨・自動実行しません。未署名アプリの実機 Finder 受入はまだ完了していないため、動作保証はありません。
+
+参照：[Apple サポート「Macでアプリを安全に開く」](https://support.apple.com/ja-jp/102445)。
+
+> **Apple ID / Developer ID 署名なしの Preview:** 現行 DMG は Apple の公証を受けた配布物として扱わないでください。macOS Gatekeeper の警告・起動制限が発生する場合があります。OS のセキュリティ機能を無効化する自動回避は提供しません。GUI 自動更新はリリース担当者による別途の有効化がない限り無効で、GitHub Releases から手動更新する運用です（[RELEASE.md](./RELEASE.md#apple-developer-id-署名公証なしの配布preview--開発向け)）。
+
 ### Rust (cargo install)
 
 ```bash
@@ -154,10 +171,12 @@ nix flake init -t github:Lamy210/nix_setting#devenv
 
 ## 日常利用
 
+通常の実機適用は `schneeforge plan` → `schneeforge apply` を利用してください。CLI は実機の machine/profile input を生成して渡します。以下の `nh` 直接操作（`just apply` / `just apply-linux` を含む）は、対象 machine/profile input を実機用に設定済みの開発者向けです。初期の placeholder のまま実行しないでください。`nh` が使用する構成名は macOS が `darwin-aarch64`、Linux x86_64 が `linux` です。
+
 ```bash
-# 設定変更を適用
-nh darwin switch .#darwinConfigurations.macbook-air   # macOS (nix-darwin + home-manager)
-nh home switch .#homeConfigurations.linux             # Linux (home-manager)
+# 設定変更を適用（上級者向け）
+nh darwin switch . -H darwin-aarch64   # macOS (nix-darwin + home-manager)
+nh home switch . -c linux             # Linux (home-manager)
 
 # フォーマット
 nix fmt
@@ -198,7 +217,7 @@ cp -r ~/nix_setting/templates/rust ./my-rust-project
 Brewfile は廃止。nix-darwin で宣言管理。
 
 ```bash
-nh darwin switch .#darwinConfigurations.macbook-air   # Homebrew cask も自動適用
+nh darwin switch . -H darwin-aarch64   # Homebrew cask も自動適用
 ```
 
 ## CI
@@ -251,5 +270,5 @@ home.packages = with pkgs; [
 ```
 
 ```bash
-nh darwin switch .#darwinConfigurations.macbook-air  # 再適用
+nh darwin switch . -H darwin-aarch64  # 再適用
 ```

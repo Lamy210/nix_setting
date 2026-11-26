@@ -5,9 +5,11 @@
   ],
   "packageRules": [
     {
-      "matchManagers": ["github-actions"],
+      "matchManagers": [
+        "github-actions"
+      ],
       "groupName": "github-actions",
-      "automerge": true,
+      "automerge": false,
       "automergeType": "pr"
     }
   ]
