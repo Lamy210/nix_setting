@@ -14,7 +14,7 @@ approved_refs=(
   actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
   actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
   actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-  actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+  actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
   actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
   softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3
 )
