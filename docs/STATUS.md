@@ -4,6 +4,15 @@
 
 最終更新: 2026-11-27
 
+## 2026-11-27 朝: #332/#333統合、archive・診断修正
+
+- #332 を通常squash merge（`f7c7349e4494d27e893f3b922a31efd4efde4f91`）、マージ前30/30・必須7/7成功。マージ後develop [CI 45875629484](https://github.com/Lamy210/nix_setting/actions/runs/45875629484) 31/31 success。前段の#341マージ後developも31/31 success。
+- #333 を通常squash merge（`94fa162d44125b00b643c53c4c15e4437057e565`）、マージ前HEAD `8af6377` [CI 45875711065](https://github.com/Lamy210/nix_setting/actions/runs/45875711065) 30/30・必須7/7、clean/behind0、未解決thread0、レビュー要求なし。bootstrap-test実ログで追加6件成功。develop反映・protected=trueを確認。詳細レビュー保護APIは権限不足で未確認、独立承認を捏造せず、通常APIで統合。保護・CIゲート変更なし。マージ後CIは別確認。
+- #323 旧HEAD `65a833e` は30/30成功。以前のmacOS15 atuin/instability build-script exit126は再同期後再現せず、原因は未確定。[UI job](https://github.com/Lamy210/nix_setting/actions/runs/45875744759/job/140102250019) でbehavior/failure recovery/update display/cancellationとartifact upload成功。実ZIPの独立検証は残存。新HEAD `a34307b` に#333後developをnon-force同期、最新CI待ち。
+- #348 は#332のarchive専用Draft。18要件・43シナリオを本文同一でcanonical化、旧4ファイルをblob/mode同一で移動。旧HEAD `b4f86f8` 30/30成功。新HEAD `0ae28db` は#333後develop同期済み、strict validation/最新CI待ち。個別OSS採用なし。
+- #347 はUnix record取得、bounded subprocess、path-only inventory、daemon preflight、JSON object限定、error終了判定を実装。旧HEAD `7f0c4e2` Core447/447（追加2件含む）成功、rustfmtの1差分でrust-quality/rust-check/ci-required failure、clippy未到達。[ログ](https://github.com/Lamy210/nix_setting/actions/runs/45861715847/job/140054299783) ではさらに前の445/445・fmt/clippy成功。新HEAD `e3a2fe4` はCIの整形指摘どおり修正し#333後developにnon-force同期、最新CI未完了。実行ファイル来歴・ACL/mount locality・daemon接続・collector/CLI/WSL2未接続、Phase B未承認。
+- #324 `11f3207` 30/30、#345 `f008873` 32/32。最新developへの再同期と既存受入条件が残る。#299 Node P0、#278実機受入、RC.8 #271、updater-disabled、Mac A–J、実機変更・公開なし。#346自身も旧HEAD30/30を確認したが新HEADのCIを再検証する。
+
 ## 2026-11-27: GHCR回帰テスト統合と後続PRの同期
 
 - #341 を通常squash merge（`636cce24a78d4dc6308e385bad65f7f43517e52c`）、developへの反映とGitHubのmerged=trueを確認。直前のHEAD `90be2a4` で30/30 success、指定Appの必須7/7 success、review COMMENTED 1件・未解決thread 0、clean、behind 0。保護設定・CIゲート変更なし。詳細レビュー保護設定は取得権限不足で未確認。マージ後developのCIは開始・未完了。
