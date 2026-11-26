@@ -75,6 +75,15 @@ command -v zsh
 zsh --version
 command -v git
 git --version
+expected_git="$(nix eval --raw .#managed-git.outPath)/bin/git"
+test "$(command -v git)" -ef "$expected_git"
+# Check the shared shell resolver without changing PATH/override precedence.
+(
+  source scripts/resolve-tools.sh
+  resolve_git
+  test "$GIT_BIN" -ef "$expected_git"
+  "$GIT_BIN" --version
+)
 command -v starship
 starship --version
 "$SF" verify
