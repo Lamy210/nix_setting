@@ -39,7 +39,7 @@
   [[ "$output" == *"PASS:"* ]]
 }
 
-@test "release artifact download uses reviewed v8 SHA and rejects digest mismatch" {
+@test "release artifact download pins reviewed v8 SHA and configures digest mismatch as error" {
   grep -Fq 'actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333' .github/workflows/release.yml
   grep -Fq 'digest-mismatch: error' .github/workflows/release.yml
   audit="$PWD/scripts/ci/check-actions-runtime-policy.sh"
