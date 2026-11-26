@@ -7,6 +7,8 @@
 
 #[cfg(unix)]
 pub mod record_fs;
+#[cfg(unix)]
+pub mod probe_process;
 
 use std::io::{self, Read};
 
@@ -25,6 +27,7 @@ pub enum ObservationReason {
     UnsupportedImplementation,
     LocalEndpointUnverified,
     TimedOut,
+    OutputLimitExceeded,
     ProbeFailed,
     PermissionDenied,
     IoError,
