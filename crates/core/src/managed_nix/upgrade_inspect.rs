@@ -5,6 +5,9 @@
 //! subsequent implementation step. No raw subprocess output or record payload
 //! is serialized by this report.
 
+#[cfg(unix)]
+pub mod record_fs;
+
 use std::io::{self, Read};
 
 use serde::Serialize;
