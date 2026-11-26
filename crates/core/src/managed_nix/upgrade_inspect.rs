@@ -24,7 +24,7 @@ pub enum ObservationReason {
     IoError,
     StableProbeUnverified,
     HostManagerNotVerified,
-    InconsistentInstallation,
+    InsufficientEvidence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -40,6 +40,11 @@ pub enum Observation<T> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct NixClientVersion(String);
+
+/// Separately typed daemon version. Phase A has no verified probe for it yet.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct NixDaemonVersion(String);
 
 /// Interpret successful stdout of a future bounded `nix --version` probe.
 /// A strict three-component stable version is supported initially. Unknown
@@ -136,7 +141,7 @@ pub struct UpgradeInspection {
     installation_markers: Observation<bool>,
     client_version: Observation<NixClientVersion>,
     daemon_reachable: Observation<bool>,
-    daemon_version: Observation<NixClientVersion>,
+    daemon_version: Observation<NixDaemonVersion>,
     receipt: RecordState,
     installation_ownership: RecordState,
     repo_declares_nix_darwin: Observation<bool>,
@@ -189,7 +194,7 @@ impl UpgradeInspection {
             // effective owner, daemon version or upgrade authorization.
             UpgradeRoute::Manual
         } else {
-            reasons.push(ObservationReason::InconsistentInstallation);
+            reasons.push(ObservationReason::InsufficientEvidence);
             UpgradeRoute::Unknown
         };
 
