@@ -76,7 +76,11 @@ pub fn parse_client_version(stdout: &[u8]) -> Observation<NixClientVersion> {
             reason: UnsupportedFormat,
         };
     };
-    let line = line.trim_end_matches(['\r', '\n']);
+    // Accept at most one LF or CRLF terminator; extra lines are not a version.
+    let line = line
+        .strip_suffix("\r\n")
+        .or_else(|| line.strip_suffix('\n'))
+        .unwrap_or(line);
     let Some(version) = line.strip_prefix("nix (Nix) ") else {
         return Observation::Unknown {
             reason: if line.starts_with("nix (Lix) ") {
@@ -499,11 +503,16 @@ mod tests {
 
     #[test]
     fn stable_client_version_is_serialized_without_raw_output() {
-        let version = parse_client_version(b"nix (Nix) 2.35.2\r\n");
-        assert_eq!(
-            serde_json::to_value(version).unwrap(),
-            serde_json::json!({"state": "known", "value": "2.35.2"})
-        );
+        for stdout in [
+            &b"nix (Nix) 2.35.2"[..],
+            &b"nix (Nix) 2.35.2\n"[..],
+            &b"nix (Nix) 2.35.2\r\n"[..],
+        ] {
+            assert_eq!(
+                serde_json::to_value(parse_client_version(stdout)).unwrap(),
+                serde_json::json!({"state": "known", "value": "2.35.2"})
+            );
+        }
     }
 
     #[test]
@@ -511,6 +520,9 @@ mod tests {
         for stdout in [
             &b"nix (Lix) 2.35.2\n"[..],
             &b"nix (Nix) 2.35.2-pre"[..],
+            &b"nix (Nix) 2.35.2\n\n"[..],
+            &b"nix (Nix) 2.35.2\r\n\r\n"[..],
+            &b"nix (Nix) 2.35.2\r"[..],
             &b"nix (Nix) 2.035.2"[..],
             &b"nix (Nix) 2.35"[..],
             &b"nix (Nix) 2.35.4294967296"[..],
