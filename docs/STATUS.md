@@ -2,7 +2,14 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-11-27
+最終更新: 2026-11-28
+
+## 2026-11-28: UI操作回帰テスト統合と後続候補再検証
+
+- #323 を develop へ通常squash merge（`088198cea0fbe1433ce9a8e242601d19e4967d5c`）。マージ前HEAD `a34307b` の全30/30、サーバー必須7/7（App 15368）、CodeQL、競合なし・未解決thread 0を確認。差分はUIテストと対応文書の2ファイル。既存同HEADの144 PNG独立検証記録とartifact metadataのSHA256一致を確認、今回ZIP再取得はしていない。develop反映を確認、マージ後CIは実行中。実機Tauri/OS操作は未検証。
+- #348 の旧HEAD `0ae28db` は全30/30成功。archive 4 blobの一致・未完了task 0・canonical 18要件43シナリオの本文一致を再検証。#323統合後developへnon-force同期し `4b87dbfa95f4f585d2231f82173044d98e7140e5`、behind 0、5パスのみ。新HEAD CI完了まではDraft維持。
+- #347（Managed Nix Phase A）旧HEAD `e3a2fe4` 30/30、#345（artifact download）旧HEAD `e60cd5d` 32/32、いずれも#323統合前の観測。実機collector/CLI/WSL2、破損digest注入等の残存条件は未完了。#344 は旧HEAD から競合・behind 3を観測し未統合。新しいdevelopとの再比較・CIが必要。
+- RC.8 #271、Node P0 #275、実機受入、updater-disabledは引き続き独立ゲート。ローカルRust/Nix/OpenSpecなし、詳細branch protection API 403。管理設定・必須CI・リリース・実機変更なし。MCP memory専用サーバは未利用。
 
 ## 2026-11-27 朝: #332/#333統合、archive・診断修正
 
