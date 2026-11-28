@@ -4,6 +4,13 @@
 
 最終更新: 2026-11-28
 
+## 2026-11-28 夜: OpenSpec archive統合・Managed Nix診断修正
+
+- #323マージ後 develop `088198cea0fb` の全32/32・必須7/7成功を確認。
+- #348 最新HEAD `4b87dbfa` の全30/30、必須7/7、OpenSpec strict 13/13（job 140934772312）、CodeQL、behind 0・未解決thread 0を確認し、通常squash merge `c38678ffd42725849a239edb9e33e1ded3e437f5`。個別OSS採用・製品動作変更なし。マージ後CIは別途確認。
+- #347 旧HEAD `e3a2fe4` 30/30成功。version parserが複数末尾改行を許容する問題を確認し、高々1個のLF/CRLFのみ許可する修正と正常・異常の回帰ケースを追加。#323/#348後developにnon-force同期、新HEAD `58a1f51151aca16878e6a503477843d15fb53e05`、behind 0。最新CI未完了、collector/CLI/WSL2未完了、Phase B未承認のためDraft維持。
+- #346自身の旧HEAD `0ab7a16c` は30/30成功。今回の同期・追記後は再検証する。ローカルRust/Nix/OpenSpec未実行。保護設定・CIゲート・実機・release変更なし。
+
 ## 2026-11-28: UI操作回帰テスト統合と後続候補再検証
 
 - #323 を develop へ通常squash merge（`088198cea0fbe1433ce9a8e242601d19e4967d5c`）。マージ前HEAD `a34307b` の全30/30、サーバー必須7/7（App 15368）、CodeQL、競合なし・未解決thread 0を確認。差分はUIテストと対応文書の2ファイル。既存同HEADの144 PNG独立検証記録とartifact metadataのSHA256一致を確認、今回ZIP再取得はしていない。develop反映を確認、マージ後CIは実行中。実機Tauri/OS操作は未検証。
