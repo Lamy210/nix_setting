@@ -2,7 +2,66 @@
 
 現在の開発状態・既知のデグレ・機能漏れ・次の作業をまとめる。セッションを切り替えても、ここを読めば再開できる。
 
-最終更新: 2026-11-17
+最終更新: 2026-11-28
+
+## 2026-11-28 夜: OpenSpec archive統合・Managed Nix診断修正
+
+- #323マージ後 develop `088198cea0fb` の全32/32・必須7/7成功を確認。
+- #348 最新HEAD `4b87dbfa` の全30/30、必須7/7、OpenSpec strict 13/13（job 140934772312）、CodeQL、behind 0・未解決thread 0を確認し、通常squash merge `c38678ffd42725849a239edb9e33e1ded3e437f5`。個別OSS採用・製品動作変更なし。マージ後CIは別途確認。
+- #347 旧HEAD `e3a2fe4` 30/30成功。version parserが複数末尾改行を許容する問題を確認し、高々1個のLF/CRLFのみ許可する修正と正常・異常の回帰ケースを追加。#323/#348後developにnon-force同期、新HEAD `58a1f51151aca16878e6a503477843d15fb53e05`、behind 0。最新CI未完了、collector/CLI/WSL2未完了、Phase B未承認のためDraft維持。
+- #346自身の旧HEAD `0ab7a16c` は30/30成功。今回の同期・追記後は再検証する。ローカルRust/Nix/OpenSpec未実行。保護設定・CIゲート・実機・release変更なし。
+
+## 2026-11-28: UI操作回帰テスト統合と後続候補再検証
+
+- #323 を develop へ通常squash merge（`088198cea0fbe1433ce9a8e242601d19e4967d5c`）。マージ前HEAD `a34307b` の全30/30、サーバー必須7/7（App 15368）、CodeQL、競合なし・未解決thread 0を確認。差分はUIテストと対応文書の2ファイル。既存同HEADの144 PNG独立検証記録とartifact metadataのSHA256一致を確認、今回ZIP再取得はしていない。develop反映を確認、マージ後CIは実行中。実機Tauri/OS操作は未検証。
+- #348 の旧HEAD `0ae28db` は全30/30成功。archive 4 blobの一致・未完了task 0・canonical 18要件43シナリオの本文一致を再検証。#323統合後developへnon-force同期し `4b87dbfa95f4f585d2231f82173044d98e7140e5`、behind 0、5パスのみ。新HEAD CI完了まではDraft維持。
+- #347（Managed Nix Phase A）旧HEAD `e3a2fe4` 30/30、#345（artifact download）旧HEAD `e60cd5d` 32/32、いずれも#323統合前の観測。実機collector/CLI/WSL2、破損digest注入等の残存条件は未完了。#344 は旧HEAD から競合・behind 3を観測し未統合。新しいdevelopとの再比較・CIが必要。
+- RC.8 #271、Node P0 #275、実機受入、updater-disabledは引き続き独立ゲート。ローカルRust/Nix/OpenSpecなし、詳細branch protection API 403。管理設定・必須CI・リリース・実機変更なし。MCP memory専用サーバは未利用。
+
+## 2026-11-27 朝: #332/#333統合、archive・診断修正
+
+- #332 を通常squash merge（`f7c7349e4494d27e893f3b922a31efd4efde4f91`）、マージ前30/30・必須7/7成功。マージ後develop [CI 45875629484](https://github.com/Lamy210/nix_setting/actions/runs/45875629484) 31/31 success。前段の#341マージ後developも31/31 success。
+- #333 を通常squash merge（`94fa162d44125b00b643c53c4c15e4437057e565`）、マージ前HEAD `8af6377` [CI 45875711065](https://github.com/Lamy210/nix_setting/actions/runs/45875711065) 30/30・必須7/7、clean/behind0、未解決thread0、レビュー要求なし。bootstrap-test実ログで追加6件成功。develop反映・protected=trueを確認。詳細レビュー保護APIは権限不足で未確認、独立承認を捏造せず、通常APIで統合。保護・CIゲート変更なし。マージ後CIは別確認。
+- #323 旧HEAD `65a833e` は30/30成功。以前のmacOS15 atuin/instability build-script exit126は再同期後再現せず、原因は未確定。[UI job](https://github.com/Lamy210/nix_setting/actions/runs/45875744759/job/140102250019) でbehavior/failure recovery/update display/cancellationとartifact upload成功。実ZIPの独立検証は残存。新HEAD `a34307b` に#333後developをnon-force同期、最新CI待ち。
+- #348 は#332のarchive専用Draft。18要件・43シナリオを本文同一でcanonical化、旧4ファイルをblob/mode同一で移動。旧HEAD `b4f86f8` 30/30成功。新HEAD `0ae28db` は#333後develop同期済み、strict validation/最新CI待ち。個別OSS採用なし。
+- #347 はUnix record取得、bounded subprocess、path-only inventory、daemon preflight、JSON object限定、error終了判定を実装。旧HEAD `7f0c4e2` Core447/447（追加2件含む）成功、rustfmtの1差分でrust-quality/rust-check/ci-required failure、clippy未到達。[ログ](https://github.com/Lamy210/nix_setting/actions/runs/45861715847/job/140054299783) ではさらに前の445/445・fmt/clippy成功。新HEAD `e3a2fe4` はCIの整形指摘どおり修正し#333後developにnon-force同期、最新CI未完了。実行ファイル来歴・ACL/mount locality・daemon接続・collector/CLI/WSL2未接続、Phase B未承認。
+- #324 `11f3207` 30/30、#345 `f008873` 32/32。最新developへの再同期と既存受入条件が残る。#299 Node P0、#278実機受入、RC.8 #271、updater-disabled、Mac A–J、実機変更・公開なし。#346自身も旧HEAD30/30を確認したが新HEADのCIを再検証する。
+
+## 2026-11-27: GHCR回帰テスト統合と後続PRの同期
+
+- #341 を通常squash merge（`636cce24a78d4dc6308e385bad65f7f43517e52c`）、developへの反映とGitHubのmerged=trueを確認。直前のHEAD `90be2a4` で30/30 success、指定Appの必須7/7 success、review COMMENTED 1件・未解決thread 0、clean、behind 0。保護設定・CIゲート変更なし。詳細レビュー保護設定は取得権限不足で未確認。マージ後developのCIは開始・未完了。
+- #332/#333/#323 は旧HEAD 30/30 successだがGitHubがbehindを報告。変更パス重複なしでnon-force同期、各候補ファイルのblob/modeを保持。新HEAD #332 `495b4c0` ([CI](https://github.com/Lamy210/nix_setting/actions/runs/45848577190))、#333 `8a47837` ([CI](https://github.com/Lamy210/nix_setting/actions/runs/45848662349))、#323 `bce8516` ([CI](https://github.com/Lamy210/nix_setting/actions/runs/45848706431))。全required/full CI未完了、マージ未実施。
+- #347 の書式修正HEAD `c56af0f` はrust-quality success（test/fmt/clippy）。全CI未完了。#324の同期HEAD `3561bbb` はrust-quality success、全CI未完了。どちらも#341統合後のdevelopからbehind。次回、差分再評価とCI確認を優先。
+- RC.8公開・GHCR公開・実機変更なし。引き続きPR経由のみ、force/保護変更なし。
+
+## 2026-11-26: rustfmt修正とLinux CI候補の同期
+
+- #347 の旧HEAD `37d3599` の [rust-quality](https://github.com/Lamy210/nix_setting/actions/runs/45842703859/job/139988447711) は cargo test --locked 成功（Core 425/425、upgrade_inspect 14/14は内数）、cargo fmt -- --check の8差分でfailure、clippy未到達。CIの8 hunkを照合して整形のみ修正、現HEAD `c56af0f2604d1c6da8cf2a9f71a5ffef93a18753` の [再検証](https://github.com/Lamy210/nix_setting/actions/runs/45844331198) は未完了。実機collector・bounded subprocessは未実装のまま、CIを弱めない。
+- #324 の旧HEAD `fd2a613` は30/30 success、実ログでNix desktop vendor-staging/vendor buildとcargo check --locked成功、Canonical署名・SHA256・systemd・13/13 E2Eを確認。GHCR経路は未実証。developから1 commit遅れを解消し、回帰Bats末尾19行と旧候補6ファイルのblob/modeを保持、現HEAD `3561bbb2ed89c41735bf45d1fd6172366fa8f75c`、behind 0、差分7ファイル。 [最新CI](https://github.com/Lamy210/nix_setting/actions/runs/45844537085) 未完了。#328/#329の変更後vendor実現は別途必要。
+- 新規developマージなし、必須レビュー保護詳細API 403再確認。ローカルツールchain不在、GHCR公開・release・実機変更なし。
+
+## 2026-11-26: Managed Nix Phase A の記録観測とCI再確認
+
+- 承認済みPhase A設計 #259 / Issue #256 に従い、Draft [#347](https://github.com/Lamy210/nix_setting/pull/347) を作成・更新。旧HEAD `b2cca7e` は30/30 success。現HEAD `37d359968d105d772249b4df90e77350b0986c92` では注入Readerからのreceipt（1 MiB）/ownership（64 KiB）制限付き読取・型付きinstaller版、metadata結果集約、旧形式・破損・I/O・版不一致・上限・情報非出力など合計14 unit testを追加。open/read NotFoundを不在扱いせず、明示MissingとUnavailableに分離。既存install/repairや実ホストには未接続。最新 [CI 45842703859](https://github.com/Lamy210/nix_setting/actions/runs/45842703859) 未完了。ローカルRust/Nix/openspecは利用不可。次は安全なファイル取得、bounded subprocess、local daemon制約、CLI/WSL2。Phase Bは別承認。
+- [#278](https://github.com/Lamy210/nix_setting/pull/278) は33 commit遅れをnon-force解消し、現HEAD `44262a27b560dc244a7cf5a19bbb6ff88403993f` で全32/32 success。 [Apple Silicon専用CI 45818456730](https://github.com/Lamy210/nix_setting/actions/runs/45818456730) 実ログでinstaller/receipt 2.35.4、観測client 2.35.4、ローカルflake、uninstall/reinstall/final cleanupを確認。実Mac A–J・既存ホストdaemon・採用判断は未完了。
+- #299 同期HEAD `2fdde6d` は30/30 success、#345 `f008873` は32/32 success、#324 `fd2a613` は30/30 success。各PRの残存受入は維持。#346の旧HEAD `bff215d` は30/30 success、今回の記録変更後のCIは別途確認。
+- develop `3f13aa4` への新規マージなし。ブランチ保護の必須レビュー詳細はAPI 403、迂回しない。RC.8公開、updater、実ホスト変更なし。
+
+## 2026-11-26: artifact実取得検証とNodeセキュリティ候補の同期
+
+- [#345](https://github.com/Lamy210/nix_setting/pull/345) を更新し、非releaseのartifact互換性canaryを追加。HEAD `f008873026870ecd0cc0fb448c724af2e573a349` の [canary run 45807074800](https://github.com/Lamy210/nix_setting/actions/runs/45807074800) は2/2成功。既存upload SHAで2個のダミーartifactを生成し、v8 downloadで両SHA256・ディレクトリ構造・内容一致、存在しないartifact名のエラーを実ログで確認。ローカルfixture9ケース・YAML構造・bash構文も成功。破損サービスdigestの注入・実配布物は未検証。通常CI/CodeQL全体の成功は別途必要。
+- [#299](https://github.com/Lamy210/nix_setting/pull/299) のdevelopから16 commit遅れ・競合を解消。現HEAD `2fdde6d3629a6682c969fc7eca300321f33c7f0a` はdevelop `3f13aa4` を親に持つnon-force merge、behind 0。競合2ファイルではGit/ARM64の既存検査を保持してNode候補の検査を追加し、残り11ファイルのblob/modeを維持。 [新HEAD CI](https://github.com/Lamy210/nix_setting/actions/runs/45807360319) は未完了。実機Node/mise、C++ ABI、配布物・RC受入は別ゲート、Draft維持。
+- developへの新規マージなし。必須レビュー保護APIは再確認して403。#332/#333/#323/#341のGreenを再確認したが、保護設定を迂回しない。RC.8公開・実機変更・ブランチ保護変更なし。
+
+## 2026-11-26: PR統合前確認とAction更新の修正
+
+以下の旧スナップショットより本節の記録を優先する。CIとHEADは観測時点の記録であり、後続更新後の成功を保証しない。
+
+- #331 は develop に squash merge 済み（`3f13aa45d7c9d551e4020ab14178d6538bad24de`）。本セッションで新たな develop マージは行っていない。
+- #332・#333・#323・#341 はそれぞれ最新HEADのチェック30/30成功、developからbehind 0、未解決レビューthread 0。#341は回帰テスト差分を再レビューしDraft解除。必須ステータス7件の設定は取得できたが、必須レビュー数・CODEOWNERS等の完全な保護設定はAPI 403で未確認。マージ承認とみなさず保護を迂回しない。
+- #339 は固定SHA許可リスト不一致でlint/bootstrap-test failure。後継Draft [#345](https://github.com/Lamy210/nix_setting/pull/345) HEAD `67f5cee47c6364bd3ccc83cd73e71b14fa81cf1f` で download-artifact v8.0.2、許可リスト、回帰テストを同時更新。上流固定SHAのNode24・digest-mismatch入力を確認し、ローカルでscript blob一致・bash -n・新SHA許可/旧SHA拒否/可変タグ拒否を実行。Bats全体・Nix・実artifact互換性・最新CIは未確認。#339は後継採用まで未マージ。
+- #337 は複数Rust/Windows系ゲート失敗、#344 はCodeQL neutral（通常26成功）。独立lock/vendor整合性、コードレビュー、最新CIを別途確認。Draft設計PR #340/#342/#343 は提案承認前に実装しない。
+- RC.8の公開、実機セキュリティ受入、updater設定、ブランチ保護、CI設定は変更していない。次は管理者によるレビュー保護の確認、#345のCIと非公開artifact実動作検証、既存Green PRの逐次統合・マージ後CI。
 
 ## 2026-11-17: Gitセキュリティ更新統合・開発コマンド修正の再検証
 
