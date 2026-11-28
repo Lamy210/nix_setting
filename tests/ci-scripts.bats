@@ -39,6 +39,27 @@
   [[ "$output" == *"PASS:"* ]]
 }
 
+@test "release artifact download pins reviewed v8 SHA and configures digest mismatch as error" {
+  grep -Fq 'actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333' .github/workflows/release.yml
+  grep -Fq 'digest-mismatch: error' .github/workflows/release.yml
+  audit="$PWD/scripts/ci/check-actions-runtime-policy.sh"
+  fixture="$BATS_TEST_TMPDIR/action-policy"
+  mkdir -p "$fixture/.github/workflows"
+  workflow="$fixture/.github/workflows/canary.yml"
+  printf '%s\n' 'jobs:' '  test:' '    steps:' '      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333' > "$workflow"
+  run bash -c 'cd "$1" && bash "$2"' _ "$fixture" "$audit"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS:"* ]]
+  printf '%s\n' 'jobs:' '  test:' '    steps:' '      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131' > "$workflow"
+  run bash -c 'cd "$1" && bash "$2"' _ "$fixture" "$audit"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unapproved action version"* ]]
+  printf '%s\n' 'jobs:' '  test:' '    steps:' '      - uses: actions/download-artifact@v8' > "$workflow"
+  run bash -c 'cd "$1" && bash "$2"' _ "$fixture" "$audit"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unapproved action version"* ]]
+}
+
 # scripts/ci/build-release-*.sh の gate logic を検証する。
 # 実 binary build は CI job が担うため、ここでは grep pattern の
 # 検出力 (false-negative / false-positive) を fixture で保証する。
