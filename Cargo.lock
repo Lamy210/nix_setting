@@ -1062,6 +1062,7 @@ name = "schneeforge-core"
 version = "0.2.0-rc.7"
 dependencies = [
  "dirs",
+ "libc",
  "reqwest",
  "serde",
  "serde_json",
